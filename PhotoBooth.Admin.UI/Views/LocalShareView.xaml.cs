@@ -1,0 +1,1 @@
+using System.Windows.Controls;namespace PhotoBooth.Admin.UI.Views{public partial class LocalShareView:UserControl{public LocalShareView(){InitializeComponent();}}}

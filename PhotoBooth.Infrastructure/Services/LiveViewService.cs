@@ -1,0 +1,61 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using CameraControl.Devices.Classes;
+using Microsoft.Extensions.Logging;
+using PhotoBooth.Core.Cameras;
+using PhotoBooth.Core.Services;
+using PhotoBooth.Infrastructure.Cameras;
+
+namespace PhotoBooth.Infrastructure.Services
+{
+    internal sealed class LiveViewService : ILiveViewService
+    {
+        private readonly CameraDeviceResolver _resolver;
+        private readonly CameraAdapterRegistry _adapters;
+        private readonly ILogger<LiveViewService> _logger;
+        public LiveViewService(CameraDeviceResolver resolver, CameraAdapterRegistry adapters, ILogger<LiveViewService> logger) { _resolver = resolver; _adapters = adapters; _logger = logger; }
+        public async Task StartAsync(string cameraId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var camera = _resolver.GetRequired(cameraId);
+                await _adapters.Resolve(camera).StartLiveViewAsync(camera, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Live View started for camera {CameraId}", cameraId);
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Camera rejected Live View start for camera {CameraId}", cameraId);
+                throw;
+            }
+        }
+        public Task StopAsync(string cameraId, CancellationToken cancellationToken) { var camera = _resolver.GetRequired(cameraId); return _adapters.Resolve(camera).StopLiveViewAsync(camera, cancellationToken); }
+        public Task FocusAsync(string cameraId, int x, int y, CancellationToken cancellationToken) { var camera = _resolver.GetRequired(cameraId); return _adapters.Resolve(camera).FocusAsync(camera, x, y, cancellationToken); }
+        public Task<LiveViewFrame> GetFrameAsync(string cameraId, CancellationToken cancellationToken)
+        {
+            var camera = _resolver.GetRequired(cameraId);
+            return GetFrame(camera, cancellationToken);
+        }
+        async Task<LiveViewFrame> GetFrame(CameraControl.Devices.ICameraDevice camera, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!camera.IsConnected || camera.IsBusy) return null;
+            var data = await _adapters.Resolve(camera).GetLiveViewFrameAsync(camera, cancellationToken).ConfigureAwait(false);
+            if (data == null) return null;
+            var image = ExtractImage(data);
+            if (image == null || image.Length == 0) return null;
+            return new LiveViewFrame { ImageData = image, Width = data.ImageWidth > 0 ? data.ImageWidth : data.LiveViewImageWidth, Height = data.ImageHeight > 0 ? data.ImageHeight : data.LiveViewImageHeight, Rotation = data.Rotation, FocusX = data.FocusX, FocusY = data.FocusY, IsFocused = data.Focused, TimestampUtc = DateTime.UtcNow };
+        }
+        private static byte[] ExtractImage(LiveViewData data)
+        {
+            if (data.ImageData == null) return null;
+            var offset = Math.Max(0, data.ImageDataPosition);
+            if (offset >= data.ImageData.Length) return null;
+            // Camera SDKs may reuse their live-view buffer immediately after this call.
+            // Always detach the frame before WPF decodes it on another thread.
+            var result = new byte[data.ImageData.Length - offset];
+            Buffer.BlockCopy(data.ImageData, offset, result, 0, result.Length);
+            return result;
+        }
+    }
+}

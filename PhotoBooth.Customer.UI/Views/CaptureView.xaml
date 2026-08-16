@@ -1,0 +1,32 @@
+<UserControl x:Class="PhotoBooth.Customer.UI.Views.CaptureView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><Grid Background="{StaticResource BackgroundBrush}"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Border Margin="38,30,38,16" CornerRadius="30" Background="#EEE8ED" ClipToBounds="True"><Grid><TextBlock Text="Camera disconnected" FontSize="30" Foreground="#9A8291" VerticalAlignment="Center"/><Image Source="{Binding LiveImage,Converter={StaticResource ByteImage}}" Stretch="Uniform" RenderTransformOrigin="0.5,0.5"><Image.RenderTransform><ScaleTransform ScaleX="{Binding LiveViewScaleX}"/></Image.RenderTransform></Image><Border VerticalAlignment="Top" HorizontalAlignment="Center" Background="#AAFFFFFF" CornerRadius="22" Padding="24,10" Margin="20"><TextBlock Text="{Binding ProgressText,Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></Border></Grid></Border><Grid Grid.Row="1" Margin="30,4,30,30"><Button Content="Start" Command="{Binding StartCommand}" Width="260" Height="76" FontSize="28" Visibility="{Binding IsIdle,Converter={StaticResource BoolVisibility}}" HorizontalAlignment="Center"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}"><Button Content="Chụp lại ảnh đã chọn" Command="{Binding RetakeCommand}" Background="#CE93D8" MinWidth="220"/><Button Content="Chọn frame / In ảnh" Command="{Binding SelectFrameCommand}" Width="220"/></StackPanel></Grid>
+ <Border Grid.RowSpan="2" Background="#18000000" IsHitTestVisible="True" Visibility="{Binding IsCountdown,Converter={StaticResource BoolVisibility}}"><Grid><TextBlock Text="{Binding CountdownNumber}" FontSize="220" FontWeight="Bold" Foreground="White" Effect="{x:Null}" VerticalAlignment="Center"><TextBlock.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever"><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.55" To="1" Duration="0:0:0.45" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></TextBlock.Triggers></TextBlock></Grid></Border>
+ <Border Grid.RowSpan="2" Background="#18000000" IsHitTestVisible="True" Visibility="{Binding IsSmile,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><TextBlock Text="😊" FontSize="150"/><TextBlock Text="Smile!" FontSize="72" FontWeight="Bold" Foreground="White"/></StackPanel></Border>
+ <Border Grid.RowSpan="2" Background="Black" IsHitTestVisible="True" Visibility="{Binding IsShutterFlash,Converter={StaticResource BoolVisibility}}"/>
+ <Border Grid.RowSpan="2" Background="#F7FFF8FB" Visibility="{Binding IsInterShotDelay,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><TextBlock Text="Great shot!" FontSize="54" FontWeight="Bold" Foreground="#F48FB1"/><TextBlock Text="{Binding StatusMessage}" FontSize="28" Margin="0,18,0,28"/><ProgressBar IsIndeterminate="True" Width="360" Height="14" Foreground="#CE93D8"/></StackPanel></Border>
+ <Border Grid.RowSpan="2" Background="#F8FFFFFF" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}" Margin="55,38,55,115" CornerRadius="28" Padding="18">
+  <Grid>
+   <Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="1*"/></Grid.ColumnDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Border Margin="8" CornerRadius="20" Background="#2D2930" ClipToBounds="True">
+    <Image Source="{Binding SelectedReviewPhoto.Path}" Stretch="Uniform"/>
+   </Border>
+   <Border Grid.Column="1" Margin="8" CornerRadius="20" Background="#9C989C" Padding="8">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+     <ListBox ItemsSource="{Binding ReviewPhotos}" SelectedItem="{Binding SelectedReviewPhoto}" Background="Transparent" BorderThickness="0">
+      <ListBox.ItemTemplate><DataTemplate>
+       <Grid Margin="5">
+        <Border Height="150" CornerRadius="18" Background="#EEE8ED" ClipToBounds="True"><Image Source="{Binding Path}" Stretch="UniformToFill"/></Border>
+        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8" Background="#DDFFFFFF" CornerRadius="16" Padding="8,3"><TextBlock Text="{Binding Number}" FontWeight="Bold"/></Border>
+        <CheckBox IsChecked="{Binding IsRetakeSelected,Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10" Width="30" Height="30">
+         <CheckBox.Template><ControlTemplate TargetType="CheckBox"><Grid><Ellipse Fill="#FFF8FB" Stroke="#FF8A4C" StrokeThickness="3"/><Ellipse x:Name="Dot" Margin="6" Fill="#FF8A4C" Visibility="Collapsed"/></Grid><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></CheckBox.Template>
+        </CheckBox>
+       </Grid>
+      </DataTemplate></ListBox.ItemTemplate>
+     </ListBox>
+    </ScrollViewer>
+   </Border>
+  </Grid>
+ </Border>
+ <Border Grid.RowSpan="2" Background="#F7FFF8FB" Visibility="{Binding IsPrinting,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><ProgressBar IsIndeterminate="True" Width="360" Height="14" Foreground="#F48FB1"/><TextBlock Text="Your photo is being printed." FontSize="38" Margin="0,30,0,8"/><TextBlock Text="Please wait…" FontSize="24" Foreground="#9A8291"/></StackPanel></Border>
+ <Border Grid.RowSpan="2" Background="#F2FFFFFF" Visibility="{Binding HasError,Converter={StaticResource BoolVisibility}}"><Border Style="{StaticResource SoftCard}" Width="520" VerticalAlignment="Center"><StackPanel><TextBlock Text="{Binding ErrorMessage}" FontSize="30" FontWeight="SemiBold" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Button Content="Retry" Command="{Binding RetryCommand}"/><Button Content="Cancel" Command="{Binding CancelErrorCommand}" Background="#CE93D8"/></StackPanel></StackPanel></Border></Border>
+ </Grid></UserControl>

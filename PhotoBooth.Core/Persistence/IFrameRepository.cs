@@ -1,0 +1,2 @@
+using System; using System.Collections.Generic; using System.Threading; using System.Threading.Tasks; using PhotoBooth.Core.Models;
+namespace PhotoBooth.Core.Persistence { public interface IFrameRepository { Task<Frame> GetAsync(Guid id, CancellationToken token); Task<IReadOnlyList<Frame>> GetAllAsync(CancellationToken token); Task SaveAsync(Frame frame, CancellationToken token); Task DeleteAsync(Guid id, CancellationToken token); } }

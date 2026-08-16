@@ -1,0 +1,17 @@
+<UserControl x:Class="PhotoBooth.Admin.UI.Views.InterfaceView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <Grid Margin="20"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <DockPanel><TextBlock Text="Interface backgrounds" Style="{StaticResource PageTitle}"/><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Content="Import image / GIF" Command="{Binding ImportCommand}"/><Button Content="Refresh" Command="{Binding RefreshCommand}"/></StackPanel></DockPanel>
+  <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
+   <Border Style="{StaticResource Card}"><ListBox ItemsSource="{Binding Assets}" SelectedItem="{Binding SelectedAsset}"><ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate><DataTemplate><Border Width="220" Margin="6" Padding="6" Background="#252526" CornerRadius="8"><StackPanel><Image Source="{Binding FilePath}" Width="208" Height="125" Stretch="UniformToFill"/><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" Margin="3"/><TextBlock Text="SELECTED" Foreground="#70D67C" FontWeight="Bold"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></StackPanel></Border></DataTemplate></ListBox.ItemTemplate></ListBox></Border>
+   <Border Grid.Column="1" Style="{StaticResource Card}"><DockPanel>
+    <StackPanel DockPanel.Dock="Bottom"><Button Content="Chọn ảnh này làm background" Command="{Binding SelectCommand}" Background="#4CAF50"/>
+     <CheckBox Content="Hiển thị Live View ở màn hình chờ" IsChecked="{Binding ShowLiveView}" Margin="4,12,4,4"/>
+     <TextBlock Text="Vị trí ngang" Margin="4,8,4,0"/><Slider Minimum="0" Maximum="100" Value="{Binding LiveViewX,Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="False"/>
+     <TextBlock Text="Vị trí dọc" Margin="4,8,4,0"/><Slider Minimum="0" Maximum="68" Value="{Binding LiveViewY,Mode=TwoWay}" TickFrequency="1" IsSnapToTickEnabled="False"/>
+     <WrapPanel HorizontalAlignment="Center"><Button Content="Lưu vị trí" Command="{Binding SaveLiveViewCommand}" Background="#4CAF50"/><Button Content="Đặt lại mặc định" Command="{Binding ResetLiveViewCommand}"/></WrapPanel><TextBlock Text="{Binding Message}" Foreground="#FFB74D" Margin="6"/>
+    </StackPanel>
+    <Viewbox Stretch="Uniform" Margin="0,0,0,12"><Canvas Width="1600" Height="900" Background="#111"><Image Width="1600" Height="900" Source="{Binding SelectedAsset.FilePath}" Stretch="UniformToFill"/><Border Canvas.Left="{Binding PreviewLiveViewX}" Canvas.Top="{Binding PreviewLiveViewY}" Width="512" Height="288" CornerRadius="24" BorderThickness="6" BorderBrush="#99FFFFFF" Background="#66000000" Visibility="{Binding ShowLiveView,Converter={StaticResource BoolVisibility}}"><TextBlock Text="LIVE VIEW" Foreground="White" FontSize="32" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></Canvas></Viewbox>
+   </DockPanel></Border>
+  </Grid>
+ </Grid>
+</UserControl>

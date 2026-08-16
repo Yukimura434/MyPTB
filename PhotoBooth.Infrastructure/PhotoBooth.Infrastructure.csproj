@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Database\PhotoBooth.Database.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Business\PhotoBooth.Business.csproj" />
+    <ProjectReference Include="..\PhotoBooth.FrameEngine\PhotoBooth.FrameEngine.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Shared\PhotoBooth.Shared.csproj" />
+    <ProjectReference Include="..\CameraControl.Devices\CameraControl.Devices.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.1" />
+    <PackageReference Include="ZXing.Net" Version="0.16.8" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+  </ItemGroup>
+</Project>

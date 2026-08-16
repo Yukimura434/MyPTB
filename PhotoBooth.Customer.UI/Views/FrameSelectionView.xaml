@@ -1,0 +1,120 @@
+<UserControl x:Class="PhotoBooth.Customer.UI.Views.FrameSelectionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#27232A">
+      <Grid Margin="44,40,44,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Choose your favorite frame"
+                   FontSize="42"
+                   FontWeight="Bold"
+                   Foreground="#9C5B87"
+                   Margin="0,0,0,20"/>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="3*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource SoftCard}">
+                <ListBox ItemsSource="{Binding PinnedFrames}"
+                         SelectedItem="{Binding SelectedFrame}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#F4E4EE" BorderBrush="#E5B4CA" BorderThickness="1" CornerRadius="16" Padding="10" Margin="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="110" Height="80" CornerRadius="12" ClipToBounds="True">
+                                        <Image Source="{Binding ThumbnailPath}" Stretch="UniformToFill"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding Name}" FontSize="20" Foreground="#5C3E50" Margin="18,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <Border Grid.Column="1" Style="{StaticResource SoftCard}" ClipToBounds="True">
+                <Grid>
+                    <TextBlock Text="Select a frame to preview"
+                               FontSize="24"
+                               Foreground="#A8929F"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"/>
+
+                    <ScrollViewer x:Name="PreviewScroller"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalContentAlignment="Left"
+                                  VerticalContentAlignment="Top"
+                                  PanningMode="Both"
+                                  SizeChanged="PreviewScroller_OnSizeChanged"
+                                  PreviewMouseWheel="PreviewScroller_OnPreviewMouseWheel">
+                        <Grid x:Name="PreviewCanvas"
+                              Width="{Binding ViewportWidth, ElementName=PreviewScroller}"
+                              Height="{Binding ViewportHeight, ElementName=PreviewScroller}"
+                              Background="Transparent">
+                            <Grid.LayoutTransform>
+                                <ScaleTransform x:Name="PreviewScale" ScaleX="1" ScaleY="1"/>
+                            </Grid.LayoutTransform>
+                            <Image Source="{Binding PreviewPath, NotifyOnTargetUpdated=True}"
+                                   Stretch="Uniform"
+                                   TargetUpdated="PreviewImage_OnTargetUpdated"/>
+                        </Grid>
+                    </ScrollViewer>
+
+                    <Border HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="12"
+                            Padding="6"
+                            CornerRadius="14"
+                            Background="#DDFFFFFF">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="−" Width="48" Height="48" Margin="2" Click="ZoomOut_OnClick"/>
+                            <TextBlock x:Name="ZoomPercentText"
+                                       Text="100%"
+                                       Width="68"
+                                       FontSize="18"
+                                       TextAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                            <Button Content="+" Width="48" Height="48" Margin="2" Click="ZoomIn_OnClick"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border VerticalAlignment="Bottom" Background="#CCFFFFFF" Padding="14" CornerRadius="16">
+                        <Border.Style><Style TargetType="Border"><Setter Property="IsHitTestVisible" Value="False"/><Setter Property="Margin" Value="0,0,18,18"/></Style></Border.Style>
+                        <TextBlock Text="{Binding SelectedFrame.Name}" FontSize="20"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button Content="Cancel" Command="{Binding CancelCommand}" Background="#CE93D8"/>
+            <Button Content="Print" Command="{Binding PrintCommand}" Width="200"/>
+        </StackPanel>
+
+        <Border Grid.RowSpan="3"
+                Background="#F2FFFFFF"
+                Visibility="{Binding HasError,Converter={StaticResource BoolVisibility}}">
+            <Border Style="{StaticResource SoftCard}" Width="520" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="{Binding ErrorMessage}" FontSize="30" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button Content="Retry" Command="{Binding RetryCommand}"/>
+                        <Button Content="Cancel" Command="{Binding CancelErrorCommand}" Background="#CE93D8"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+      </Grid>
+    </Grid>
+</UserControl>

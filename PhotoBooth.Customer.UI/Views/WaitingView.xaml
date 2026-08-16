@@ -1,0 +1,12 @@
+<UserControl x:Class="PhotoBooth.Customer.UI.Views.WaitingView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:PhotoBooth.Customer.UI.Controls">
+ <Button Command="{Binding EnterCommand}" BorderThickness="0" Padding="0" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+  <Button.Template><ControlTemplate TargetType="Button"><Viewbox Stretch="UniformToFill"><Canvas Width="1600" Height="900" Background="{StaticResource BackgroundBrush}">
+   <Image Width="1600" Height="900" Source="{Binding DataContext.BackgroundPath, RelativeSource={RelativeSource TemplatedParent}}" Stretch="UniformToFill"/>
+   <controls:AnimatedImage Width="1600" Height="900" SourcePath="{Binding DataContext.BackgroundPath, RelativeSource={RelativeSource TemplatedParent}}" Stretch="UniformToFill"/>
+   <Border Width="1600" Height="900" Background="#22000000"/>
+   <controls:RoundedClipBorder Canvas.Left="{Binding DataContext.LiveViewCanvasX, RelativeSource={RelativeSource TemplatedParent}}" Canvas.Top="{Binding DataContext.LiveViewCanvasY, RelativeSource={RelativeSource TemplatedParent}}" Width="512" Height="288" CornerRadius="24" BorderThickness="2" BorderBrush="#99FFFFFF" Background="#22000000" Visibility="{Binding DataContext.ShowLiveView, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BoolVisibility}}">
+    <Image Source="{Binding DataContext.LiveImage, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource CustomerByteImage}}" Stretch="UniformToFill" RenderTransformOrigin="0.5,0.5"><Image.RenderTransform><ScaleTransform ScaleX="{Binding DataContext.LiveViewScaleX, RelativeSource={RelativeSource TemplatedParent}}"/></Image.RenderTransform></Image>
+   </controls:RoundedClipBorder>
+  </Canvas></Viewbox></ControlTemplate></Button.Template>
+ </Button>
+</UserControl>

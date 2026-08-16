@@ -1,0 +1,62 @@
+name: PhotoBooth Release
+
+on:
+  push:
+    tags:
+      - "photobooth-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version, for example 1.2.3"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ inputs.version }}"
+          } else {
+            $version = "${{ github.ref_name }}" -replace '^photobooth-v', ''
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
+            throw "Invalid semantic version: $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build PhotoBooth
+        shell: pwsh
+        run: dotnet build PhotoBooth.Admin.UI/PhotoBooth.Admin.UI.csproj --configuration Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Install Velopack CLI
+        shell: pwsh
+        run: dotnet tool install --global vpk --version 1.2.0
+
+      - name: Download previous release
+        continue-on-error: true
+        shell: pwsh
+        run: vpk download github --repoUrl https://github.com/Yukimura434/MiuCamezaPTB --token ${{ secrets.MIUCAMEZAPTB_RELEASE_TOKEN }}
+
+      - name: Package release
+        shell: pwsh
+        run: vpk pack --packId MiuCamezaPTB --packVersion ${{ steps.version.outputs.version }} --packDir PhotoBooth.Admin.UI/bin/Release/net48 --mainExe PhotoBooth.Admin.UI.exe --packTitle MiuCamezaPTB --packAuthors Yukimura434 --framework net48
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        run: vpk upload github --repoUrl https://github.com/Yukimura434/MiuCamezaPTB --token ${{ secrets.MIUCAMEZAPTB_RELEASE_TOKEN }} --publish --tag photobooth-v${{ steps.version.outputs.version }} --releaseName "PhotoBooth ${{ steps.version.outputs.version }}" --merge

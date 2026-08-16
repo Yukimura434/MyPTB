@@ -1,0 +1,57 @@
+# Projects intentionally kept outside the MyPTB repository
+/CameraEngine/
+/MiuCamera/
+
+# Legacy/reference source not part of the active solution
+/.legacy-archive/
+/template/
+
+# Build outputs
+**/bin/
+**/obj/
+/.build/
+/.build-check/
+/artifacts/
+
+# IDE and user state
+/.vs/
+/.idea/
+*.suo
+*.user
+*.rsuser
+
+# Local dependencies and caches
+/packages/
+/.nuget/
+/.dotnet-home/
+node_modules/
+.npm-cache/
+.wrangler/
+
+# Local Android/Gradle remnants and machine configuration
+/.gradle/
+/gradle/
+/build.gradle
+/settings.gradle
+/gradle.properties
+/gradlew
+/gradlew.bat
+/local.properties
+
+# Secrets and local environment
+/setup.backend.md
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+*.private
+
+# Temporary/log files
+*.log
+*.tmp
+*.bak
+*.userprefs
+Thumbs.db
+.DS_Store

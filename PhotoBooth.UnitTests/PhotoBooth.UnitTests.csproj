@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net48</TargetFramework><IsPackable>false</IsPackable><LangVersion>latest</LangVersion></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Business\PhotoBooth.Business.csproj" />
+    <ProjectReference Include="..\PhotoBooth.FrameEngine\PhotoBooth.FrameEngine.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Shared\PhotoBooth.Shared.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Infrastructure\PhotoBooth.Infrastructure.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="WindowsBase" />
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)\sqlitepclraw.lib.e_sqlite3\2.1.4\runtimes\win-x64\native\e_sqlite3.dll" Link="runtimes\win-x64\native\e_sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)\sqlitepclraw.lib.e_sqlite3\2.1.4\runtimes\win-x86\native\e_sqlite3.dll" Link="runtimes\win-x86\native\e_sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

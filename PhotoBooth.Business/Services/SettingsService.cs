@@ -1,0 +1,2 @@
+using System.Threading; using System.Threading.Tasks; using PhotoBooth.Core.Models; using PhotoBooth.Core.Persistence; using PhotoBooth.Core.Services;
+namespace PhotoBooth.Business.Services { public sealed class SettingsService : ISettingsService { private readonly ISettingsRepository _repository; public SettingsService(ISettingsRepository repository){_repository=repository;} public Task<Settings> GetAsync(CancellationToken token)=>_repository.GetAsync(token); public Task SaveAsync(Settings value,CancellationToken token)=>_repository.SaveAsync(value,token); } }

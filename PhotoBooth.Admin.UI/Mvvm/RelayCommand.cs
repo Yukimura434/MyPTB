@@ -1,0 +1,2 @@
+using System; using System.Windows.Input;
+namespace PhotoBooth.Admin.UI.Mvvm { public sealed class RelayCommand:ICommand { readonly Action<object> execute; readonly Func<object,bool> can; public RelayCommand(Action<object> execute,Func<object,bool> can=null){this.execute=execute;this.can=can;} public bool CanExecute(object p)=>can?.Invoke(p)??true; public void Execute(object p)=>execute(p); public event EventHandler CanExecuteChanged; public void RaiseCanExecuteChanged()=>CanExecuteChanged?.Invoke(this,EventArgs.Empty); } }

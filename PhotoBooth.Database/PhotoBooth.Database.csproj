@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.20" />
+    <None Include="$(NuGetPackageRoot)\sqlitepclraw.lib.e_sqlite3\2.1.4\runtimes\win-x64\native\e_sqlite3.dll" Link="runtimes\win-x64\native\e_sqlite3.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)\sqlitepclraw.lib.e_sqlite3\2.1.4\runtimes\win-x86\native\e_sqlite3.dll" Link="runtimes\win-x86\native\e_sqlite3.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
