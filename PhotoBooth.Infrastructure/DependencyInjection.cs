@@ -49,9 +49,15 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<CameraAdapterRegistry>();
             services.AddSingleton(provider => new SqliteDatabase(options.DatabasePath));
             services.AddSingleton<IPresetRepository, SqlitePresetRepository>();
+            services.AddSingleton<IColorLutAssetRepository, SqliteColorLutAssetRepository>();
+            services.AddSingleton<IPresetColorRepository, SqlitePresetColorRepository>();
+            services.AddSingleton<IColorLutPathResolver, ColorLutPathResolver>();
+            services.AddSingleton<IColorLutParser, CubeLutParser>();
+            services.AddSingleton<IColorLutService, ColorLutService>();
             services.AddSingleton<ISessionRepository, SqliteSessionRepository>();
             services.AddSingleton<ICaptureRepository, SqliteCaptureRepository>();
             services.AddSingleton<IFrameRepository, SqliteFrameRepository>();
+            services.AddSingleton<IFrameEventRepository, SqliteFrameEventRepository>();
             services.AddSingleton<IPrinterProfileRepository, SqlitePrinterProfileRepository>();
             services.AddSingleton<ISettingsRepository, SqliteSettingsRepository>();
             services.AddSingleton<IInterfaceAssetRepository, SqliteInterfaceAssetRepository>();
@@ -60,7 +66,9 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IFrameAnalyzer, PngFrameAnalyzer>();
             services.AddSingleton<ICameraService, CameraService>();
             services.AddSingleton<ILiveViewService, LiveViewService>();
+            services.AddSingleton<IMotionPhotoService, MotionPhotoService>();
             services.AddSingleton<IFrameService, FrameService>();
+            services.AddSingleton<IFrameEventService, FrameEventService>();
             services.AddSingleton<IPresetService, PresetService>();
             services.AddSingleton<IPrinterService, PrinterService>();
             services.AddSingleton<ISessionService, SessionService>();

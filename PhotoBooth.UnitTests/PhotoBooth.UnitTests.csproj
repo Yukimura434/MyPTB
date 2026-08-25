@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>net48</TargetFramework><IsPackable>false</IsPackable><LangVersion>latest</LangVersion></PropertyGroup>
+  <PropertyGroup><TargetFramework>net48</TargetFramework><IsPackable>false</IsPackable><LangVersion>latest</LangVersion><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
     <ProjectReference Include="..\PhotoBooth.Business\PhotoBooth.Business.csproj" />

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x86</PlatformTarget>
+    <Prefer32Bit>true</Prefer32Bit>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Vortice.D3DCompiler" Version="2.4.2" />
+    <PackageReference Include="Vortice.Direct3D11" Version="2.4.2" />
+    <PackageReference Include="Vortice.Direct3D9" Version="2.4.2" />
+  </ItemGroup>
+  <ItemGroup><Content Include="Assets\LiveColor.hlsl" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+</Project>

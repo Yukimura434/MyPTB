@@ -11,8 +11,11 @@ using PhotoBooth.Customer.UI;
 using PhotoBooth.Customer.UI.ViewModels;
 using PhotoBooth.Infrastructure;
 using PhotoBooth.Infrastructure.Logging;
+using PhotoBooth.Infrastructure.Services;
 using PhotoBooth.Shared;
+#if !TRIAL_BUILD
 using Velopack;
+#endif
 
 namespace PhotoBooth.Admin.UI
 {
@@ -21,11 +24,19 @@ namespace PhotoBooth.Admin.UI
         private ServiceProvider provider;
         private string dataDirectory;
         private int shuttingDown;
+        internal IServiceProvider Services => provider;
 
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args != null && args.Length > 0 && string.Equals(args[0], "--motion-photo-encode", StringComparison.Ordinal))
+            {
+                Environment.ExitCode = MotionPhotoService.RunEncoderCommand(args);
+                return;
+            }
+#if !TRIAL_BUILD
             VelopackApp.Build().Run();
+#endif
 
             var app = new App();
             app.InitializeComponent();
@@ -35,6 +46,19 @@ namespace PhotoBooth.Admin.UI
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+#if TRIAL_BUILD
+            if (!TrialPeriodGuard.TryAuthorize(out var trialMessage))
+            {
+                MessageBox.Show(
+                    trialMessage,
+                    "MyPTB Trial",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                Shutdown();
+                return;
+            }
+#endif
 
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
@@ -77,8 +101,7 @@ namespace PhotoBooth.Admin.UI
                         new RotatingFileLoggerProvider(
                             Path.Combine(dataDirectory, "Logs"))));
 
-            services.AddPhotoBoothInfrastructure(
-                new ApplicationOptions
+            var applicationOptions = new ApplicationOptions
                 {
                     ApplicationName = "PhotoBooth",
                     DataDirectory = dataDirectory,
@@ -86,14 +109,25 @@ namespace PhotoBooth.Admin.UI
                         dataDirectory,
                         "photobooth.db"),
                     RestartLiveViewDuringRecovery = false
-                });
+                };
+            applicationOptions.Features["ColorGpuLiveView"] =
+                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_COLOR_GPU_LIVEVIEW"), "0", StringComparison.Ordinal);
+            applicationOptions.Features["ColorGpuDiagnosticMonochrome"] =
+                string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_COLOR_GPU_MONOCHROME"), "1", StringComparison.Ordinal);
+            // Encoding runs in a child process so native FFmpeg failures cannot
+            // corrupt or terminate the main PhotoBooth workflow.
+            applicationOptions.Features["MotionPhotoNativeEncoder"] =
+                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_MOTION_PHOTO_NATIVE"), "0", StringComparison.Ordinal);
+            services.AddPhotoBoothInfrastructure(applicationOptions);
 
             services.AddCustomerMode();
 
             services.AddSingleton<IFileDialogService, FileDialogService>();
             services.AddSingleton<ICustomerModeController, CustomerModeController>();
+#if !TRIAL_BUILD
             services.AddSingleton<VelopackUpdateService>();
             services.AddSingleton<IUpdateService>(x => x.GetRequiredService<VelopackUpdateService>());
+#endif
 
             services.AddSingleton<HomeViewModel>();
             services.AddSingleton<FrameManagerViewModel>();
@@ -123,9 +157,12 @@ namespace PhotoBooth.Admin.UI
 
             window.Show();
 
+#if !TRIAL_BUILD
             _ = CheckForUpdatesAsync();
+#endif
         }
 
+#if !TRIAL_BUILD
         private async System.Threading.Tasks.Task CheckForUpdatesAsync()
         {
             try
@@ -144,6 +181,7 @@ namespace PhotoBooth.Admin.UI
                     "Automatic update check failed; application startup will continue.");
             }
         }
+#endif
 
         protected override void OnSessionEnding(
             SessionEndingCancelEventArgs e)

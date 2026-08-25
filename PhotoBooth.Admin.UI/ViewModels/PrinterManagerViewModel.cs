@@ -26,9 +26,15 @@ namespace PhotoBooth.Admin.UI.ViewModels
   public override string Title=>"Printer Manager";
   public ObservableCollection<DiscoveredPrinter> Printers{get;}=new ObservableCollection<DiscoveredPrinter>();
   public ObservableCollection<string> PaperSizes{get;}public ObservableCollection<string> PaperTypes{get;}public ObservableCollection<string> Qualities{get;}public int[] Copies{get;}
-  public DiscoveredPrinter SelectedPrinter{get=>selectedPrinter;set=>Set(ref selectedPrinter,value);}public PrinterProfile EditingProfile{get=>editing;private set=>Set(ref editing,value);}public string PrinterStatus{get=>status;private set=>Set(ref status,value);}public string Message{get=>message;private set=>Set(ref message,value);}
+  public DiscoveredPrinter SelectedPrinter{get=>selectedPrinter;set=>Set(ref selectedPrinter,value);}
+  public PrinterProfile EditingProfile{get=>editing;private set{if(Set(ref editing,value))Raise(nameof(HasEditingProfile));}}
+  public string PrinterStatus{get=>status;private set=>Set(ref status,value);}
+  public string Message{get=>message;private set{if(Set(ref message,value))Raise(nameof(HasMessage));}}
+  public bool HasEditingProfile=>EditingProfile!=null;
+  public bool HasMessage=>!string.IsNullOrWhiteSpace(Message);
+  public string PrinterSummary=>Printers.Count==0?"Chưa tìm thấy máy in":Printers.Count+" máy in";
   public ICommand ScanCommand{get;}public ICommand ConnectCommand{get;}public ICommand SaveCommand{get;}public ICommand SaveAndTestCommand{get;}
-  async Task Scan(){try{Message=null;PrinterStatus="Đang quét qua Windows…";Printers.Clear();foreach(var x in await service.ScanAsync(CancellationToken.None))Printers.Add(x);SelectedPrinter=Printers.FirstOrDefault();PrinterStatus=Printers.Count==0?"Không tìm thấy máy in đang hoạt động":Printers.Count+" máy in khả dụng";}catch(Exception e){Fail(e,"Không thể quét máy in");}}
+  async Task Scan(){try{Message=null;PrinterStatus="Đang quét qua Windows…";Printers.Clear();foreach(var x in await service.ScanAsync(CancellationToken.None))Printers.Add(x);Raise(nameof(PrinterSummary));SelectedPrinter=Printers.FirstOrDefault();PrinterStatus=Printers.Count==0?"Không tìm thấy máy in đang hoạt động":Printers.Count+" máy in khả dụng";}catch(Exception e){Fail(e,"Không thể quét máy in");}}
   async Task Connect()
   {
    if(SelectedPrinter==null){Message="Hãy chọn một máy in trước khi kết nối.";return;}

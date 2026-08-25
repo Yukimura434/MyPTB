@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using MediaColor = System.Windows.Media.Color;
 
 namespace PhotoBooth.Admin.UI.Services
 {
@@ -24,7 +25,7 @@ namespace PhotoBooth.Admin.UI.Services
             Height = create ? 430 : 350;
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            Background = new SolidColorBrush(Color.FromRgb(39, 39, 42));
+            Background = new SolidColorBrush(MediaColor.FromRgb(39, 39, 42));
             Foreground = Brushes.White;
             ShowInTaskbar = false;
 
@@ -42,7 +43,7 @@ namespace PhotoBooth.Admin.UI.Services
             AddPinField(content, "Mã PIN", pin);
             if (create) AddPinField(content, "Nhập lại mã PIN", confirmation);
 
-            error.Foreground = new SolidColorBrush(Color.FromRgb(255, 138, 128));
+            error.Foreground = new SolidColorBrush(MediaColor.FromRgb(255, 138, 128));
             error.Margin = new Thickness(0, 8, 0, 0);
             error.TextWrapping = TextWrapping.Wrap;
             content.Children.Add(error);
@@ -53,10 +54,10 @@ namespace PhotoBooth.Admin.UI.Services
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 18, 0, 0)
             };
-            var cancel = CreateButton("Hủy", Color.FromRgb(90, 82, 88));
+            var cancel = CreateButton("Hủy", MediaColor.FromRgb(90, 82, 88));
             cancel.IsCancel = true;
             cancel.Click += (s, e) => { DialogResult = false; };
-            var accept = CreateButton(create ? "Tạo PIN" : "Mở Admin", Color.FromRgb(79, 140, 255));
+            var accept = CreateButton(create ? "Tạo PIN" : "Mở Admin", MediaColor.FromRgb(79, 140, 255));
             accept.IsDefault = true;
             accept.Click += Accept;
             buttons.Children.Add(cancel);
@@ -121,13 +122,13 @@ namespace PhotoBooth.Admin.UI.Services
             field.FontSize = 22;
             field.Height = 42;
             field.Padding = new Thickness(8, 4, 8, 4);
-            field.Background = new SolidColorBrush(Color.FromRgb(30, 30, 30));
+            field.Background = new SolidColorBrush(MediaColor.FromRgb(30, 30, 30));
             field.Foreground = Brushes.White;
-            field.BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 84));
+            field.BorderBrush = new SolidColorBrush(MediaColor.FromRgb(80, 80, 84));
             parent.Children.Add(field);
         }
 
-        static Button CreateButton(string text, Color background)
+        static Button CreateButton(string text, MediaColor background)
         {
             return new Button
             {

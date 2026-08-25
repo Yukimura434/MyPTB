@@ -36,7 +36,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 { "frames", frames },
                 { "presets", presets },
                 { "printers", printers },
-                { "diagnostics", diagnostics },
+                { "data", diagnostics },
                 { "share", localShare }
                 ,{ "interface", interfacePage }
             };

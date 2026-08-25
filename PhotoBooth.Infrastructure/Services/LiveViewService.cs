@@ -48,13 +48,17 @@ namespace PhotoBooth.Infrastructure.Services
         }
         private static byte[] ExtractImage(LiveViewData data)
         {
-            if (data.ImageData == null) return null;
+            // Some webcam drivers reuse LiveViewData and replace ImageData while the
+            // next frame is arriving. Snapshot the array reference once so length,
+            // bounds validation and BlockCopy all describe the same buffer.
+            var source = data.ImageData;
+            if (source == null) return null;
             var offset = Math.Max(0, data.ImageDataPosition);
-            if (offset >= data.ImageData.Length) return null;
+            if (offset >= source.Length) return null;
             // Camera SDKs may reuse their live-view buffer immediately after this call.
             // Always detach the frame before WPF decodes it on another thread.
-            var result = new byte[data.ImageData.Length - offset];
-            Buffer.BlockCopy(data.ImageData, offset, result, 0, result.Length);
+            var result = new byte[source.Length - offset];
+            Buffer.BlockCopy(source, offset, result, 0, result.Length);
             return result;
         }
     }

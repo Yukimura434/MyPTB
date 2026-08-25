@@ -52,5 +52,33 @@ namespace PhotoBooth.UnitTests
                 }
             }
         }
+
+        [Fact]
+        public void CreateArchive_PreservesMotionPhotoBytesAndFilename()
+        {
+            var testDirectory = Path.Combine(Path.GetTempPath(), "PhotoBooth-LocalShare-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(testDirectory);
+            try
+            {
+                var motionPhoto = Path.Combine(testDirectory, "capture_MP.jpg");
+                var expected = new byte[] { 0xff, 0xd8, 0xff, 0xe1, 1, 2, 3, 4, 0x66, 0x74, 0x79, 0x70 };
+                File.WriteAllBytes(motionPhoto, expected);
+                var zip = Path.Combine(testDirectory, "download.zip");
+
+                LocalShareService.CreateArchive(zip, "capture-1", new[] { motionPhoto });
+
+                using (var archive = ZipFile.OpenRead(zip))
+                using (var stream = archive.GetEntry("capture-1/capture_MP.jpg").Open())
+                using (var memory = new MemoryStream())
+                {
+                    stream.CopyTo(memory);
+                    Assert.Equal(expected, memory.ToArray());
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, true);
+            }
+        }
     }
 }

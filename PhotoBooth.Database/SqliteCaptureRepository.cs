@@ -114,40 +114,48 @@ ON CONFLICT(Id) DO UPDATE SET FrameId=excluded.FrameId,CompositeImageId=excluded
             var photos = new List<CapturePhoto>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded FROM CapturePhotos WHERE CaptureId=$capture ORDER BY CASE PhotoType WHEN 'Original' THEN 0 ELSE 1 END,Position";
+                command.CommandText = "SELECT Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded,MimeType,FileLength,ContentHashSha256,CreatedAtUtc,AssetStatus FROM CapturePhotos WHERE CaptureId=$capture ORDER BY CASE PhotoType WHEN 'Picture' THEN 0 WHEN 'MotionPhoto' THEN 0 WHEN 'Composite' THEN 1 WHEN 'Gif' THEN 2 ELSE 3 END,Position";
                 command.Parameters.AddWithValue("$capture", captureId);
                 using (var reader = command.ExecuteReader()) while (reader.Read()) photos.Add(new CapturePhoto
                 {
-                    Id=reader.GetString(0), CaptureId=reader.GetString(1), CapturedImageId=Text(reader,2), LocalPath=reader.GetString(3), PhotoType=reader.GetString(4), Position=reader.GetInt32(5), CloudinaryPublicId=Text(reader,6), UploadAttempts=reader.GetInt32(7), UploadedAtUtc=NullableDate(reader,8), LastError=Text(reader,9), IsUploaded=reader.GetInt32(10)!=0
+                    Id=reader.GetString(0), CaptureId=reader.GetString(1), CapturedImageId=Text(reader,2), LocalPath=reader.GetString(3), PhotoType=reader.GetString(4), Position=reader.GetInt32(5), CloudinaryPublicId=Text(reader,6), UploadAttempts=reader.GetInt32(7), UploadedAtUtc=NullableDate(reader,8), LastError=Text(reader,9), IsUploaded=reader.GetInt32(10)!=0,MimeType=Text(reader,11),FileLength=reader.GetInt64(12),ContentHashSha256=Text(reader,13),CreatedAtUtc=reader.IsDBNull(14)?DateTime.MinValue:Parse(reader.GetString(14)),AssetStatus=Text(reader,15)
                 });
             }
+            foreach(var photo in photos)photo.SourceAssetIds=LoadSources(connection,photo.Id);
             return photos;
         }
+
+        static IReadOnlyList<string> LoadSources(SqliteConnection connection,string assetId){var values=new List<string>();using(var command=connection.CreateCommand()){command.CommandText="SELECT SourceAssetId FROM CaptureAssetSources WHERE AssetId=$id ORDER BY SourceAssetId";command.Parameters.AddWithValue("$id",assetId);using(var reader=command.ExecuteReader())while(reader.Read())values.Add(reader.GetString(0));}return values;}
 
         static void SavePhoto(SqliteConnection connection, SqliteTransaction transaction, string captureId, CapturePhoto photo)
         {
             using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
-                command.CommandText = @"INSERT INTO CapturePhotos (Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded)
-VALUES($id,$capture,$image,$path,$type,$position,$publicId,$attempts,$uploaded,$error,$isUploaded)
-ON CONFLICT(Id) DO UPDATE SET CapturedImageId=excluded.CapturedImageId,LocalPath=excluded.LocalPath,PhotoType=excluded.PhotoType,Position=excluded.Position,CloudinaryPublicId=excluded.CloudinaryPublicId,UploadAttempts=excluded.UploadAttempts,UploadedAtUtc=excluded.UploadedAtUtc,LastError=excluded.LastError,IsUploaded=excluded.IsUploaded";
+                command.CommandText = @"INSERT INTO CapturePhotos (Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded,MimeType,FileLength,ContentHashSha256,CreatedAtUtc,AssetStatus)
+VALUES($id,$capture,$image,$path,$type,$position,$publicId,$attempts,$uploaded,$error,$isUploaded,$mime,$length,$hash,$created,$assetStatus)
+ON CONFLICT(Id) DO UPDATE SET CapturedImageId=excluded.CapturedImageId,LocalPath=excluded.LocalPath,PhotoType=excluded.PhotoType,Position=excluded.Position,CloudinaryPublicId=excluded.CloudinaryPublicId,UploadAttempts=excluded.UploadAttempts,UploadedAtUtc=excluded.UploadedAtUtc,LastError=excluded.LastError,IsUploaded=excluded.IsUploaded,MimeType=excluded.MimeType,FileLength=excluded.FileLength,ContentHashSha256=excluded.ContentHashSha256,CreatedAtUtc=excluded.CreatedAtUtc,AssetStatus=excluded.AssetStatus";
                 command.Parameters.AddWithValue("$id", photo.Id);
                 command.Parameters.AddWithValue("$capture", captureId);
                 command.Parameters.AddWithValue("$image", Db(photo.CapturedImageId));
                 command.Parameters.AddWithValue("$path", photo.LocalPath);
-                command.Parameters.AddWithValue("$type", photo.PhotoType);
+                command.Parameters.AddWithValue("$type", NormalizeType(photo.PhotoType,photo.LocalPath));
                 command.Parameters.AddWithValue("$position", photo.Position);
                 command.Parameters.AddWithValue("$publicId", Db(photo.CloudinaryPublicId));
                 command.Parameters.AddWithValue("$attempts", photo.UploadAttempts);
                 command.Parameters.AddWithValue("$uploaded", Date(photo.UploadedAtUtc));
                 command.Parameters.AddWithValue("$error", Db(photo.LastError));
                 command.Parameters.AddWithValue("$isUploaded", photo.IsUploaded ? 1 : 0);
+                command.Parameters.AddWithValue("$mime",Db(photo.MimeType));command.Parameters.AddWithValue("$length",photo.FileLength);command.Parameters.AddWithValue("$hash",Db(photo.ContentHashSha256));command.Parameters.AddWithValue("$created",photo.CreatedAtUtc==DateTime.MinValue?(object)DBNull.Value:photo.CreatedAtUtc.ToUniversalTime().ToString("O"));
+                command.Parameters.AddWithValue("$assetStatus",string.IsNullOrWhiteSpace(photo.AssetStatus)?"Ready":photo.AssetStatus);
                 command.ExecuteNonQuery();
             }
+            using(var delete=connection.CreateCommand()){delete.Transaction=transaction;delete.CommandText="DELETE FROM CaptureAssetSources WHERE AssetId=$id";delete.Parameters.AddWithValue("$id",photo.Id);delete.ExecuteNonQuery();}
+            foreach(var sourceId in photo.SourceAssetIds??new string[0])using(var source=connection.CreateCommand()){source.Transaction=transaction;source.CommandText="INSERT INTO CaptureAssetSources(AssetId,SourceAssetId) VALUES($asset,$source)";source.Parameters.AddWithValue("$asset",photo.Id);source.Parameters.AddWithValue("$source",sourceId);source.ExecuteNonQuery();}
         }
 
         static object Db(string value) => string.IsNullOrWhiteSpace(value) ? (object)DBNull.Value : value;
+        static string NormalizeType(string type,string path){if(!string.Equals(type,"Original",StringComparison.OrdinalIgnoreCase))return type;return !string.IsNullOrWhiteSpace(path)&&path.EndsWith("_MP.jpg",StringComparison.OrdinalIgnoreCase)?CaptureAssetTypes.MotionPhoto:CaptureAssetTypes.Picture;}
         static object Date(DateTime? value) => value.HasValue ? (object)value.Value.ToUniversalTime().ToString("O") : DBNull.Value;
         static string Text(SqliteDataReader reader, int index) => reader.IsDBNull(index) ? null : reader.GetString(index);
         static DateTime Parse(string value) => DateTime.Parse(value).ToUniversalTime();

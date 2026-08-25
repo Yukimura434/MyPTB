@@ -425,6 +425,14 @@ namespace CameraControl.Devices
         public IReadOnlyList<CameraDiscoveryDescriptor> ScanCameras()
         {
             var result = new List<CameraDiscoveryDescriptor>();
+            if (DetectWebcams)
+            {
+                foreach (Accord.Video.DirectShow.FilterInfo camera in
+                    new FilterInfoCollection(FilterCategory.VideoInputDevice))
+                {
+                    result.Add(new CameraDiscoveryDescriptor(camera.MonikerString, camera.Name, "Webcam"));
+                }
+            }
             if (UseExperimentalDrivers)
             {
                 if (_framework == null)
@@ -487,6 +495,7 @@ namespace CameraControl.Devices
                     WebCameraDevice camera = new WebCameraDevice();
                     camera.Init(localcamera.MonikerString);
                     camera.DeviceName = localcamera.Name;
+                    camera.Manufacturer = "Webcam";
                     camera.SerialNumber = localcamera.MonikerString;
 
                     ConnectedDevices.Add(camera);
@@ -891,6 +900,34 @@ namespace CameraControl.Devices
                 CameraInitialized?.Invoke(cameraDevice);
         }
 
+        public void ConnectWebCamera(string cameraId)
+        {
+            if (!DetectWebcams || String.IsNullOrWhiteSpace(cameraId)) return;
+            var localCamera = new FilterInfoCollection(FilterCategory.VideoInputDevice)
+                .Cast<Accord.Video.DirectShow.FilterInfo>()
+                .FirstOrDefault(x => String.Equals(x.MonikerString, cameraId, StringComparison.OrdinalIgnoreCase));
+            if (localCamera == null) return;
+
+            var existing = ConnectedDevices.OfType<WebCameraDevice>()
+                .FirstOrDefault(x => String.Equals(x.PortName, cameraId, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                SelectedCameraDevice = existing;
+                return;
+            }
+
+            var camera = new WebCameraDevice();
+            camera.Init(localCamera.MonikerString);
+            camera.DeviceName = localCamera.Name;
+            camera.Manufacturer = "Webcam";
+            camera.SerialNumber = localCamera.MonikerString;
+            ConnectedDevices.Add(camera);
+            SelectedCameraDevice = camera;
+            camera.PhotoCaptured += cameraDevice_PhotoCaptured;
+            camera.CameraDisconnected += cameraDevice_CameraDisconnected;
+            CameraConnected?.Invoke(camera);
+        }
+
         private void cameraDevice_CameraInitDone(ICameraDevice cameraDevice)
         {
             CameraInitialized?.Invoke(cameraDevice);
@@ -947,7 +984,7 @@ namespace CameraControl.Devices
 
         public bool HasConnectedCamera()
         {
-            return ConnectedDevices.Any(x => x != null && x.IsConnected && !(x is NotConnectedCameraDevice) && !(x is WebCameraDevice));
+            return ConnectedDevices.Any(x => x != null && x.IsConnected && !(x is NotConnectedCameraDevice));
         }
 
         /// <summary>Connects a camera supplied by one of the original Wi-Fi providers.</summary>

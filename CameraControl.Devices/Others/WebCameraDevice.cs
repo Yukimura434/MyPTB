@@ -51,7 +51,6 @@ namespace CameraControl.Devices.Others
                 CompressionSetting.AddValues(capabilities[i].ToString(),i);
             }
             CompressionSetting.ReloadValues();
-            StartLiveView();
             if (_captureDevice.VideoResolution != null)
                 CompressionSetting.Value = _captureDevice.VideoResolution.ToString();
             else
@@ -63,6 +62,7 @@ namespace CameraControl.Devices.Others
                 }
             }
             CompressionSetting.ValueChanged += CompressionSetting_ValueChanged;
+            StartLiveView();
 
         }
 
@@ -81,11 +81,17 @@ namespace CameraControl.Devices.Others
             try
             {
                 _operationInProgress = true;
-                Image img = (Bitmap)eventargs.Frame.Clone();
-                MemoryStream ms = new MemoryStream();
-                img.Save(ms, ImageFormat.Jpeg);
-                ms.Seek(0, SeekOrigin.Begin);
-                _liveViewData.ImageData = ms.ToArray();
+                using (Image img = (Bitmap)eventargs.Frame.Clone())
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    img.Save(ms, ImageFormat.Jpeg);
+                    _liveViewData.ImageWidth = img.Width;
+                    _liveViewData.ImageHeight = img.Height;
+                    _liveViewData.LiveViewImageWidth = img.Width;
+                    _liveViewData.LiveViewImageHeight = img.Height;
+                    _liveViewData.ImageDataPosition = 0;
+                    _liveViewData.ImageData = ms.ToArray();
+                }
             }
             catch (Exception ex)
             {

@@ -22,12 +22,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoBooth.FrameEngine", "P
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoBooth.UnitTests", "PhotoBooth.UnitTests\PhotoBooth.UnitTests.csproj", "{39A28E5C-D8BE-4F70-8E0D-1D346D920B03}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhotoBooth.Color.D3D11", "PhotoBooth.Color.D3D11\PhotoBooth.Color.D3D11.csproj", "{81B31728-13DE-4C76-A565-2A31633F39E8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{81B31728-13DE-4C76-A565-2A31633F39E8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{81B31728-13DE-4C76-A565-2A31633F39E8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{81B31728-13DE-4C76-A565-2A31633F39E8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{81B31728-13DE-4C76-A565-2A31633F39E8}.Release|Any CPU.Build.0 = Release|Any CPU
 		{39A28E5C-D8BE-4F70-8E0D-1D346D920B01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{39A28E5C-D8BE-4F70-8E0D-1D346D920B01}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{39A28E5C-D8BE-4F70-8E0D-1D346D920B01}.Release|Any CPU.ActiveCfg = Release|Any CPU

@@ -28,10 +28,25 @@ namespace PhotoBooth.Core.Models
         public string LocalPath { get; set; }
         public string PhotoType { get; set; }
         public int Position { get; set; }
+        public string MimeType { get; set; }
+        public long FileLength { get; set; }
+        public string ContentHashSha256 { get; set; }
+        public DateTime CreatedAtUtc { get; set; }
+        public string AssetStatus { get; set; }
+        public IReadOnlyList<string> SourceAssetIds { get; set; }
         public string CloudinaryPublicId { get; set; }
         public bool IsUploaded { get; set; }
         public int UploadAttempts { get; set; }
         public DateTime? UploadedAtUtc { get; set; }
         public string LastError { get; set; }
+    }
+
+    public static class CaptureAssetTypes
+    {
+        public const string Picture = "Picture";
+        public const string MotionPhoto = "MotionPhoto";
+        public const string Composite = "Composite";
+        public const string Gif = "Gif";
+        public const string ShareArchive = "ShareArchive";
     }
 }

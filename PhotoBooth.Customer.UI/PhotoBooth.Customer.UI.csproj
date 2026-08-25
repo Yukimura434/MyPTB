@@ -3,6 +3,7 @@
   <ItemGroup><ApplicationDefinition Remove="App.xaml" /><Compile Remove="App.xaml.cs" /></ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Color.D3D11\PhotoBooth.Color.D3D11.csproj" />
     <ProjectReference Include="..\PhotoBooth.Infrastructure\PhotoBooth.Infrastructure.csproj" />
     <ProjectReference Include="..\PhotoBooth.Shared\PhotoBooth.Shared.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />

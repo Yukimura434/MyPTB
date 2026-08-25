@@ -7,6 +7,7 @@
     <ResourceDictionary Source="Themes/PastelTheme.xaml"/>
   </ResourceDictionary.MergedDictionaries>
   <conv:ByteArrayImageConverter x:Key="CustomerByteImage"/>
+  <conv:PathImageConverter x:Key="CustomerPathImage"/>
   <DataTemplate DataType="{x:Type vm:PrinterConnectionViewModel}"><views:PrinterConnectionView/></DataTemplate>
   <DataTemplate DataType="{x:Type vm:CaptureViewModel}"><views:CaptureView/></DataTemplate>
   <DataTemplate DataType="{x:Type vm:FrameSelectionViewModel}"><views:FrameSelectionView/></DataTemplate>

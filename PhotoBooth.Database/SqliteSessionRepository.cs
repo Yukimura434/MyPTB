@@ -58,8 +58,10 @@ ON CONFLICT(Id) DO UPDATE SET PresetId=excluded.PresetId,CompletedAtUtc=excluded
             }
             using(var connection=_database.OpenConnection())using(var transaction=connection.BeginTransaction())
             {
-                using(var delete=connection.CreateCommand()){delete.Transaction=transaction;delete.CommandText="DELETE FROM CapturedImages WHERE SessionId=$session";delete.Parameters.AddWithValue("$session",session.Id.ToString());delete.ExecuteNonQuery();}
-                var files=(session.CapturedFiles??new string[0]).ToList();var ids=(session.CapturedImageIds??new string[0]).ToList();for(var i=0;i<files.Count;i++)using(var insert=connection.CreateCommand()){insert.Transaction=transaction;insert.CommandText="INSERT INTO CapturedImages (Id,SessionId,Sequence,FilePath,CapturedAtUtc) VALUES($id,$session,$sequence,$path,$captured)";insert.Parameters.AddWithValue("$id",i<ids.Count&&!string.IsNullOrWhiteSpace(ids[i])?ids[i]:Guid.NewGuid().ToString("N"));insert.Parameters.AddWithValue("$session",session.Id.ToString());insert.Parameters.AddWithValue("$sequence",i+1);insert.Parameters.AddWithValue("$path",files[i]);insert.Parameters.AddWithValue("$captured",DateTime.UtcNow.ToString("O"));insert.ExecuteNonQuery();}transaction.Commit();
+                // CapturedImages is immutable capture history once CapturePhotos references it.
+                // Replacing the whole collection would invoke ON DELETE SET NULL and violate
+                // the MotionPhoto integrity trigger. Save only adds or refreshes known rows.
+                var files=(session.CapturedFiles??new string[0]).ToList();var ids=(session.CapturedImageIds??new string[0]).ToList();for(var i=0;i<files.Count;i++)using(var insert=connection.CreateCommand()){insert.Transaction=transaction;insert.CommandText="INSERT INTO CapturedImages (Id,SessionId,Sequence,FilePath,CapturedAtUtc) VALUES($id,$session,$sequence,$path,$captured) ON CONFLICT(Id) DO UPDATE SET FilePath=excluded.FilePath WHERE CapturedImages.SessionId=excluded.SessionId";insert.Parameters.AddWithValue("$id",i<ids.Count&&!string.IsNullOrWhiteSpace(ids[i])?ids[i]:Guid.NewGuid().ToString("N"));insert.Parameters.AddWithValue("$session",session.Id.ToString());insert.Parameters.AddWithValue("$sequence",i+1);insert.Parameters.AddWithValue("$path",files[i]);insert.Parameters.AddWithValue("$captured",DateTime.UtcNow.ToString("O"));insert.ExecuteNonQuery();}transaction.Commit();
             }
             return Task.CompletedTask;
         }

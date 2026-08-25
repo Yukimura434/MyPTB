@@ -4,8 +4,8 @@
         Title="PhotoBooth Admin"
         Width="1440"
         Height="900"
-        MinWidth="1100"
-        MinHeight="700"
+        MinWidth="640"
+        MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}">
 
@@ -94,12 +94,12 @@
 
                     <Button Style="{StaticResource MenuButton}"
                             Command="{Binding NavigateCommand}"
-                            CommandParameter="diagnostics">
+                            CommandParameter="data">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text=""
+                            <TextBlock Text="&#xE9D2;"
                                        Style="{StaticResource IconText}" />
 
-                            <TextBlock Text="Diagnostics"
+                            <TextBlock Text="Dữ liệu &amp; thống kê"
                                        Visibility="{Binding MenuTextVisibility}" />
                         </StackPanel>
                     </Button>
@@ -129,7 +129,7 @@
         <Grid Grid.Column="1">
 
             <ContentControl Content="{Binding CurrentPage, NotifyOnTargetUpdated=True}"
-                            Opacity="1">
+                            Opacity="1" MinWidth="560">
 
                 <ContentControl.RenderTransform>
                     <TranslateTransform />

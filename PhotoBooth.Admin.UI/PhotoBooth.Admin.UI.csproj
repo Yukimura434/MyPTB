@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><Version>1.1.0</Version></PropertyGroup>
+  <PropertyGroup Condition="'$(TrialBuild)' == 'true'">
+    <DefineConstants>$(DefineConstants);TRIAL_BUILD</DefineConstants>
+    <Version>1.1.0-trial</Version>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
     <ProjectReference Include="..\PhotoBooth.Infrastructure\PhotoBooth.Infrastructure.csproj" />
@@ -7,8 +11,12 @@
     <ProjectReference Include="..\PhotoBooth.Customer.UI\PhotoBooth.Customer.UI.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
-    <PackageReference Include="Velopack" Version="1.2.0" />
+    <PackageReference Include="Velopack" Version="1.2.0" Condition="'$(TrialBuild)' != 'true'" />
+    <Reference Include="System.Security" />
     <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TrialBuild)' == 'true'">
+    <Compile Remove="Services\VelopackUpdateService.cs" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Remove="App.xaml" />

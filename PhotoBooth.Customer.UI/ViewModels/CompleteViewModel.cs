@@ -124,8 +124,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 }
 
                 var name = session.Id.ToString("N") + "." + captureId;
-                var directory = Path.Combine(session.OutputDirectory, name);
-                var output = Path.Combine(directory, name + ".gif");
+                var output = Path.Combine(session.OutputDirectory, name + ".gif");
                 var capture = await captures.GetAsync(session.Id, captureId, CancellationToken.None);
                 if (capture == null)
                 {
@@ -135,16 +134,15 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 // The capture record is the source of truth for one booth turn.
                 // Frame composition may use fewer slots, but the GIF must retain
                 // every original photo captured in that turn, in position order.
-                var gifSources = (capture.Photos ?? new CapturePhoto[0])
-                    .Where(photo => string.Equals(photo.PhotoType, "Original", StringComparison.OrdinalIgnoreCase))
+                var motionAssets = (capture.Photos ?? new CapturePhoto[0])
+                    .Where(photo => string.Equals(photo.PhotoType, CaptureAssetTypes.MotionPhoto, StringComparison.OrdinalIgnoreCase)||string.Equals(photo.PhotoType, CaptureAssetTypes.Picture, StringComparison.OrdinalIgnoreCase))
                     .OrderBy(photo => photo.Position)
-                    .Select(photo => photo.LocalPath)
-                    .Where(File.Exists)
                     .ToList();
+                var gifSources = motionAssets.Select(photo => photo.LocalPath).Where(File.Exists).ToList();
                 if (gifSources.Count > 0)
                 {
                     await gifAnimation.CreateAsync(gifSources, output, context.Settings?.GifFrameDurationMilliseconds ?? 1000, CancellationToken.None);
-                    await captures.AddFileAsync(captureId, output, "Gif", CancellationToken.None);
+                    await captures.AddFileAsync(captureId, output, CaptureAssetTypes.Gif, motionAssets.Select(x=>x.Id).ToList(), CancellationToken.None);
                     GifPath = output;
                     log.LogInformation("GIF created with {FrameCount} original frames for capture {CaptureId}", gifSources.Count, captureId);
                 }
@@ -156,6 +154,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 }
 
                 var files = (capture.Photos ?? new CapturePhoto[0])
+                    .Where(photo => !string.Equals(photo.PhotoType, CaptureAssetTypes.ShareArchive, StringComparison.OrdinalIgnoreCase))
                     .Select(photo => photo.LocalPath)
                     .Where(File.Exists)
                     .ToList();
@@ -165,6 +164,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     captureId,
                     files,
                     CancellationToken.None);
+
+                var archiveAsset = await captures.AddFileAsync(captureId, ticket.ZipPath, CaptureAssetTypes.ShareArchive, (capture.Photos ?? new CapturePhoto[0]).Select(x=>x.Id).ToList(), CancellationToken.None);
+                ticket.ArchiveAssetId = archiveAsset.Id;
 
                 await captures.UpdateSharePathAsync(
                     captureId,
@@ -200,7 +202,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if (session != null)
                 {
                     await sessions.CompleteAsync(session, CancellationToken.None);
-                    await Task.Run(() => DeletePreviews(session.OutputDirectory));
+                    await Task.Run(() => SessionWorkspace.Cleanup(session));
                 }
             }
             catch (Exception exception)
@@ -210,6 +212,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
             context.Session = null;
             context.CaptureId = null;
+            context.WorkingDirectory = null;
+            context.CurrentCaptureFiles.Clear();
             context.SelectedFrame = null;
             QrSource = null;
             DownloadUrl = null;
@@ -227,43 +231,5 @@ namespace PhotoBooth.Customer.UI.ViewModels
             countdownTimer.Start();
         }
 
-        private static void DeleteTemporary(string file, string root)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(root))
-                {
-                    return;
-                }
-
-                var path = Path.GetFullPath(file);
-                if (path.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase) && File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        private static void DeletePreviews(string root)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-                {
-                    return;
-                }
-
-                foreach (var file in Directory.EnumerateFiles(root, "preview-*.png", SearchOption.TopDirectoryOnly))
-                {
-                    DeleteTemporary(file, root);
-                }
-            }
-            catch
-            {
-            }
-        }
     }
 }

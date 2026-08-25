@@ -32,7 +32,7 @@ namespace PhotoBooth.UnitTests
                     OutputDirectory = root,
                     StartedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Local)
                 });
-                var pipeline = new CapturePipeline(camera, sessions, settings);
+                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeMotionPhotoService());
 
                 var result = await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
 
@@ -69,7 +69,7 @@ namespace PhotoBooth.UnitTests
                     OutputDirectory = root,
                     StartedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Local)
                 });
-                var pipeline = new CapturePipeline(camera, sessions, settings);
+                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeMotionPhotoService());
 
                 await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
 
@@ -79,6 +79,52 @@ namespace PhotoBooth.UnitTests
                     AssertNear(Color.Red, image.GetPixel(0, 0));
                     AssertNear(Color.Blue, image.GetPixel(3, 0));
                 }
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public async Task ExecuteAsync_saves_customer_capture_inside_requested_workspace()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            var workspace = Path.Combine(root, "Session");
+            Directory.CreateDirectory(root);
+            try
+            {
+                var camera = new CapturingCamera();
+                var settings = new FakeSettingsService(new Settings { SaveLocation = CameraSaveMode.PcOnly });
+                var sessions = new FakeSessionRepository(new Session
+                {
+                    Id = Guid.NewGuid(),
+                    SessionName = "Test",
+                    SessionNumber = 3,
+                    OutputDirectory = root,
+                    StartedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Local)
+                });
+                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeMotionPhotoService());
+
+                await pipeline.ExecuteAsync(sessions.Session.Id, "cam", workspace, CancellationToken.None);
+
+                var file = Assert.Single(sessions.Session.CapturedFiles);
+                Assert.Equal(Path.GetFullPath(workspace), Path.GetDirectoryName(Path.GetFullPath(file)));
+                Assert.True(File.Exists(file));
+                Assert.Empty(Directory.GetFiles(root, "*.jpg", SearchOption.TopDirectoryOnly));
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public async Task ExecuteAsync_does_not_persist_photo_when_motion_packaging_fails()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), SessionNumber = 4, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingMotionPhotoService());
+                await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None));
+                Assert.Empty(sessions.Session.CapturedFiles);
+                Assert.Empty(Directory.GetFiles(root, "*_MP.jpg"));
             }
             finally { Directory.Delete(root, true); }
         }
@@ -141,6 +187,25 @@ namespace PhotoBooth.UnitTests
             public FakeSettingsService(Settings value) { this.value = value; }
             public Task<Settings> GetAsync(CancellationToken t) => Task.FromResult(value);
             public Task SaveAsync(Settings s, CancellationToken t) => Task.CompletedTask;
+        }
+
+        sealed class FakeMotionPhotoService : IMotionPhotoService
+        {
+            public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, CancellationToken token)
+            {
+                File.Copy(stillImagePath, destinationPath, true);
+                return Task.CompletedTask;
+            }
+        }
+
+        sealed class FailingMotionPhotoService : IMotionPhotoService
+        {
+            public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, CancellationToken token)
+            {
+                throw new InvalidOperationException("encoder failed");
+            }
         }
     }
 }

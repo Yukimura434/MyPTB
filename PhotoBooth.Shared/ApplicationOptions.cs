@@ -15,7 +15,9 @@ namespace PhotoBooth.Shared
         public string LicensePublicKeyExponent { get; set; } = LicensePublicKey.Exponent;
         public System.Collections.Generic.IDictionary<string, bool> Features { get; set; } = new System.Collections.Generic.Dictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase)
         {
-            ["QR"] = true, ["Plugins"] = true, ["Diagnostics"] = true, ["Telemetry"] = false
+            ["QR"] = true, ["Plugins"] = true, ["Diagnostics"] = true, ["Telemetry"] = false,
+            ["ColorGpuLiveView"] = true, ["ColorGpuDiagnosticMonochrome"] = false,
+            ["MotionPhotoNativeEncoder"] = true
         };
     }
 }

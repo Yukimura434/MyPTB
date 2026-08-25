@@ -104,7 +104,9 @@ namespace PhotoBooth.Infrastructure.Services
         if (manager.ConnectedDevices.Any(x => x.IsConnected && String.Equals(CameraDeviceResolver.CameraId(x), cameraId, StringComparison.OrdinalIgnoreCase))) return;
         var existingDevices = manager.ConnectedDevices.ToList();
         await RemoveDisconnectedDevices(token).ConfigureAwait(false);
-        await operations.RunAsync(() => manager.ConnectCanonCamera(cameraId), token).ConfigureAwait(false);
+        await operations.RunAsync(() => manager.ConnectWebCamera(cameraId), token).ConfigureAwait(false);
+        if (!manager.HasConnectedCamera())
+          await operations.RunAsync(() => manager.ConnectCanonCamera(cameraId), token).ConfigureAwait(false);
         if (!manager.HasConnectedCamera())
           await operations.RunMtpAsync(() => manager.ConnectNativeCamera(cameraId), token).ConfigureAwait(false);
         var selected = manager.ConnectedDevices.FirstOrDefault(x => x.IsConnected &&

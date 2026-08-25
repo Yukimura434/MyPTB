@@ -1,75 +1,46 @@
-using System;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Threading;
 
 namespace PhotoBooth.Customer.UI.Views
 {
     public partial class FrameSelectionView : UserControl
     {
-        const double MinimumZoom = 1.0;
-        const double MaximumZoom = 3.0;
-        const double ZoomStep = 0.25;
-
-        double zoom = MinimumZoom;
-
         public FrameSelectionView()
         {
             InitializeComponent();
+            Loaded += (s, e) => ApplyOrientation();
+            SizeChanged += (s, e) => ApplyOrientation();
         }
 
-        void ZoomIn_OnClick(object sender, RoutedEventArgs e)
+        void ApplyOrientation()
         {
-            SetZoom(zoom + ZoomStep);
-        }
-
-        void ZoomOut_OnClick(object sender, RoutedEventArgs e)
-        {
-            SetZoom(zoom - ZoomStep);
-        }
-
-        void PreviewScroller_OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            var portrait = ActualHeight > ActualWidth * 1.08;
+            if (portrait)
             {
-                PreviewScroller.ScrollToHorizontalOffset(PreviewScroller.HorizontalOffset - e.Delta);
-                e.Handled = true;
-                return;
+                WorkspaceTopRow.Height = new GridLength(1, GridUnitType.Star);
+                WorkspaceBottomRow.Height = new GridLength(300);
+                WorkspaceGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+                WorkspaceGrid.ColumnDefinitions[1].Width = new GridLength(12);
+                WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(0);
+                WorkspaceGrid.ColumnDefinitions[3].Width = new GridLength(12);
+                WorkspaceGrid.ColumnDefinitions[4].Width = new GridLength(1, GridUnitType.Star);
+                Grid.SetRow(PreviewPanel, 0); Grid.SetColumn(PreviewPanel, 0); Grid.SetColumnSpan(PreviewPanel, 5);
+                Grid.SetRow(FramesPanel, 1); Grid.SetColumn(FramesPanel, 0); Grid.SetColumnSpan(FramesPanel, 2);
+                Grid.SetRow(PhotosPanel, 1); Grid.SetColumn(PhotosPanel, 3); Grid.SetColumnSpan(PhotosPanel, 2);
             }
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
-                return;
-
-            SetZoom(zoom + (e.Delta > 0 ? ZoomStep : -ZoomStep));
-            e.Handled = true;
-        }
-
-        void PreviewImage_OnTargetUpdated(object sender, System.Windows.Data.DataTransferEventArgs e)
-        {
-            SetZoom(MinimumZoom);
-        }
-
-        void SetZoom(double value)
-        {
-            zoom = Math.Max(MinimumZoom, Math.Min(MaximumZoom, value));
-            PreviewScale.ScaleX = zoom;
-            PreviewScale.ScaleY = zoom;
-            ZoomPercentText.Text = string.Format("{0:0}%", zoom * 100);
-
-            // LayoutTransform updates ScrollViewer extent asynchronously. Center only after layout is complete.
-            PreviewScroller.Dispatcher.BeginInvoke(new Action(CenterPreview), DispatcherPriority.Loaded);
-        }
-
-        void PreviewScroller_OnSizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            PreviewScroller.Dispatcher.BeginInvoke(new Action(CenterPreview), DispatcherPriority.Loaded);
-        }
-
-        void CenterPreview()
-        {
-            PreviewScroller.UpdateLayout();
-            PreviewScroller.ScrollToHorizontalOffset(Math.Max(0,(PreviewScroller.ExtentWidth-PreviewScroller.ViewportWidth)/2));
-            PreviewScroller.ScrollToVerticalOffset(Math.Max(0,(PreviewScroller.ExtentHeight-PreviewScroller.ViewportHeight)/2));
+            else
+            {
+                WorkspaceTopRow.Height = new GridLength(1, GridUnitType.Star);
+                WorkspaceBottomRow.Height = new GridLength(0);
+                WorkspaceGrid.ColumnDefinitions[0].Width = new GridLength(280);
+                WorkspaceGrid.ColumnDefinitions[1].Width = new GridLength(18);
+                WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
+                WorkspaceGrid.ColumnDefinitions[3].Width = new GridLength(18);
+                WorkspaceGrid.ColumnDefinitions[4].Width = new GridLength(260);
+                Grid.SetRow(FramesPanel, 0); Grid.SetColumn(FramesPanel, 0); Grid.SetColumnSpan(FramesPanel, 1);
+                Grid.SetRow(PreviewPanel, 0); Grid.SetColumn(PreviewPanel, 2); Grid.SetColumnSpan(PreviewPanel, 1);
+                Grid.SetRow(PhotosPanel, 0); Grid.SetColumn(PhotosPanel, 4); Grid.SetColumnSpan(PhotosPanel, 1);
+            }
         }
     }
 }

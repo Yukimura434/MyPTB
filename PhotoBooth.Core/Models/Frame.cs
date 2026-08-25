@@ -13,6 +13,14 @@ namespace PhotoBooth.Core.Models
         public IReadOnlyList<FrameSlot> Slots { get; set; }
         public string ThumbnailPath { get; set; }
         public bool IsPinned { get; set; }
+        public Guid? EventId { get; set; }
+        public DateTime CreatedAtUtc { get; set; }
+    }
+
+    public sealed class FrameEvent
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; }
         public DateTime CreatedAtUtc { get; set; }
     }
 }
