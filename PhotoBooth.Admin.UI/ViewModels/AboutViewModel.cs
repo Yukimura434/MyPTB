@@ -9,9 +9,11 @@ namespace PhotoBooth.Admin.UI.ViewModels
         {
             var assembly = Assembly.GetEntryAssembly() ?? typeof(AboutViewModel).Assembly;
             var productVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion;
-            Version = string.IsNullOrWhiteSpace(productVersion)
+            var version = string.IsNullOrWhiteSpace(productVersion)
                 ? assembly.GetName().Version?.ToString() ?? "Unknown"
                 : productVersion;
+            var metadataIndex = version.IndexOf('+');
+            Version = metadataIndex >= 0 ? version.Substring(0, metadataIndex) : version;
         }
 
         public override string Title => "About";
