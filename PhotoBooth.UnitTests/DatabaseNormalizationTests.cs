@@ -33,40 +33,53 @@ namespace PhotoBooth.UnitTests
   {
    var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();
    using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText=@"INSERT INTO CustomerSessions(Id,StartedAtUtc,OutputDirectory,SessionName) VALUES('session','2026-08-25T00:00:00Z',$root,'Event');
-INSERT INTO CapturedImages(Id,SessionId,Sequence,FilePath,CapturedAtUtc,MotionPhotoPath) VALUES('image','session',1,'picture.jpg','2026-08-25T00:00:00Z','motion_MP.jpg');
-INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc,MediaMode) VALUES('capture','session','composite.png','Pending','2026-08-25T00:00:00Z','PictureAndMotion');
+INSERT INTO CapturedImages(Id,SessionId,Sequence,FilePath,CapturedAtUtc,VideoPath) VALUES('image','session',1,'picture.jpg','2026-08-25T00:00:00Z','video.mp4');
+INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc,MediaMode) VALUES('capture','session','composite.png','Pending','2026-08-25T00:00:00Z','PictureAndVideo');
 INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,FileLength,CreatedAtUtc,AssetStatus) VALUES
 ('picture','capture','image','picture.jpg','Picture',1,1,'2026-08-25T00:00:00Z','Ready'),
-('motion','capture','image','motion_MP.jpg','MotionPhoto',1,1,'2026-08-25T00:00:00Z','Ready'),
+('video','capture','image','video.mp4','Video',1,1,'2026-08-25T00:00:00Z','Ready'),
 ('composite','capture',NULL,'composite.png','Composite',1,1,'2026-08-25T00:00:00Z','Ready'),
-('motion-composite','capture',NULL,'composite_MP.jpg','MotionPhotoComposite',1,1,'2026-08-25T00:00:00Z','Ready');";q.Parameters.AddWithValue("$root",root);q.ExecuteNonQuery();}
+('video-composite','capture',NULL,'composite.mp4','CompositeVideo',1,1,'2026-08-25T00:00:00Z','Ready');";q.Parameters.AddWithValue("$root",root);q.ExecuteNonQuery();}
    db.Initialize();
-   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT AssetId||':'||SourceAssetId FROM CaptureAssetSources ORDER BY AssetId";var values=new List<string>();using(var reader=q.ExecuteReader())while(reader.Read())values.Add(reader.GetString(0));Assert.Equal(new[]{"composite:picture","motion-composite:motion"},values);}
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT AssetId||':'||SourceAssetId FROM CaptureAssetSources ORDER BY AssetId";var values=new List<string>();using(var reader=q.ExecuteReader())while(reader.Read())values.Add(reader.GetString(0));Assert.Equal(new[]{"composite:picture","video-composite:video"},values);}
+  }
+
+  [Fact] public void Reinitialize_preserves_retired_assets_before_replacing_validation_triggers()
+  {
+   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText=@"DROP TRIGGER TR_CapturePhotos_Validate_Insert;
+DROP TRIGGER TR_CapturePhotos_Validate_Update;
+INSERT INTO CustomerSessions(Id,StartedAtUtc,OutputDirectory,SessionName) VALUES('session','2026-08-25T00:00:00Z',$root,'Event');
+INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES('capture','session','composite.png','Pending','2026-08-25T00:00:00Z');
+INSERT INTO CapturePhotos(Id,CaptureId,LocalPath,PhotoType,Position,FileLength,AssetStatus) VALUES('retired','capture','retired.bin','RetiredAsset',1,1,'Ready');
+CREATE TRIGGER TR_CapturePhotos_Validate_Update BEFORE UPDATE ON CapturePhotos BEGIN SELECT CASE WHEN NEW.PhotoType NOT IN ('Picture','Video','CompositeVideo','Composite','Gif','ShareArchive') THEN RAISE(ABORT,'Invalid capture asset type') END; END;";q.Parameters.AddWithValue("$root",root);q.ExecuteNonQuery();}
+   db.Initialize();
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT PhotoType FROM CapturePhotos WHERE Id='retired'";Assert.Equal("RetiredAsset",Convert.ToString(q.ExecuteScalar()));}
   }
 
   [Fact] public async Task Data_statistics_are_aggregated_only_from_sqlite()
   {
    var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var captureId=Guid.NewGuid().ToString("N");var imageId="image-1";var assetId=Guid.NewGuid().ToString("N");
-   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="INSERT INTO CustomerSessions(Id,StartedAtUtc,OutputDirectory,SessionName) VALUES($session,$now,$root,'Event');INSERT INTO CapturedImages(Id,SessionId,Sequence,FilePath,CapturedAtUtc) VALUES($image,$session,1,'motion_MP.jpg',$now);INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES($capture,$session,'final.png','Pending',$now);INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,IsUploaded,MimeType,FileLength,CreatedAtUtc,AssetStatus) VALUES($asset,$capture,$image,'motion_MP.jpg','MotionPhoto',1,0,'image/jpeg',1024,$now,'Ready');INSERT INTO PrintJobs(Id,SessionId,CaptureId,PrinterName,Status,PrintedAtUtc) VALUES($print,$session,$capture,'Printer','Success',$now);";q.Parameters.AddWithValue("$session",sessionId.ToString());q.Parameters.AddWithValue("$capture",captureId);q.Parameters.AddWithValue("$image",imageId);q.Parameters.AddWithValue("$asset",assetId);q.Parameters.AddWithValue("$print",Guid.NewGuid().ToString());q.Parameters.AddWithValue("$now",DateTime.UtcNow.ToString("O"));q.Parameters.AddWithValue("$root",root);q.ExecuteNonQuery();}
-   var value=await new SqliteStatsRepository(db).GetDataStatisticsAsync(CancellationToken.None);Assert.Equal(1,value.SessionCount);Assert.Equal(1,value.CaptureCount);Assert.Equal(1,value.MotionPhotoCount);Assert.Equal(1,value.SuccessfulPrintCount);Assert.Equal(1024,value.TotalAssetBytes);Assert.Single(value.RecentCaptures);Assert.Equal(captureId,value.RecentCaptures[0].CaptureId);
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="INSERT INTO CustomerSessions(Id,StartedAtUtc,OutputDirectory,SessionName) VALUES($session,$now,$root,'Event');INSERT INTO CapturedImages(Id,SessionId,Sequence,FilePath,CapturedAtUtc) VALUES($image,$session,1,'video.mp4',$now);INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES($capture,$session,'final.png','Pending',$now);INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,IsUploaded,MimeType,FileLength,CreatedAtUtc,AssetStatus) VALUES($asset,$capture,$image,'video.mp4','Video',1,0,'image/jpeg',1024,$now,'Ready');INSERT INTO PrintJobs(Id,SessionId,CaptureId,PrinterName,Status,PrintedAtUtc) VALUES($print,$session,$capture,'Printer','Success',$now);";q.Parameters.AddWithValue("$session",sessionId.ToString());q.Parameters.AddWithValue("$capture",captureId);q.Parameters.AddWithValue("$image",imageId);q.Parameters.AddWithValue("$asset",assetId);q.Parameters.AddWithValue("$print",Guid.NewGuid().ToString());q.Parameters.AddWithValue("$now",DateTime.UtcNow.ToString("O"));q.Parameters.AddWithValue("$root",root);q.ExecuteNonQuery();}
+   var value=await new SqliteStatsRepository(db).GetDataStatisticsAsync(CancellationToken.None);Assert.Equal(1,value.SessionCount);Assert.Equal(1,value.CaptureCount);Assert.Equal(1,value.VideoCount);Assert.Equal(1,value.SuccessfulPrintCount);Assert.Equal(1024,value.TotalAssetBytes);Assert.Single(value.RecentCaptures);Assert.Equal(captureId,value.RecentCaptures[0].CaptureId);
   }
 
-  [Fact] public async Task Saving_session_does_not_delete_captured_images_referenced_by_motion_photos()
+  [Fact] public async Task Saving_session_does_not_delete_captured_images_referenced_by_videos()
   {
-   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var imageId="image-1";var sessions=new SqliteSessionRepository(db);var session=new Session{Id=sessionId,SessionName="Event",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedFiles=new[]{Path.Combine(root,"motion_MP.jpg")},CapturedImageIds=new[]{imageId}};await sessions.SaveAsync(session,CancellationToken.None);
-   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES($capture,$session,'final.png','Pending',$now);INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,IsUploaded,FileLength) VALUES($asset,$capture,$image,'motion_MP.jpg','MotionPhoto',1,0,0)";q.Parameters.AddWithValue("$capture",Guid.NewGuid().ToString("N"));q.Parameters.AddWithValue("$session",sessionId.ToString());q.Parameters.AddWithValue("$image",imageId);q.Parameters.AddWithValue("$asset",Guid.NewGuid().ToString("N"));q.Parameters.AddWithValue("$now",DateTime.UtcNow.ToString("O"));q.ExecuteNonQuery();}
+   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var imageId="image-1";var sessions=new SqliteSessionRepository(db);var session=new Session{Id=sessionId,SessionName="Event",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedFiles=new[]{Path.Combine(root,"video.mp4")},CapturedImageIds=new[]{imageId}};await sessions.SaveAsync(session,CancellationToken.None);
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES($capture,$session,'final.png','Pending',$now);INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,IsUploaded,FileLength) VALUES($asset,$capture,$image,'video.mp4','Video',1,0,0)";q.Parameters.AddWithValue("$capture",Guid.NewGuid().ToString("N"));q.Parameters.AddWithValue("$session",sessionId.ToString());q.Parameters.AddWithValue("$image",imageId);q.Parameters.AddWithValue("$asset",Guid.NewGuid().ToString("N"));q.Parameters.AddWithValue("$now",DateTime.UtcNow.ToString("O"));q.ExecuteNonQuery();}
    session.CapturedFiles=new string[0];session.CapturedImageIds=new string[0];await sessions.SaveAsync(session,CancellationToken.None);
    using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT COUNT(*) FROM CapturedImages WHERE Id=$id";q.Parameters.AddWithValue("$id",imageId);Assert.Equal(1,Convert.ToInt32(q.ExecuteScalar()));}
   }
 
-  [Fact] public async Task Retake_replaces_picture_and_motion_as_one_captured_shot()
+  [Fact] public async Task Retake_replaces_picture_and_video_as_one_captured_shot()
   {
    var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var repository=new SqliteSessionRepository(db);
    await repository.SaveAsync(new Session{Id=sessionId,SessionName="Event",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedShots=new CapturedShot[0]},CancellationToken.None);
-   var oldShot=new CapturedShot{Id="old",Sequence=1,PicturePath=Path.Combine(root,"old.jpg"),MotionPhotoPath=Path.Combine(root,"old_MP.jpg"),CapturedAtUtc=DateTime.UtcNow};
-   var replacement=new CapturedShot{Id="new",Sequence=2,PicturePath=Path.Combine(root,"new.jpg"),MotionPhotoPath=Path.Combine(root,"new_MP.jpg"),CapturedAtUtc=DateTime.UtcNow};
+   var oldShot=new CapturedShot{Id="old",Sequence=1,PicturePath=Path.Combine(root,"old.jpg"),VideoPath=Path.Combine(root,"old.mp4"),CapturedAtUtc=DateTime.UtcNow};
+   var replacement=new CapturedShot{Id="new",Sequence=2,PicturePath=Path.Combine(root,"new.jpg"),VideoPath=Path.Combine(root,"new.mp4"),CapturedAtUtc=DateTime.UtcNow};
    await repository.AddCapturedShotAsync(sessionId,oldShot,CancellationToken.None);await repository.AddCapturedShotAsync(sessionId,replacement,CancellationToken.None);replacement.Sequence=oldShot.Sequence;await repository.ReplaceCapturedShotAsync(sessionId,oldShot.Id,replacement,CancellationToken.None);
-   var loaded=await repository.GetAsync(sessionId,CancellationToken.None);var shot=Assert.Single(loaded.CapturedShots);Assert.Equal("new",shot.Id);Assert.Equal(replacement.PicturePath,shot.PicturePath);Assert.Equal(replacement.MotionPhotoPath,shot.MotionPhotoPath);Assert.Equal(1,shot.Sequence);
+   var loaded=await repository.GetAsync(sessionId,CancellationToken.None);var shot=Assert.Single(loaded.CapturedShots);Assert.Equal("new",shot.Id);Assert.Equal(replacement.PicturePath,shot.PicturePath);Assert.Equal(replacement.VideoPath,shot.VideoPath);Assert.Equal(1,shot.Sequence);
    using(var c=db.OpenConnection()){using(var q=c.CreateCommand()){q.CommandText="SELECT COUNT(*) FROM CapturedImages WHERE Id='old'";Assert.Equal(0,Convert.ToInt32(q.ExecuteScalar()));}using(var q=c.CreateCommand()){q.CommandText="PRAGMA foreign_key_check";using(var reader=q.ExecuteReader())Assert.False(reader.Read());}}
   }
  }

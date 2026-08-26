@@ -1,1 +1,1 @@
-namespace PhotoBooth.Customer.UI.Workflow { public enum CustomerWorkflowState { Idle,Countdown,Smile,Capturing,InterShotDelay,Preview,FrameSelection,MotionPhotoSelection,Printing,Complete } }
+namespace PhotoBooth.Customer.UI.Workflow { public enum CustomerWorkflowState { Idle,Countdown,Smile,Capturing,InterShotDelay,Preview,FrameSelection,VideoSelection,Printing,Complete } }

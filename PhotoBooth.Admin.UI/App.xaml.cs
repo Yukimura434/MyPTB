@@ -35,10 +35,10 @@ namespace PhotoBooth.Admin.UI
                 return;
             }
             if (args != null && args.Length > 0 &&
-                (string.Equals(args[0], "--motion-photo-encode", StringComparison.Ordinal) ||
-                 string.Equals(args[0], "--motion-photo-compose", StringComparison.Ordinal)))
+                (string.Equals(args[0], "--video-encode", StringComparison.Ordinal) ||
+                 string.Equals(args[0], "--video-compose", StringComparison.Ordinal)))
             {
-                Environment.ExitCode = MotionPhotoService.RunEncoderCommand(args);
+                Environment.ExitCode = VideoService.RunEncoderCommand(args);
                 return;
             }
 #if !TRIAL_BUILD
@@ -65,7 +65,7 @@ namespace PhotoBooth.Admin.UI
             {
                 var services = new ServiceCollection(); services.AddLogging();
                 var options = new ApplicationOptions { ApplicationName="PhotoBooth.CameraSmoke",DataDirectory=root,DatabasePath=Path.Combine(root,"smoke.db"),UseFakeCamera=true,RestartLiveViewDuringRecovery=false };
-                options.Features["MotionPhoto"] = false; options.Features["MotionPhotoNativeEncoder"] = false;
+                options.Features["Video"] = false; options.Features["VideoNativeEncoder"] = false;
                 services.AddPhotoBoothInfrastructure(options);
                 using (var smokeProvider = services.BuildServiceProvider())
                 {
@@ -167,10 +167,10 @@ namespace PhotoBooth.Admin.UI
                 string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_COLOR_GPU_MONOCHROME"), "1", StringComparison.Ordinal);
             // Encoding runs in a child process so native FFmpeg failures cannot
             // corrupt or terminate the main PhotoBooth workflow.
-            applicationOptions.Features["MotionPhotoNativeEncoder"] =
-                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_MOTION_PHOTO_NATIVE"), "0", StringComparison.Ordinal);
-            applicationOptions.Features["MotionPhoto"] =
-                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_MOTION_PHOTO"), "0", StringComparison.Ordinal);
+            applicationOptions.Features["VideoNativeEncoder"] =
+                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_VIDEO_NATIVE"), "0", StringComparison.Ordinal);
+            applicationOptions.Features["Video"] =
+                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_VIDEO"), "0", StringComparison.Ordinal);
             services.AddPhotoBoothInfrastructure(applicationOptions);
 
             services.AddCustomerMode();

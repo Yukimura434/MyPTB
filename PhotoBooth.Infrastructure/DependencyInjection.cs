@@ -66,7 +66,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IFrameAnalyzer, PngFrameAnalyzer>();
             services.AddSingleton<ICameraService, CameraService>();
             services.AddSingleton<ILiveViewService, LiveViewService>();
-            services.AddSingleton<IMotionPhotoService, MotionPhotoService>();
+            services.AddSingleton<IVideoService, VideoService>();
             services.AddSingleton<IFrameService, FrameService>();
             services.AddSingleton<IFrameEventService, FrameEventService>();
             services.AddSingleton<IPresetService, PresetService>();

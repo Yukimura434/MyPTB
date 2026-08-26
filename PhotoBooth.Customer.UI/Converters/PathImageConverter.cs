@@ -12,16 +12,27 @@ namespace PhotoBooth.Customer.UI.Converters
         {
             var path = value as string;
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
-            var image = new BitmapImage();
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            var extension = Path.GetExtension(path);
+            if (!string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(extension, ".bmp", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(extension, ".gif", StringComparison.OrdinalIgnoreCase)) return null;
+            try
             {
-                image.BeginInit();
-                image.CacheOption = BitmapCacheOption.OnLoad;
-                image.StreamSource = stream;
-                image.EndInit();
-                image.Freeze();
+                var image = new BitmapImage();
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.StreamSource = stream;
+                    image.EndInit();
+                    image.Freeze();
+                }
+                return image;
             }
-            return image;
+            catch (NotSupportedException) { return null; }
+            catch (IOException) { return null; }
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;

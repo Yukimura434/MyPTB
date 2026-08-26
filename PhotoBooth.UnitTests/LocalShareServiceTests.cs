@@ -54,21 +54,21 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
-        public void CreateArchive_PreservesMotionPhotoBytesAndFilename()
+        public void CreateArchive_PreservesVideoBytesAndFilename()
         {
             var testDirectory = Path.Combine(Path.GetTempPath(), "PhotoBooth-LocalShare-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(testDirectory);
             try
             {
-                var motionPhoto = Path.Combine(testDirectory, "capture_MP.jpg");
+                var video = Path.Combine(testDirectory, "capture.mp4");
                 var expected = new byte[] { 0xff, 0xd8, 0xff, 0xe1, 1, 2, 3, 4, 0x66, 0x74, 0x79, 0x70 };
-                File.WriteAllBytes(motionPhoto, expected);
+                File.WriteAllBytes(video, expected);
                 var zip = Path.Combine(testDirectory, "download.zip");
 
-                LocalShareService.CreateArchive(zip, "capture-1", new[] { motionPhoto });
+                LocalShareService.CreateArchive(zip, "capture-1", new[] { video });
 
                 using (var archive = ZipFile.OpenRead(zip))
-                using (var stream = archive.GetEntry("capture-1/capture_MP.jpg").Open())
+                using (var stream = archive.GetEntry("capture-1/capture.mp4").Open())
                 using (var memory = new MemoryStream())
                 {
                     stream.CopyTo(memory);

@@ -65,15 +65,15 @@ namespace PhotoBooth.Customer.UI.Workflow
                 if (promoted.TryGetValue(shot.PicturePath, out picture)) { }
                 else if (!Contains(session, shot.PicturePath)) picture = shot.PicturePath;
                 else continue;
-                var motion = shot.MotionPhotoPath;
-                string motionReplacement;
-                if (!string.IsNullOrWhiteSpace(motion) && promoted.TryGetValue(motion, out motionReplacement)) motion = motionReplacement;
-                else if (!string.IsNullOrWhiteSpace(motion) && Contains(session, motion)) motion = null;
-                kept.Add(new CapturedShot { Id=shot.Id, Sequence=shot.Sequence, PicturePath=picture, MotionPhotoPath=motion, CapturedAtUtc=shot.CapturedAtUtc });
+                var video = shot.VideoPath;
+                string videoReplacement;
+                if (!string.IsNullOrWhiteSpace(video) && promoted.TryGetValue(video, out videoReplacement)) video = videoReplacement;
+                else if (!string.IsNullOrWhiteSpace(video) && Contains(session, video)) video = null;
+                kept.Add(new CapturedShot { Id=shot.Id, Sequence=shot.Sequence, PicturePath=picture, VideoPath=video, CapturedAtUtc=shot.CapturedAtUtc });
             }
             session.CapturedShots = kept;
             session.CapturedFiles = kept.Select(x=>x.PicturePath).ToList();
-            session.CapturedMotionFiles = kept.Where(x=>x.HasMotionPhoto).Select(x=>x.MotionPhotoPath).ToList();
+            session.CapturedVideoFiles = kept.Where(x=>x.HasVideo).Select(x=>x.VideoPath).ToList();
             session.CapturedImageIds = kept.Select(x=>x.Id).ToList();
         }
 

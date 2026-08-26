@@ -33,7 +33,8 @@ namespace PhotoBooth.UnitTests
                     OutputDirectory = root,
                     StartedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Local)
                 });
-                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeMotionPhotoService());
+                var videoService = new FakeVideoService();
+                var pipeline = new CapturePipeline(camera, sessions, settings, videoService);
 
                 var result = await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
 
@@ -49,6 +50,7 @@ namespace PhotoBooth.UnitTests
                 }
                 Assert.DoesNotContain(".staging.", file);
                 Assert.False(File.Exists(file + ".staging.jpg"));
+                Assert.True(videoService.LastFlipHorizontally);
             }
             finally { Directory.Delete(root, true); }
         }
@@ -70,7 +72,7 @@ namespace PhotoBooth.UnitTests
                     OutputDirectory = root,
                     StartedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Local)
                 });
-                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeMotionPhotoService());
+                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeVideoService());
 
                 await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
 
@@ -102,7 +104,7 @@ namespace PhotoBooth.UnitTests
                     OutputDirectory = root,
                     StartedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Local)
                 });
-                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeMotionPhotoService());
+                var pipeline = new CapturePipeline(camera, sessions, settings, new FakeVideoService());
 
                 await pipeline.ExecuteAsync(sessions.Session.Id, "cam", workspace, CancellationToken.None);
 
@@ -115,49 +117,49 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
-        public async Task ExecuteAsync_does_not_persist_photo_when_motion_packaging_fails()
+        public async Task ExecuteAsync_does_not_persist_photo_when_video_packaging_fails()
         {
             var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try
             {
                 var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), SessionNumber = 4, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
-                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingMotionPhotoService());
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingVideoService());
                 await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None));
                 Assert.Empty(sessions.Session.CapturedFiles);
-                Assert.Empty(Directory.GetFiles(root, "*_MP.jpg"));
+                Assert.Empty(Directory.GetFiles(root, "*.mp4"));
             }
             finally { Directory.Delete(root, true); }
         }
 
         [Fact]
-        public async Task ExecuteAsync_applies_lut_only_to_picture_and_keeps_motion_primary_raw()
+        public async Task ExecuteAsync_applies_lut_only_to_picture_and_keeps_video_primary_raw()
         {
             var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
             try
             {
                 var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), PresetId = Guid.NewGuid(), SessionNumber = 5, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
-                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FakeMotionPhotoService(), new GreenLutService());
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FakeVideoService(), new GreenLutService());
                 await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
-                var shot = Assert.Single(sessions.Session.CapturedShots); var picture = shot.PicturePath; var motion = shot.MotionPhotoPath;
+                var shot = Assert.Single(sessions.Session.CapturedShots); var picture = shot.PicturePath; var video = shot.VideoPath;
                 using (var image = new Bitmap(picture)) AssertNear(Color.Lime, image.GetPixel(0, 0));
-                using (var image = new Bitmap(motion)) { AssertNear(Color.Red, image.GetPixel(0, 0)); AssertNear(Color.Blue, image.GetPixel(3, 0)); }
+                using (var image = new Bitmap(video)) { AssertNear(Color.Red, image.GetPixel(0, 0)); AssertNear(Color.Blue, image.GetPixel(3, 0)); }
                 Assert.Equal(shot.Id, Assert.Single(sessions.Session.CapturedImageIds));
             }
             finally { Directory.Delete(root, true); }
         }
 
         [Fact]
-        public async Task ExecuteAsync_when_motion_module_is_disabled_keeps_picture_flow_working()
+        public async Task ExecuteAsync_when_video_module_is_disabled_keeps_picture_flow_working()
         {
             var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
             try
             {
                 var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), SessionNumber = 6, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
-                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingMotionPhotoService(), null, new FakeFeatureFlagService(false));
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingVideoService(), null, new FakeFeatureFlagService(false));
                 await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
-                var shot = Assert.Single(sessions.Session.CapturedShots); Assert.False(shot.HasMotionPhoto);
-                Assert.Single(sessions.Session.CapturedFiles); Assert.Empty(sessions.Session.CapturedMotionFiles);
+                var shot = Assert.Single(sessions.Session.CapturedShots); Assert.False(shot.HasVideo);
+                Assert.Single(sessions.Session.CapturedFiles); Assert.Empty(sessions.Session.CapturedVideoFiles);
             }
             finally { Directory.Delete(root, true); }
         }
@@ -218,7 +220,7 @@ namespace PhotoBooth.UnitTests
                 var index = shots.FindIndex(x => x.Id == previousShotId); if (index < 0) throw new InvalidOperationException("Captured shot not found.");
                 shots[index] = replacement; Session.CapturedShots = shots.OrderBy(x => x.Sequence).ToArray(); Project(); return Task.CompletedTask;
             }
-            void Project() { var shots = Session.CapturedShots ?? Array.Empty<CapturedShot>(); Session.CapturedFiles = shots.Select(x => x.PicturePath).ToArray(); Session.CapturedMotionFiles = shots.Where(x => x.HasMotionPhoto).Select(x => x.MotionPhotoPath).ToArray(); Session.CapturedImageIds = shots.Select(x => x.Id).ToArray(); }
+            void Project() { var shots = Session.CapturedShots ?? Array.Empty<CapturedShot>(); Session.CapturedFiles = shots.Select(x => x.PicturePath).ToArray(); Session.CapturedVideoFiles = shots.Where(x => x.HasVideo).Select(x => x.VideoPath).ToArray(); Session.CapturedImageIds = shots.Select(x => x.Id).ToArray(); }
         }
 
         sealed class FakeSettingsService : ISettingsService
@@ -247,27 +249,29 @@ namespace PhotoBooth.UnitTests
             public Task ReconcileAsync(CancellationToken token) => Task.CompletedTask;
         }
 
-        sealed class FakeMotionPhotoService : IMotionPhotoService
+        sealed class FakeVideoService : IVideoService
         {
+            public bool LastFlipHorizontally { get; private set; }
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
-            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, CancellationToken token)
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, bool flipHorizontally, CancellationToken token)
             {
+                LastFlipHorizontally = flipHorizontally;
                 File.Copy(stillImagePath, destinationPath, true);
                 return Task.CompletedTask;
             }
             public Task ComposeAsync(string stillCompositePath, Frame frame, IReadOnlyDictionary<int, string> slotAssignments, string destinationPath, CancellationToken token) => Task.CompletedTask;
-            public Task<string> CreatePreviewVideoAsync(string motionPhotoPath,string previewDirectory,CancellationToken token)=>Task.FromResult<string>(null);
+            public Task<string> CreatePreviewVideoAsync(string videoPath,string previewDirectory,CancellationToken token)=>Task.FromResult<string>(null);
         }
 
-        sealed class FailingMotionPhotoService : IMotionPhotoService
+        sealed class FailingVideoService : IVideoService
         {
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
-            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, CancellationToken token)
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, bool flipHorizontally, CancellationToken token)
             {
                 throw new InvalidOperationException("encoder failed");
             }
             public Task ComposeAsync(string stillCompositePath, Frame frame, IReadOnlyDictionary<int, string> slotAssignments, string destinationPath, CancellationToken token) => throw new InvalidOperationException("encoder failed");
-            public Task<string> CreatePreviewVideoAsync(string motionPhotoPath,string previewDirectory,CancellationToken token)=>throw new InvalidOperationException("encoder failed");
+            public Task<string> CreatePreviewVideoAsync(string videoPath,string previewDirectory,CancellationToken token)=>throw new InvalidOperationException("encoder failed");
         }
     }
 }

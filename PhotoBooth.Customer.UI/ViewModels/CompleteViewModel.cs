@@ -137,15 +137,15 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 // The capture record is the source of truth for one booth turn.
                 // Frame composition may use fewer slots, but the GIF must retain
                 // every original photo captured in that turn, in position order.
-                var motionAssets = (capture.Photos ?? new CapturePhoto[0])
-                    .Where(photo => string.Equals(photo.PhotoType, CaptureAssetTypes.MotionPhoto, StringComparison.OrdinalIgnoreCase)||string.Equals(photo.PhotoType, CaptureAssetTypes.Picture, StringComparison.OrdinalIgnoreCase))
+                var gifAssets = (capture.Photos ?? new CapturePhoto[0])
+                    .Where(photo => string.Equals(photo.PhotoType, CaptureAssetTypes.Picture, StringComparison.OrdinalIgnoreCase))
                     .OrderBy(photo => photo.Position)
                     .ToList();
-                var gifSources = motionAssets.Select(photo => photo.LocalPath).Where(File.Exists).ToList();
+                var gifSources = gifAssets.Select(photo => photo.LocalPath).Where(File.Exists).ToList();
                 if (gifSources.Count > 0)
                 {
                     await gifAnimation.CreateAsync(gifSources, output, context.Settings?.GifFrameDurationMilliseconds ?? 1000, CancellationToken.None);
-                    await captures.AddFileAsync(captureId, output, CaptureAssetTypes.Gif, motionAssets.Select(x=>x.Id).ToList(), CancellationToken.None);
+                    await captures.AddFileAsync(captureId, output, CaptureAssetTypes.Gif, gifAssets.Select(x=>x.Id).ToList(), CancellationToken.None);
                     GifPath = output;
                     log.LogInformation("GIF created with {FrameCount} original frames for capture {CaptureId}", gifSources.Count, captureId);
                 }

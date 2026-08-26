@@ -45,8 +45,8 @@ namespace PhotoBooth.Core.Models
     public static class CaptureAssetTypes
     {
         public const string Picture = "Picture";
-        public const string MotionPhoto = "MotionPhoto";
-        public const string MotionPhotoComposite = "MotionPhotoComposite";
+        public const string Video = "Video";
+        public const string CompositeVideo = "CompositeVideo";
         public const string Composite = "Composite";
         public const string Gif = "Gif";
         public const string ShareArchive = "ShareArchive";

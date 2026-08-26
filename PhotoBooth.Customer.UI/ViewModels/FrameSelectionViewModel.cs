@@ -18,8 +18,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
     public sealed class CapturedPhotoChoice : ObservableObject
     {
         bool selected;
-        public CapturedPhotoChoice(string path, int number, string previewVideoPath = null) { Path = path; Number = number; PreviewVideoPath = previewVideoPath; }
+        public CapturedPhotoChoice(string path, int number, string previewVideoPath = null, string picturePath = null) { Path = path; Number = number; PreviewVideoPath = previewVideoPath; PicturePath = picturePath ?? path; }
         public string Path { get; }
+        public string PicturePath { get; }
         public string PreviewVideoPath { get; }
         public int Number { get; }
         public bool IsSelected { get => selected; set => Set(ref selected, value); }
@@ -29,15 +30,19 @@ namespace PhotoBooth.Customer.UI.ViewModels
     {
         CapturedPhotoChoice photo;
         bool selected;
-        public FrameSlotChoice(FrameSlot slot) { Slot = slot; }
+        double mediaZoom = 1d, mediaCenterX = 0.5d, mediaCenterY = 0.5d;
+        public FrameSlotChoice(FrameSlot slot) { Slot = new FrameSlot { Id=slot.Id, Index=slot.Index, X=slot.X, Y=slot.Y, Width=slot.Width, Height=slot.Height }; }
         public FrameSlot Slot { get; }
         public int Number => Slot.Index + 1;
         public double X => Slot.X;
         public double Y => Slot.Y;
         public double Width => Slot.Width;
         public double Height => Slot.Height;
-        public CapturedPhotoChoice Photo { get => photo; set { if (Set(ref photo, value)) Raise(nameof(PhotoPath)); } }
+        public CapturedPhotoChoice Photo { get => photo; set { if (Set(ref photo, value)) { MediaZoom=1;MediaCenterX=0.5;MediaCenterY=0.5;Raise(nameof(PhotoPath)); } } }
         public string PhotoPath => Photo?.Path;
+        public double MediaZoom { get=>mediaZoom; set { if(Set(ref mediaZoom,MediaTransformGeometry.Clamp(value,1,2))) Slot.MediaZoom=mediaZoom; } }
+        public double MediaCenterX { get=>mediaCenterX; set { if(Set(ref mediaCenterX,MediaTransformGeometry.Clamp(value,0,1))) Slot.MediaCenterX=mediaCenterX; } }
+        public double MediaCenterY { get=>mediaCenterY; set { if(Set(ref mediaCenterY,MediaTransformGeometry.Clamp(value,0,1))) Slot.MediaCenterY=mediaCenterY; } }
         public bool IsSelected { get => selected; set => Set(ref selected, value); }
     }
 
@@ -76,7 +81,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
             presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; features = featureFlags; log = logger;
             CancelCommand = new RelayCommand(() => machine.MoveTo(CustomerWorkflowState.Preview));
-            printCommand = new AsyncCommand(ContinueToMotionPhoto, () => CanFinish && !IsPrinting);
+            printCommand = new AsyncCommand(ContinueToVideo, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
             RetryCommand = new AsyncCommand(UpdatePreview);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
@@ -219,7 +224,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 Directory.CreateDirectory(workingDirectory);
                 var working = new Session { Id = context.Session.Id, StartedAtUtc = context.Session.StartedAtUtc, OutputDirectory = workingDirectory, SessionNumber = context.Session.SessionNumber, FrameIndex = context.Session.FrameIndex, CapturedFiles = sourceFiles };
                 var assignments = FrameSlots.Where(x => x.Photo != null).ToDictionary(x => x.Slot.Index, x => x.Photo.Path);
-                var composed = await composer.ComposeAsync(working, SelectedFrame, context.DefaultPreset, final, assignments, token);
+                var composed = await composer.ComposeAsync(working, FrameWithTransforms(), context.DefaultPreset, final, assignments, token);
                 token.ThrowIfCancellationRequested();
                 if (final && context.DefaultPreset != null)
                 {
@@ -237,10 +242,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 var currentShots = (context.CurrentShots??new List<CapturedShot>()).ToList();
                 var promoted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var source in sourceFiles) promoted[source] = SessionWorkspace.Promote(context.Session, source);
-                foreach (var source in context.CurrentShots.Where(x=>x.HasMotionPhoto).Select(x=>x.MotionPhotoPath).Where(File.Exists)) promoted[source] = SessionWorkspace.Promote(context.Session, source);
+                foreach (var source in context.CurrentShots.Where(x=>x.HasVideo).Select(x=>x.VideoPath).Where(File.Exists)) promoted[source] = SessionWorkspace.Promote(context.Session, source);
                 var finalComposite = SessionWorkspace.Promote(context.Session, composed);
                 SessionWorkspace.ReplaceWorkspaceFiles(context.Session, promoted);
-                context.CurrentShots = currentShots.Select(x=>new CapturedShot{Id=x.Id,Sequence=x.Sequence,PicturePath=promoted.TryGetValue(x.PicturePath,out var picture)?picture:x.PicturePath,MotionPhotoPath=x.HasMotionPhoto&&promoted.TryGetValue(x.MotionPhotoPath,out var motion)?motion:x.MotionPhotoPath,CapturedAtUtc=x.CapturedAtUtc}).ToList(); sourceFiles = context.CurrentShots.Select(x=>x.PicturePath).ToList();
+                context.CurrentShots = currentShots.Select(x=>new CapturedShot{Id=x.Id,Sequence=x.Sequence,PicturePath=promoted.TryGetValue(x.PicturePath,out var picture)?picture:x.PicturePath,VideoPath=x.HasVideo&&promoted.TryGetValue(x.VideoPath,out var video)?video:x.VideoPath,CapturedAtUtc=x.CapturedAtUtc}).ToList(); sourceFiles = context.CurrentShots.Select(x=>x.PicturePath).ToList();
                 PreviewPath = finalComposite; context.Session.FinalImagePath = finalComposite; await sessions.UpdateAsync(context.Session, token);
                 log.LogInformation("Frame selected {Frame} ({ImageId}, originals {OriginalCount})", SelectedFrame.Name, context.Session.FinalImageId, sourceFiles.Count);
             }
@@ -254,15 +259,20 @@ namespace PhotoBooth.Customer.UI.ViewModels
             return (current.Count > 0 ? current : sessionShots.ToList()).Select(x=>x.PicturePath).Where(File.Exists).ToList();
         }
 
-        async Task ContinueToMotionPhoto()
+        Frame FrameWithTransforms() => new Frame { Id=SelectedFrame.Id, Name=SelectedFrame.Name, SourcePath=SelectedFrame.SourcePath,
+            ThumbnailPath=SelectedFrame.ThumbnailPath, PixelWidth=SelectedFrame.PixelWidth, PixelHeight=SelectedFrame.PixelHeight,
+            IsPinned=SelectedFrame.IsPinned, CreatedAtUtc=SelectedFrame.CreatedAtUtc, EventId=SelectedFrame.EventId,
+            Slots=FrameSlots.Select(x=>x.Slot).ToList() };
+
+        async Task ContinueToVideo()
         {
             try
             {
                 ErrorMessage = null; IsPrinting = true; previewCancellation?.Cancel();
                 await Compose(true, CancellationToken.None);
-                if (await features.IsEnabledAsync("MotionPhoto", CancellationToken.None))
+                if (await features.IsEnabledAsync("Video", CancellationToken.None))
                 {
-                    machine.MoveTo(CustomerWorkflowState.MotionPhotoSelection);
+                    machine.MoveTo(CustomerWorkflowState.VideoSelection);
                     return;
                 }
                 if (string.IsNullOrWhiteSpace(context.CaptureId))

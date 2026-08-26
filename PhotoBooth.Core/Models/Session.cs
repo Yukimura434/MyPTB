@@ -11,7 +11,7 @@ namespace PhotoBooth.Core.Models
         public DateTime? CompletedAtUtc { get; set; }
         public string OutputDirectory { get; set; }
         public IReadOnlyList<string> CapturedFiles { get; set; }
-        public IReadOnlyList<string> CapturedMotionFiles { get; set; }
+        public IReadOnlyList<string> CapturedVideoFiles { get; set; }
         public IReadOnlyList<CapturedShot> CapturedShots { get; set; }
         public string FinalImagePath { get; set; }
         public string SessionName { get; set; }

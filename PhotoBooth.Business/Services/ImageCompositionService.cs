@@ -41,6 +41,8 @@ namespace PhotoBooth.Business.Services
                             string path;
                             if (slotAssignments == null || !slotAssignments.TryGetValue(slot.Index, out path) || !File.Exists(path))
                                 continue;
+                            if (!IsRasterImage(path))
+                                throw new InvalidDataException("Frame slots require a raster image, but received: " + Path.GetFileName(path));
                             token.ThrowIfCancellationRequested();
                             using (var image = Image.FromFile(path))
                                 DrawCrop(graphics, image, slot);
@@ -62,21 +64,33 @@ namespace PhotoBooth.Business.Services
             }, token);
         }
 
+        static bool IsRasterImage(string path)
+        {
+            switch ((Path.GetExtension(path) ?? string.Empty).ToLowerInvariant())
+            {
+                case ".jpg": case ".jpeg": case ".png": case ".bmp": case ".gif": return true;
+                default: return false;
+            }
+        }
+
         static void DrawCrop(Graphics graphics, Image image, FrameSlot slot)
         {
             var target = (double)slot.Width / slot.Height;
             var source = (double)image.Width / image.Height;
-            RectangleF crop;
+            double coverWidth, coverHeight;
             if (source > target)
             {
-                var width = (float)(image.Height * target);
-                crop = new RectangleF((image.Width - width) / 2, 0, width, image.Height);
+                coverWidth = image.Height * target; coverHeight = image.Height;
             }
             else
             {
-                var height = (float)(image.Width / target);
-                crop = new RectangleF(0, (image.Height - height) / 2, image.Width, height);
+                coverWidth = image.Width; coverHeight = image.Width / target;
             }
+            var zoom=MediaTransformGeometry.Clamp(slot.MediaZoom,1,2);
+            var width=coverWidth/zoom;var height=coverHeight/zoom;
+            var centerX=MediaTransformGeometry.Clamp(slot.MediaCenterX, width/(2*image.Width), 1-width/(2*image.Width));
+            var centerY=MediaTransformGeometry.Clamp(slot.MediaCenterY, height/(2*image.Height), 1-height/(2*image.Height));
+            var crop=new RectangleF((float)(centerX*image.Width-width/2),(float)(centerY*image.Height-height/2),(float)width,(float)height);
             graphics.DrawImage(image, new Rectangle(slot.X, slot.Y, slot.Width, slot.Height), crop, GraphicsUnit.Pixel);
         }
     }

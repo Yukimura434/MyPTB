@@ -26,7 +26,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly ISessionService sessions;
         readonly IPresetService presets;
         readonly ICapturePipeline capturePipeline;
-        readonly IMotionPhotoService motionPhotos;
+        readonly IVideoService videos;
         readonly ILogger<CaptureViewModel> log;
         readonly LiveColorState liveColor;
         CancellationTokenSource liveCts;
@@ -44,10 +44,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public CaptureViewModel(CustomerWorkflowStateMachine m, CustomerWorkflowContext ctx, ICameraService c,
             ILiveViewService l, ISettingsService st, ISessionService ss, IPresetService ps,
-            ICapturePipeline pipeline, IMotionPhotoService motionPhotoService, LiveColorState liveColorState, ILogger<CaptureViewModel> logger)
+            ICapturePipeline pipeline, IVideoService videoService, LiveColorState liveColorState, ILogger<CaptureViewModel> logger)
         {
             machine = m; context = ctx; cameras = c; live = l; settings = st; sessions = ss;
-            presets = ps; capturePipeline = pipeline; motionPhotos = motionPhotoService; liveColor=liveColorState; log = logger;
+            presets = ps; capturePipeline = pipeline; videos = videoService; liveColor=liveColorState; log = logger;
             StartCommand = new AsyncCommand(Start, () => machine.State == CustomerWorkflowState.Idle);
             RetakeCommand = new AsyncCommand(Retake, () => machine.State == CustomerWorkflowState.Preview && ReviewPhotos.Any(x => x.IsRetakeSelected));
             SelectFrameCommand = new RelayCommand(() => machine.MoveTo(CustomerWorkflowState.FrameSelection));
@@ -290,7 +290,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try { current.Close(); } catch { }
         }
         async Task StartLive() { await StopLive(); var camera = context.Camera; if (camera == null) return; liveCts = new CancellationTokenSource(); await live.StartAsync(camera.Id, liveCts.Token); _ = LiveLoop(camera.Id, liveCts.Token); }
-        async Task LiveLoop(string cameraId, CancellationToken token) { while (!token.IsCancellationRequested) try { var frame = await live.GetFrameAsync(cameraId, token); if (frame?.ImageData != null) { LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));LiveImage = frame.ImageData; motionPhotos.AddLiveViewFrame(frame.ImageData, frame.TimestampUtc == default(DateTime) ? DateTime.UtcNow : frame.TimestampUtc); } await Task.Delay(40, token); } catch (OperationCanceledException) { break; } catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } } }
+        async Task LiveLoop(string cameraId, CancellationToken token) { while (!token.IsCancellationRequested) try { var frame = await live.GetFrameAsync(cameraId, token); if (frame?.ImageData != null) { LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));LiveImage = frame.ImageData; videos.AddLiveViewFrame(frame.ImageData, frame.TimestampUtc == default(DateTime) ? DateTime.UtcNow : frame.TimestampUtc); } await Task.Delay(40, token); } catch (OperationCanceledException) { break; } catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } } }
         async Task StopLive() { var c = liveCts; if (c == null) return; c.Cancel(); liveCts = null; if (context.Camera != null) try { await live.StopAsync(context.Camera.Id, CancellationToken.None); } catch { } }
         async Task CleanupTemporary() { var session=context.Session;if(session==null)return;SessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.UpdateAsync(session,CancellationToken.None);await Task.Run(()=>SessionWorkspace.Cleanup(session));context.CurrentShots.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.Session=null; }
         async Task ReplaceCaptureAsync(int position, CapturedShot newest)
@@ -302,7 +302,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             context.Session = await sessions.GetAsync(context.Session.Id, CancellationToken.None);
             context.CurrentShots[position] = newest;
             try { if (SessionWorkspace.Contains(context.Session, old.PicturePath) && System.IO.File.Exists(old.PicturePath)) System.IO.File.Delete(old.PicturePath); } catch { }
-            try { if (SessionWorkspace.Contains(context.Session, old.MotionPhotoPath) && System.IO.File.Exists(old.MotionPhotoPath)) System.IO.File.Delete(old.MotionPhotoPath); } catch { }
+            try { if (SessionWorkspace.Contains(context.Session, old.VideoPath) && System.IO.File.Exists(old.VideoPath)) System.IO.File.Delete(old.VideoPath); } catch { }
             CapturedImages.Clear(); foreach (var shot in context.CurrentShots) CapturedImages.Add(shot.PicturePath);
         }
         void RefreshReviewPhotos()

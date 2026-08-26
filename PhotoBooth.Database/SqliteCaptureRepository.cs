@@ -115,7 +115,7 @@ ON CONFLICT(Id) DO UPDATE SET FrameId=excluded.FrameId,CompositeImageId=excluded
             var photos = new List<CapturePhoto>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded,MimeType,FileLength,ContentHashSha256,CreatedAtUtc,AssetStatus FROM CapturePhotos WHERE CaptureId=$capture ORDER BY CASE PhotoType WHEN 'Picture' THEN 0 WHEN 'MotionPhoto' THEN 0 WHEN 'Composite' THEN 1 WHEN 'MotionPhotoComposite' THEN 2 WHEN 'Gif' THEN 3 ELSE 4 END,Position";
+                command.CommandText = "SELECT Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded,MimeType,FileLength,ContentHashSha256,CreatedAtUtc,AssetStatus FROM CapturePhotos WHERE CaptureId=$capture ORDER BY CASE PhotoType WHEN 'Picture' THEN 0 WHEN 'Video' THEN 0 WHEN 'Composite' THEN 1 WHEN 'CompositeVideo' THEN 2 WHEN 'Gif' THEN 3 ELSE 4 END,Position";
                 command.Parameters.AddWithValue("$capture", captureId);
                 using (var reader = command.ExecuteReader()) while (reader.Read()) photos.Add(new CapturePhoto
                 {
@@ -156,7 +156,7 @@ ON CONFLICT(Id) DO UPDATE SET CapturedImageId=excluded.CapturedImageId,LocalPath
         }
 
         static object Db(string value) => string.IsNullOrWhiteSpace(value) ? (object)DBNull.Value : value;
-        static string NormalizeType(string type,string path){if(!string.Equals(type,"Original",StringComparison.OrdinalIgnoreCase))return type;return !string.IsNullOrWhiteSpace(path)&&path.EndsWith("_MP.jpg",StringComparison.OrdinalIgnoreCase)?CaptureAssetTypes.MotionPhoto:CaptureAssetTypes.Picture;}
+        static string NormalizeType(string type,string path){if(!string.Equals(type,"Original",StringComparison.OrdinalIgnoreCase))return type;return !string.IsNullOrWhiteSpace(path)&&path.EndsWith(".mp4",StringComparison.OrdinalIgnoreCase)?CaptureAssetTypes.Video:CaptureAssetTypes.Picture;}
         static object Date(DateTime? value) => value.HasValue ? (object)value.Value.ToUniversalTime().ToString("O") : DBNull.Value;
         static string Text(SqliteDataReader reader, int index) => reader.IsDBNull(index) ? null : reader.GetString(index);
         static DateTime Parse(string value) => DateTime.Parse(value).ToUniversalTime();

@@ -9,7 +9,7 @@ namespace PhotoBooth.Core.Models
         public long SessionCount { get; set; }
         public long CaptureCount { get; set; }
         public long PictureCount { get; set; }
-        public long MotionPhotoCount { get; set; }
+        public long VideoCount { get; set; }
         public long CompositeCount { get; set; }
         public long GifCount { get; set; }
         public long ShareArchiveCount { get; set; }
@@ -36,7 +36,7 @@ namespace PhotoBooth.Core.Models
         public DateTime CreatedAtLocal => CreatedAtUtc.ToLocalTime();
         public string Status { get; set; }
         public int AssetCount { get; set; }
-        public int MotionPhotoCount { get; set; }
+        public int VideoCount { get; set; }
         public int GifCount { get; set; }
         public int PrintCount { get; set; }
         public int MissingAssetCount { get; set; }

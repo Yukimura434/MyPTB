@@ -11,31 +11,31 @@ using Xunit;
 
 namespace PhotoBooth.UnitTests
 {
-    public sealed class MotionPhotoServiceTests
+    public sealed class VideoServiceTests
     {
         [Fact]
-        public async Task CreateAsync_WhenEncoderIsDisabled_DoesNotCreateFakeMotionPhoto()
+        public async Task CreateAsync_WhenEncoderIsDisabled_DoesNotCreateFakeVideo()
         {
             var options = new ApplicationOptions();
-            options.Features["MotionPhotoNativeEncoder"] = false;
-            var service = new MotionPhotoService(options);
+            options.Features["VideoNativeEncoder"] = false;
+            var service = new VideoService(options);
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                service.CreateAsync("still.jpg", "capture_MP.jpg", DateTime.UtcNow, CancellationToken.None));
+                service.CreateAsync("still.jpg", "capture.mp4", DateTime.UtcNow, false, CancellationToken.None));
 
-            Assert.Contains("static JPEG will not be saved", exception.Message);
-            Assert.False(File.Exists("capture_MP.jpg"));
+            Assert.Contains("MP4 video encoding is disabled", exception.Message);
+            Assert.False(File.Exists("capture.mp4"));
         }
 
         [Fact]
-        public async Task CreateAsync_writes_single_motion_photo_with_xmp_and_appended_mp4()
+        public async Task CreateAsync_writes_standalone_mp4_video()
         {
             var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try
             {
                 var still = Path.Combine(root, "still.jpg");
-                var destination = Path.Combine(root, "capture_MP.jpg");
+                var destination = Path.Combine(root, "capture.mp4");
                 byte[] frame;
                 using (var bitmap = new Bitmap(64, 64))
                 {
@@ -44,21 +44,17 @@ namespace PhotoBooth.UnitTests
                     bitmap.Save(still, ImageFormat.Jpeg);
                 }
 
-                var service = new MotionPhotoService();
+                var service = new VideoService();
                 var shutter = DateTime.UtcNow;
                 for (var i = 0; i <= 54; i++) service.AddLiveViewFrame(frame, shutter.AddSeconds(-3).AddTicks(TimeSpan.TicksPerSecond * i / 18));
 
-                await service.CreateAsync(still, destination, shutter, CancellationToken.None);
+                await service.CreateAsync(still, destination, shutter, false, CancellationToken.None);
 
                 var bytes = File.ReadAllBytes(destination);
-                Assert.True(bytes.Length > new FileInfo(still).Length);
-                var text = Encoding.UTF8.GetString(bytes);
-                Assert.Contains("Camera:MotionPhoto=\"1\"", text);
-                Assert.Contains("Item:Semantic=\"MotionPhoto\"", text);
-                Assert.True(Find(bytes, Encoding.ASCII.GetBytes("ftyp")) > 0);
-                using (var image = new Bitmap(destination)) Assert.Equal(new Size(64, 64), image.Size);
+                Assert.True(bytes.Length > 12);
+                Assert.Equal(4, Find(bytes, Encoding.ASCII.GetBytes("ftyp")));
                 var preview = await service.CreatePreviewVideoAsync(destination, Path.Combine(root, "preview"), CancellationToken.None);
-                Assert.True(File.Exists(preview)); Assert.True(Find(File.ReadAllBytes(preview), Encoding.ASCII.GetBytes("ftyp")) >= 0);
+                Assert.Equal(destination, preview); Assert.True(File.Exists(preview));
             }
             finally { Directory.Delete(root, true); }
         }

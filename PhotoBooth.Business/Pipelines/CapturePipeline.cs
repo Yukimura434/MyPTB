@@ -17,16 +17,16 @@ namespace PhotoBooth.Business.Pipelines
         readonly ICameraService camera;
         readonly ISessionRepository sessions;
         readonly ISettingsService settings;
-        readonly IMotionPhotoService motionPhotos;
+        readonly IVideoService videos;
         readonly IColorLutService colorLuts;
         readonly IFeatureFlagService features;
 
-        public CapturePipeline(ICameraService camera, ISessionRepository sessions, ISettingsService settings, IMotionPhotoService motionPhotos, IColorLutService colorLuts = null, IFeatureFlagService features = null)
+        public CapturePipeline(ICameraService camera, ISessionRepository sessions, ISettingsService settings, IVideoService videos, IColorLutService colorLuts = null, IFeatureFlagService features = null)
         {
             this.camera = camera;
             this.sessions = sessions;
             this.settings = settings;
-            this.motionPhotos = motionPhotos;
+            this.videos = videos;
             this.colorLuts = colorLuts;
             this.features = features;
         }
@@ -48,12 +48,12 @@ namespace PhotoBooth.Business.Pipelines
             var sequence = await sessions.GetNextCaptureSequenceAsync(session.Id, token);
             var imageId = session.StartedAtUtc.ToLocalTime().ToString("yyMMdd") + session.SessionNumber.ToString("D2") + sequence.ToString("D4");
             var pictureDestination = Path.Combine(captureDirectory, imageId + ".jpg");
-            var motionDestination = Path.Combine(captureDirectory, imageId + "_MP.jpg");
+            var videoDestination = Path.Combine(captureDirectory, imageId + ".mp4");
 
             var appSettings = await settings.GetAsync(token) ?? new Settings();
             var saveMode = appSettings.SaveLocation;
             var autoFlip = appSettings.AutoFlip;
-            var motionPhotoEnabled = features == null || await features.IsEnabledAsync("MotionPhoto", token).ConfigureAwait(false);
+            var videoEnabled = features == null || await features.IsEnabledAsync("Video", token).ConfigureAwait(false);
 
             // Capture is staged to a temporary file first so that the camera's own
             // card copy (camera filename) and the software's renamed PC file never
@@ -67,7 +67,7 @@ namespace PhotoBooth.Business.Pipelines
                 if (result == null || !result.Succeeded) throw new InvalidOperationException(result?.Error ?? "Capture failed.");
                 if (!File.Exists(staging)) throw new IOException("The camera transfer completed without a session image.");
 
-                var rawStill = Path.Combine(captureDirectory, imageId + ".motion-still.jpg");
+                var rawStill = Path.Combine(captureDirectory, imageId + ".video-still.jpg");
                 FinalizeImage(staging, rawStill, autoFlip);
                 File.Copy(rawStill, pictureDestination, true);
                 var colorPresetId = session.PresetId ?? appSettings.DefaultPresetId;
@@ -75,8 +75,8 @@ namespace PhotoBooth.Business.Pipelines
                     await colorLuts.ApplyCaptureAsync(colorPresetId.Value, pictureDestination, token).ConfigureAwait(false);
                 try
                 {
-                    if (motionPhotoEnabled)
-                        await motionPhotos.CreateAsync(rawStill, motionDestination, shutterTimestampUtc, token).ConfigureAwait(false);
+                    if (videoEnabled)
+                        await videos.CreateAsync(rawStill, videoDestination, shutterTimestampUtc, autoFlip, token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -89,7 +89,7 @@ namespace PhotoBooth.Business.Pipelines
                     Id = imageId,
                     Sequence = sequence,
                     PicturePath = pictureDestination,
-                    MotionPhotoPath = motionPhotoEnabled ? motionDestination : null,
+                    VideoPath = videoEnabled ? videoDestination : null,
                     CapturedAtUtc = shutterTimestampUtc
                 }, token);
                 committed = true;
@@ -100,7 +100,7 @@ namespace PhotoBooth.Business.Pipelines
                 if (!committed)
                 {
                     try { if (File.Exists(pictureDestination)) File.Delete(pictureDestination); } catch { }
-                    try { if (File.Exists(motionDestination)) File.Delete(motionDestination); } catch { }
+                    try { if (File.Exists(videoDestination)) File.Delete(videoDestination); } catch { }
                 }
             }
             return await sessions.GetAsync(session.Id, token);

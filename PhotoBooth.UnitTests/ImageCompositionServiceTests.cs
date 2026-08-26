@@ -53,6 +53,22 @@ namespace PhotoBooth.UnitTests
             }
         }
 
+        [Fact]
+        public async Task ComposeAsync_RejectsVideoAssignmentsBeforeCallingGdiImageDecoder()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "PhotoBooth-compose-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var video = Path.Combine(directory, "capture.mp4"); File.WriteAllBytes(video, new byte[] { 0, 0, 0, 0 });
+                var frame = new Frame { PixelWidth = 10, PixelHeight = 10, Slots = new[] { new FrameSlot { Index = 0, Width = 10, Height = 10 } } };
+                var session = new Session { OutputDirectory = directory };
+                var error = await Assert.ThrowsAsync<InvalidDataException>(() => new ImageCompositionService().ComposeAsync(session, frame, null, false, new Dictionary<int, string> { [0] = video }, CancellationToken.None));
+                Assert.Contains("raster image", error.Message);
+            }
+            finally { try { Directory.Delete(directory, true); } catch { } }
+        }
+
         static void SaveSolid(string path, Color color, int width, int height)
         {
             using (var image = new Bitmap(width, height, PixelFormat.Format32bppArgb))

@@ -14,7 +14,7 @@ using PhotoBooth.Shared;
 
 namespace PhotoBooth.Infrastructure.Services
 {
-    public sealed class MotionPhotoService : IMotionPhotoService
+    public sealed class VideoService : IVideoService
     {
         internal const int FramesPerSecond = 18;
         internal static readonly TimeSpan Preroll = TimeSpan.FromSeconds(3);
@@ -27,11 +27,11 @@ namespace PhotoBooth.Infrastructure.Services
 
         // Kept for in-process encoder tests. Production DI isolates native
         // FFmpeg work in a child process so a native crash cannot kill the UI.
-        public MotionPhotoService() : this(true, false) { }
-        public MotionPhotoService(ApplicationOptions options) : this(
-            options != null && options.Features.TryGetValue("MotionPhoto", out var moduleEnabled) && moduleEnabled &&
-            options.Features.TryGetValue("MotionPhotoNativeEncoder", out var encoderEnabled) && encoderEnabled, true) { }
-        MotionPhotoService(bool nativeEncoderEnabled, bool isolateNativeEncoder) { this.nativeEncoderEnabled = nativeEncoderEnabled; this.isolateNativeEncoder = isolateNativeEncoder; }
+        public VideoService() : this(true, false) { }
+        public VideoService(ApplicationOptions options) : this(
+            options != null && options.Features.TryGetValue("Video", out var moduleEnabled) && moduleEnabled &&
+            options.Features.TryGetValue("VideoNativeEncoder", out var encoderEnabled) && encoderEnabled, true) { }
+        VideoService(bool nativeEncoderEnabled, bool isolateNativeEncoder) { this.nativeEncoderEnabled = nativeEncoderEnabled; this.isolateNativeEncoder = isolateNativeEncoder; }
 
         public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc)
         {
@@ -48,13 +48,13 @@ namespace PhotoBooth.Infrastructure.Services
             }
         }
 
-        public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, CancellationToken token)
+        public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, bool flipHorizontally, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(stillImagePath)) throw new ArgumentException("Still image path is required.", nameof(stillImagePath));
             if (string.IsNullOrWhiteSpace(destinationPath)) throw new ArgumentException("Destination path is required.", nameof(destinationPath));
             if (!nativeEncoderEnabled)
             {
-                throw new InvalidOperationException("Motion Photo encoding is disabled. A static JPEG will not be saved with an _MP filename.");
+                throw new InvalidOperationException("MP4 video encoding is disabled.");
             }
             shutterTimestampUtc = shutterTimestampUtc.Kind == DateTimeKind.Utc ? shutterTimestampUtc : shutterTimestampUtc.ToUniversalTime();
             BufferedFrame[] snapshot;
@@ -63,29 +63,27 @@ namespace PhotoBooth.Infrastructure.Services
             return Task.Run(() =>
             {
                 if (isolateNativeEncoder)
-                    CreateExternal(stillImagePath, destinationPath, shutterTimestampUtc, snapshot, token);
+                    CreateExternal(stillImagePath, destinationPath, shutterTimestampUtc, snapshot, flipHorizontally, token);
                 else
-                    Create(stillImagePath, destinationPath, shutterTimestampUtc, snapshot, token);
+                    Create(stillImagePath, destinationPath, shutterTimestampUtc, snapshot, flipHorizontally, token);
             }, token);
         }
 
         public Task ComposeAsync(string stillCompositePath, Frame frame, IReadOnlyDictionary<int, string> slotAssignments, string destinationPath, CancellationToken token)
         {
-            if (!nativeEncoderEnabled) throw new InvalidOperationException("Motion Photo encoding is disabled.");
+            if (!nativeEncoderEnabled) throw new InvalidOperationException("MP4 video encoding is disabled.");
             if (frame == null) throw new ArgumentNullException(nameof(frame));
-            if (slotAssignments == null || slotAssignments.Count == 0) throw new ArgumentException("Motion Photo slot assignments are required.", nameof(slotAssignments));
+            if (slotAssignments == null || slotAssignments.Count == 0) throw new ArgumentException("MP4 video slot assignments are required.", nameof(slotAssignments));
             return Task.Run(() => ComposeExternal(stillCompositePath, frame, slotAssignments, destinationPath, token), token);
         }
 
-        public Task<string> CreatePreviewVideoAsync(string motionPhotoPath, string previewDirectory, CancellationToken token)
+        public Task<string> CreatePreviewVideoAsync(string videoPath, string previewDirectory, CancellationToken token)
         {
             return Task.Run(() =>
             {
                 token.ThrowIfCancellationRequested(); Directory.CreateDirectory(previewDirectory);
-                var destination = Path.Combine(previewDirectory, Path.GetFileNameWithoutExtension(motionPhotoPath) + ".preview.mp4");
-                if (File.Exists(destination)) File.Delete(destination);
-                ExtractEmbeddedVideo(motionPhotoPath, destination);
-                return destination;
+                if (!string.Equals(Path.GetExtension(videoPath), ".mp4", StringComparison.OrdinalIgnoreCase) || !IsValidMp4(videoPath)) throw new InvalidDataException("The video is not a valid MP4 file: " + videoPath);
+                return Path.GetFullPath(videoPath);
             }, token);
         }
 
@@ -95,7 +93,7 @@ namespace PhotoBooth.Infrastructure.Services
             if (!File.Exists(frame.SourcePath)) throw new FileNotFoundException("The frame overlay is unavailable.", frame.SourcePath);
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
             Directory.CreateDirectory(directory);
-            var attempt = Path.Combine(directory, ".motion-composite-" + Guid.NewGuid().ToString("N"));
+            var attempt = Path.Combine(directory, ".video-composite-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(attempt);
             try
             {
@@ -111,26 +109,28 @@ namespace PhotoBooth.Infrastructure.Services
                     foreach (var slot in frame.Slots.OrderBy(x => x.Index))
                     {
                         string source;
-                        if (!assignments.TryGetValue(slot.Index, out source) || !File.Exists(source)) throw new FileNotFoundException("A Motion Photo assigned to slot " + slot.Index + " is unavailable.", source);
-                        writer.WriteLine(slot.Index + "\t" + slot.X + "\t" + slot.Y + "\t" + slot.Width + "\t" + slot.Height + "\t" + source);
+                        if (!assignments.TryGetValue(slot.Index, out source) || !File.Exists(source)) throw new FileNotFoundException("The video assigned to slot " + slot.Index + " is unavailable.", source);
+                        writer.WriteLine(slot.Index + "\t" + slot.X + "\t" + slot.Y + "\t" + slot.Width + "\t" + slot.Height + "\t" +
+                            slot.MediaZoom.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\t" + slot.MediaCenterX.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\t" +
+                            slot.MediaCenterY.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\t" + source);
                     }
-                var output = Path.Combine(attempt, "result_MP.jpg");
-                RunHelper("--motion-photo-compose " + Quote(primaryJpeg) + " " + Quote(frame.SourcePath) + " " + Quote(manifest) + " " + Quote(output), token);
-                if (!IsValidMotionPhoto(output)) throw new InvalidDataException("The composed Motion Photo is invalid.");
+                var output = Path.Combine(attempt, "result.mp4");
+                RunHelper("--video-compose " + Quote(primaryJpeg) + " " + Quote(frame.SourcePath) + " " + Quote(manifest) + " " + Quote(output), token);
+                if (!IsValidMp4(output)) throw new InvalidDataException("The composed MP4 video is invalid.");
                 if (File.Exists(destinationPath)) File.Delete(destinationPath);
                 File.Move(output, destinationPath);
             }
             finally { try { if (Directory.Exists(attempt)) Directory.Delete(attempt, true); } catch { } }
         }
 
-        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, BufferedFrame[] source, CancellationToken token)
+        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
         {
             ValidateSource(stillImagePath, shutterUtc, source);
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
             Directory.CreateDirectory(directory);
-            var attemptDirectory = Path.Combine(directory, ".motion-" + Guid.NewGuid().ToString("N"));
+            var attemptDirectory = Path.Combine(directory, ".video-" + Guid.NewGuid().ToString("N"));
             var frameDirectory = Path.Combine(attemptDirectory, "frames");
-            var outputPath = Path.Combine(attemptDirectory, "result_MP.jpg");
+            var outputPath = Path.Combine(attemptDirectory, "result.mp4");
             Directory.CreateDirectory(frameDirectory);
             try
             {
@@ -141,11 +141,11 @@ namespace PhotoBooth.Infrastructure.Services
                     File.WriteAllBytes(Path.Combine(frameDirectory, i.ToString("D3") + ".jpg"), selected[i].ImageData);
                 }
                 var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
-                if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Motion Photo encoder is unavailable.", helper);
+                if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
                 var start = new ProcessStartInfo
                 {
                     FileName = helper,
-                    Arguments = "--motion-photo-encode " + Quote(stillImagePath) + " " + Quote(frameDirectory) + " " + Quote(outputPath),
+                    Arguments = "--video-encode " + Quote(stillImagePath) + " " + Quote(frameDirectory) + " " + Quote(outputPath) + (flipHorizontally ? " 1" : " 0"),
                     WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -154,7 +154,7 @@ namespace PhotoBooth.Infrastructure.Services
                 };
                 using (var process = Process.Start(start))
                 {
-                    if (process == null) throw new InvalidOperationException("The isolated Motion Photo encoder could not start.");
+                    if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
                     var stdout = process.StandardOutput.ReadToEndAsync();
                     var stderr = process.StandardError.ReadToEndAsync();
                     var elapsed = Stopwatch.StartNew();
@@ -164,12 +164,12 @@ namespace PhotoBooth.Infrastructure.Services
                         {
                             try { process.Kill(); } catch { }
                             token.ThrowIfCancellationRequested();
-                            throw new TimeoutException("Motion Photo encoding exceeded two minutes.");
+                            throw new TimeoutException("Video encoding exceeded two minutes.");
                         }
                     }
-                    if (process.ExitCode != 0) throw new InvalidOperationException("Motion Photo encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
+                    if (process.ExitCode != 0) throw new InvalidOperationException("Video encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
                 }
-                if (!IsValidMotionPhoto(outputPath)) throw new InvalidDataException("The encoder output does not contain valid Motion Photo XMP and MP4 data.");
+                if (!IsValidMp4(outputPath)) throw new InvalidDataException("The encoder output is not a valid MP4 video.");
                 if (File.Exists(destinationPath)) File.Delete(destinationPath);
                 File.Move(outputPath, destinationPath);
             }
@@ -183,21 +183,20 @@ namespace PhotoBooth.Infrastructure.Services
         {
             try
             {
-                if (args != null && args.Length > 0 && string.Equals(args[0], "--motion-photo-compose", StringComparison.Ordinal))
+                if (args != null && args.Length > 0 && string.Equals(args[0], "--video-compose", StringComparison.Ordinal))
                     return RunCompositeCommand(args);
-                if (args == null || args.Length != 4) throw new ArgumentException("Expected still image, frame directory and output path.");
+                if (args == null || (args.Length != 4 && args.Length != 5)) throw new ArgumentException("Expected still image, frame directory, output path and optional flip flag.");
                 var files = Directory.GetFiles(args[2], "*.jpg").OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
-                if (files.Length != FramesPerSecond * 3) throw new InvalidDataException("The Motion Photo encoder requires exactly 54 frames.");
+                if (files.Length != FramesPerSecond * 3) throw new InvalidDataException("The MP4 encoder requires exactly 54 frames.");
                 var selected = new List<BufferedFrame>(files.Length);
                 for (var i = 0; i < files.Length; i++) selected.Add(new BufferedFrame(DateTime.UtcNow.AddTicks(i), File.ReadAllBytes(files[i])));
                 var videoPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[3])), Guid.NewGuid().ToString("N") + ".mp4");
                 try
                 {
-                    EncodeVideo(videoPath, selected, CancellationToken.None);
-                    var videoLength = new FileInfo(videoPath).Length;
-                    if (videoLength <= 0) throw new IOException("The video encoder produced an empty file.");
-                    WriteMotionPhoto(args[1], videoPath, args[3], videoLength, (selected.Count - 1L) * 1000000L / FramesPerSecond, CancellationToken.None);
-                    if (!IsValidMotionPhoto(args[3])) throw new InvalidDataException("Motion Photo validation failed.");
+                    EncodeVideo(videoPath, selected, args.Length == 5 && args[4] == "1", CancellationToken.None);
+                    if (!IsValidMp4(videoPath)) throw new InvalidDataException("MP4 video validation failed.");
+                    if (File.Exists(args[3])) File.Delete(args[3]);
+                    File.Move(videoPath, args[3]);
                     return 0;
                 }
                 finally { try { if (File.Exists(videoPath)) File.Delete(videoPath); } catch { } }
@@ -213,7 +212,7 @@ namespace PhotoBooth.Infrastructure.Services
         {
             if (args.Length != 5) throw new ArgumentException("Expected still composite, frame overlay, slot manifest and output path.");
             var specs = File.ReadAllLines(args[3]).Where(x => !string.IsNullOrWhiteSpace(x)).Select(ParseSlotSpec).OrderBy(x => x.Index).ToList();
-            if (specs.Count == 0) throw new InvalidDataException("The Motion Photo composition has no slots.");
+            if (specs.Count == 0) throw new InvalidDataException("The MP4 composition has no slots.");
             var temp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[4])), Guid.NewGuid().ToString("N") + ".mp4");
             var extracted = new List<string>();
             var readers = new List<VideoFileReader>();
@@ -230,7 +229,7 @@ namespace PhotoBooth.Infrastructure.Services
                         continue;
                     }
                     var mp4 = Path.Combine(Path.GetDirectoryName(temp), Guid.NewGuid().ToString("N") + ".source.mp4");
-                    ExtractEmbeddedVideo(spec.Path, mp4); extracted.Add(mp4);
+                    CopyVideo(spec.Path, mp4); extracted.Add(mp4);
                     var reader = new VideoFileReader(); reader.Open(mp4); readers.Add(reader);
                     readerIndex = readers.Count - 1;
                     sources.Add(Path.GetFullPath(spec.Path), readerIndex);
@@ -239,10 +238,10 @@ namespace PhotoBooth.Infrastructure.Services
                 var rendered = RenderCompositeFrames(args[2], specs, readers, readerIndexes);
                 foreach (var reader in readers) reader.Close();
                 readers.Clear();
-                EncodeVideo(temp, rendered, CancellationToken.None);
-                var length = new FileInfo(temp).Length;
-                WriteMotionPhoto(args[1], temp, args[4], length, 53L * 1000000L / FramesPerSecond, CancellationToken.None);
-                if (!IsValidMotionPhoto(args[4])) throw new InvalidDataException("Composed Motion Photo validation failed.");
+                EncodeVideo(temp, rendered, false, CancellationToken.None);
+                if (!IsValidMp4(temp)) throw new InvalidDataException("Composed MP4 video validation failed.");
+                if (File.Exists(args[4])) File.Delete(args[4]);
+                File.Move(temp, args[4]);
                 return 0;
             }
             finally
@@ -254,23 +253,17 @@ namespace PhotoBooth.Infrastructure.Services
 
         static SlotSpec ParseSlotSpec(string line)
         {
-            var parts = line.Split(new[] { '\t' }, 6);
-            if (parts.Length != 6) throw new InvalidDataException("Invalid Motion Photo slot manifest.");
-            return new SlotSpec(int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]), int.Parse(parts[4]), parts[5]);
+            var parts = line.Split(new[] { '\t' }, 9);
+            if (parts.Length != 9) throw new InvalidDataException("Invalid Video slot manifest.");
+            var culture=System.Globalization.CultureInfo.InvariantCulture;
+            return new SlotSpec(int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]), int.Parse(parts[4]),
+                double.Parse(parts[5],culture),double.Parse(parts[6],culture),double.Parse(parts[7],culture),parts[8]);
         }
 
-        static void ExtractEmbeddedVideo(string motionPhoto, string destination)
+        static void CopyVideo(string videoPath, string destination)
         {
-            if (!IsValidMotionPhoto(motionPhoto)) throw new InvalidDataException("The assigned file is not a valid Motion Photo: " + motionPhoto);
-            var bytes = File.ReadAllBytes(motionPhoto);
-            var text = Encoding.UTF8.GetString(bytes);
-            const string marker = "Item:Semantic=\"MotionPhoto\" Item:Length=\"";
-            var start = text.IndexOf(marker, StringComparison.Ordinal);
-            if (start < 0) throw new InvalidDataException("Motion Photo video length is missing.");
-            start += marker.Length; var end = text.IndexOf('"', start);
-            long length;
-            if (end < 0 || !long.TryParse(text.Substring(start, end - start), out length) || length <= 0 || length > bytes.LongLength) throw new InvalidDataException("Motion Photo video length is invalid.");
-            using (var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write)) output.Write(bytes, bytes.Length - (int)length, (int)length);
+            if (!IsValidMp4(videoPath)) throw new InvalidDataException("The assigned MP4 video is invalid: " + videoPath);
+            File.Copy(videoPath, destination, false);
         }
 
         static List<BufferedFrame> RenderCompositeFrames(string overlayPath, IReadOnlyList<SlotSpec> specs, IReadOnlyList<VideoFileReader> readers, IReadOnlyList<int> readerIndexes)
@@ -320,9 +313,13 @@ namespace PhotoBooth.Infrastructure.Services
         static void DrawCrop(Graphics graphics, Image image, SlotSpec slot, double scaleX, double scaleY)
         {
             var target = slot.Width * scaleX / (slot.Height * scaleY); var source = (double)image.Width / image.Height;
-            RectangleF crop;
-            if (source > target) { var w = (float)(image.Height * target); crop = new RectangleF((image.Width - w) / 2, 0, w, image.Height); }
-            else { var h = (float)(image.Width / target); crop = new RectangleF(0, (image.Height - h) / 2, image.Width, h); }
+            double coverWidth,coverHeight;
+            if (source > target) { coverWidth=image.Height*target;coverHeight=image.Height; }
+            else { coverWidth=image.Width;coverHeight=image.Width/target; }
+            var zoom=MediaTransformGeometry.Clamp(slot.Zoom,1,2);var cropWidth=coverWidth/zoom;var cropHeight=coverHeight/zoom;
+            var centerX=MediaTransformGeometry.Clamp(slot.CenterX,cropWidth/(2*image.Width),1-cropWidth/(2*image.Width));
+            var centerY=MediaTransformGeometry.Clamp(slot.CenterY,cropHeight/(2*image.Height),1-cropHeight/(2*image.Height));
+            var crop=new RectangleF((float)(centerX*image.Width-cropWidth/2),(float)(centerY*image.Height-cropHeight/2),(float)cropWidth,(float)cropHeight);
             graphics.DrawImage(image, new Rectangle((int)Math.Round(slot.X * scaleX), (int)Math.Round(slot.Y * scaleY), Math.Max(1, (int)Math.Round(slot.Width * scaleX)), Math.Max(1, (int)Math.Round(slot.Height * scaleY))), crop, GraphicsUnit.Pixel);
         }
 
@@ -335,50 +332,50 @@ namespace PhotoBooth.Infrastructure.Services
         static void RunHelper(string arguments, CancellationToken token)
         {
             var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
-            if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Motion Photo encoder is unavailable.", helper);
+            if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
             var start = new ProcessStartInfo { FileName = helper, Arguments = arguments, WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
             using (var process = Process.Start(start))
             {
-                if (process == null) throw new InvalidOperationException("The isolated Motion Photo encoder could not start.");
+                if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
                 var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); var elapsed = Stopwatch.StartNew();
-                while (!process.WaitForExit(100)) { if (token.IsCancellationRequested || elapsed.Elapsed > TimeSpan.FromMinutes(3)) { try { process.Kill(); } catch { } token.ThrowIfCancellationRequested(); throw new TimeoutException("Motion Photo composition exceeded three minutes."); } }
-                if (process.ExitCode != 0) throw new InvalidOperationException("Motion Photo encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
+                while (!process.WaitForExit(100)) { if (token.IsCancellationRequested || elapsed.Elapsed > TimeSpan.FromMinutes(3)) { try { process.Kill(); } catch { } token.ThrowIfCancellationRequested(); throw new TimeoutException("Video composition exceeded three minutes."); } }
+                if (process.ExitCode != 0) throw new InvalidOperationException("Video encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
             }
         }
 
         static string Quote(string value) => "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
 
-        internal static bool IsValidMotionPhoto(string path)
+        internal static bool IsValidMp4(string path)
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
-            var value = Encoding.ASCII.GetString(File.ReadAllBytes(path));
-            return value.IndexOf("Camera:MotionPhoto=\"1\"", StringComparison.Ordinal) >= 0 && value.IndexOf("Item:Semantic=\"MotionPhoto\"", StringComparison.Ordinal) >= 0 && value.IndexOf("ftyp", StringComparison.Ordinal) >= 0;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || new FileInfo(path).Length < 12) return false;
+            var header = new byte[12];
+            using (var stream = File.OpenRead(path)) if (stream.Read(header, 0, header.Length) != header.Length) return false;
+            return header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p';
         }
 
         static void ValidateSource(string stillImagePath, DateTime shutterUtc, BufferedFrame[] source)
         {
             if (!File.Exists(stillImagePath)) throw new FileNotFoundException("The captured still image is unavailable.", stillImagePath);
             if (source.Length < FramesPerSecond || source[0].TimestampUtc > shutterUtc - Preroll + TimeSpan.FromMilliseconds(250))
-                throw new InvalidOperationException("Motion Photo requires a complete three-second live-view buffer.");
+                throw new InvalidOperationException("MP4 video requires a complete three-second live-view buffer.");
         }
 
-        static void Create(string stillImagePath, string destinationPath, DateTime shutterUtc, BufferedFrame[] source, CancellationToken token)
+        static void Create(string stillImagePath, string destinationPath, DateTime shutterUtc, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
         {
             ValidateSource(stillImagePath, shutterUtc, source);
 
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
             Directory.CreateDirectory(directory);
             var attemptId = Guid.NewGuid().ToString("N");
-            var videoPath = Path.Combine(directory, attemptId + ".motion.mp4");
-            var outputPath = Path.Combine(directory, attemptId + ".motion.tmp");
+            var videoPath = Path.Combine(directory, attemptId + ".video.mp4");
+            var outputPath = Path.Combine(directory, attemptId + ".video.tmp");
             try
             {
                 var selected = Resample(source, shutterUtc);
-                EncodeVideo(videoPath, selected, token);
-                var videoLength = new FileInfo(videoPath).Length;
-                if (videoLength <= 0) throw new IOException("Motion Photo video encoder produced an empty file.");
-                var presentationUs = (selected.Count - 1L) * 1000000L / FramesPerSecond;
-                WriteMotionPhoto(stillImagePath, videoPath, outputPath, videoLength, presentationUs, token);
+                EncodeVideo(videoPath, selected, flipHorizontally, token);
+                if (!IsValidMp4(videoPath)) throw new InvalidDataException("MP4 video output validation failed.");
+                if (File.Exists(outputPath)) File.Delete(outputPath);
+                File.Move(videoPath, outputPath);
                 if (File.Exists(destinationPath)) File.Delete(destinationPath);
                 File.Move(outputPath, destinationPath);
             }
@@ -401,7 +398,7 @@ namespace PhotoBooth.Infrastructure.Services
             return result;
         }
 
-        static void EncodeVideo(string path, IReadOnlyList<BufferedFrame> selected, CancellationToken token)
+        static void EncodeVideo(string path, IReadOnlyList<BufferedFrame> selected, bool flipHorizontally, CancellationToken token)
         {
             using (var firstStream = new MemoryStream(selected[0].ImageData, false))
             using (var first = new Bitmap(firstStream))
@@ -423,49 +420,12 @@ namespace PhotoBooth.Infrastructure.Services
                     using (var original = new Bitmap(stream))
                     using (var encoded = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
                     {
+                        if (flipHorizontally) original.RotateFlip(RotateFlipType.RotateNoneFlipX);
                         using (var graphics = Graphics.FromImage(encoded)) graphics.DrawImage(original, 0, 0, width, height);
                         writer.WriteVideoFrame(encoded);
                     }
                 }
             }
-        }
-
-        static void WriteMotionPhoto(string stillPath, string videoPath, string outputPath, long videoLength, long presentationUs, CancellationToken token)
-        {
-            var xmp = BuildXmp(videoLength, presentationUs);
-            using (var output = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                WriteJpegWithXmp(stillPath, output, xmp, token);
-                using (var video = new FileStream(videoPath, FileMode.Open, FileAccess.Read, FileShare.Read)) video.CopyTo(output);
-                output.Flush(true);
-            }
-        }
-
-        internal static string BuildXmp(long videoLength, long presentationUs)
-        {
-            return "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description " +
-                "xmlns:Camera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" " +
-                "Camera:MotionPhoto=\"1\" Camera:MotionPhotoVersion=\"1\" Camera:MotionPhotoPresentationTimestampUs=\"" + presentationUs + "\">" +
-                "<Container:Directory><rdf:Seq>" +
-                "<rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\"/></rdf:li>" +
-                "<rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"" + videoLength + "\"/></rdf:li>" +
-                "</rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
-        }
-
-        static void WriteJpegWithXmp(string stillPath, Stream output, string xmp, CancellationToken token)
-        {
-            var jpeg = File.ReadAllBytes(stillPath);
-            if (jpeg.Length < 4 || jpeg[0] != 0xff || jpeg[1] != 0xd8) throw new InvalidDataException("The primary Motion Photo image must be JPEG.");
-            var header = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
-            var xml = Encoding.UTF8.GetBytes(xmp);
-            var payloadLength = header.Length + xml.Length;
-            if (payloadLength + 2 > ushort.MaxValue) throw new InvalidDataException("Motion Photo XMP is too large for a JPEG APP1 segment.");
-            output.WriteByte(0xff); output.WriteByte(0xd8); output.WriteByte(0xff); output.WriteByte(0xe1);
-            var segmentLength = payloadLength + 2;
-            output.WriteByte((byte)(segmentLength >> 8)); output.WriteByte((byte)segmentLength);
-            output.Write(header, 0, header.Length); output.Write(xml, 0, xml.Length);
-            token.ThrowIfCancellationRequested();
-            output.Write(jpeg, 2, jpeg.Length - 2);
         }
 
         sealed class BufferedFrame
@@ -477,12 +437,15 @@ namespace PhotoBooth.Infrastructure.Services
 
         sealed class SlotSpec
         {
-            public SlotSpec(int index, int x, int y, int width, int height, string path) { Index = index; X = x; Y = y; Width = width; Height = height; Path = path; }
+            public SlotSpec(int index, int x, int y, int width, int height, double zoom, double centerX, double centerY, string path) { Index = index; X = x; Y = y; Width = width; Height = height; Zoom=zoom;CenterX=centerX;CenterY=centerY;Path = path; }
             public int Index { get; }
             public int X { get; }
             public int Y { get; }
             public int Width { get; }
             public int Height { get; }
+            public double Zoom { get; }
+            public double CenterX { get; }
+            public double CenterY { get; }
             public string Path { get; }
         }
     }

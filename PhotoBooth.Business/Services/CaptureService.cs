@@ -27,30 +27,30 @@ namespace PhotoBooth.Business.Services
             var captureId = Guid.NewGuid().ToString("N");
             var photos = new List<CapturePhoto>();
             for (var i = 0; i < selected.Count; i++) photos.Add(CreateAsset(captureId, selected[i].Id, selected[i].PicturePath, CaptureAssetTypes.Picture, i+1, null));
-            var motionAssetIds=photos.Select(x=>x.Id).ToList();
-            photos.Add(CreateAsset(captureId, null, compositePath, CaptureAssetTypes.Composite, 1, motionAssetIds));
+            var videoAssetIds=photos.Select(x=>x.Id).ToList();
+            photos.Add(CreateAsset(captureId, null, compositePath, CaptureAssetTypes.Composite, 1, videoAssetIds));
             var capture = new PhotoCapture { Id=captureId, SessionId=sessionId, FrameId=frameId, CompositeImageId=compositeImageId, CompositePath=compositePath, MediaMode=CaptureMediaModes.PictureOnly, SharePath="/s/"+sessionId.ToString("N")+"/c/"+captureId+"/", Status="Pending", CreatedAtUtc=DateTime.UtcNow, ExpiresAtUtc=expiresAtUtc, Photos=photos };
             await captures.SaveAsync(capture, token);
             return capture;
         }
 
-        public async Task<PhotoCapture> CreateWithMotionCompositeAsync(Guid sessionId, Guid? frameId, string compositeImageId, string compositePath, IReadOnlyList<CapturedShot> shots, string motionCompositePath, IReadOnlyList<string> motionSourcePaths, DateTime? expiresAtUtc, CancellationToken token)
+        public async Task<PhotoCapture> CreateWithCompositeVideoAsync(Guid sessionId, Guid? frameId, string compositeImageId, string compositePath, IReadOnlyList<CapturedShot> shots, string compositeVideoPath, IReadOnlyList<string> videoSourcePaths, DateTime? expiresAtUtc, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(compositePath)) throw new ArgumentException("Composite path is required.", nameof(compositePath));
-            if (string.IsNullOrWhiteSpace(motionCompositePath)) throw new ArgumentException("Motion composite path is required.", nameof(motionCompositePath));
+            if (string.IsNullOrWhiteSpace(compositeVideoPath)) throw new ArgumentException("Composite video path is required.", nameof(compositeVideoPath));
             var session = await sessions.GetAsync(sessionId, token);
             if (session == null) throw new InvalidOperationException("Session not found.");
             var selected = (shots ?? new CapturedShot[0]).Where(x => x != null).ToList();
-            if (selected.Count == 0 || selected.Any(x=>string.IsNullOrWhiteSpace(x.Id)||string.IsNullOrWhiteSpace(x.PicturePath)||!x.HasMotionPhoto)) throw new InvalidDataException("Every captured shot must contain its Picture and Motion Photo pair.");
+            if (selected.Count == 0 || selected.Any(x=>string.IsNullOrWhiteSpace(x.Id)||string.IsNullOrWhiteSpace(x.PicturePath)||!x.HasVideo)) throw new InvalidDataException("Every captured shot must contain its Picture and MP4 video pair.");
             var captureId = Guid.NewGuid().ToString("N"); var photos = new List<CapturePhoto>();
-            var pictureAssets = new List<CapturePhoto>(); var motionAssets = new List<CapturePhoto>();
-            for (var i = 0; i < selected.Count; i++) { pictureAssets.Add(CreateAsset(captureId, selected[i].Id, selected[i].PicturePath, CaptureAssetTypes.Picture, i + 1, null)); motionAssets.Add(CreateAsset(captureId, selected[i].Id, selected[i].MotionPhotoPath, CaptureAssetTypes.MotionPhoto, i + 1, null)); }
-            photos.AddRange(pictureAssets); photos.AddRange(motionAssets);
+            var pictureAssets = new List<CapturePhoto>(); var videoAssets = new List<CapturePhoto>();
+            for (var i = 0; i < selected.Count; i++) { pictureAssets.Add(CreateAsset(captureId, selected[i].Id, selected[i].PicturePath, CaptureAssetTypes.Picture, i + 1, null)); videoAssets.Add(CreateAsset(captureId, selected[i].Id, selected[i].VideoPath, CaptureAssetTypes.Video, i + 1, null)); }
+            photos.AddRange(pictureAssets); photos.AddRange(videoAssets);
             photos.Add(CreateAsset(captureId, null, compositePath, CaptureAssetTypes.Composite, 1, pictureAssets.Select(x => x.Id).ToList()));
-            var selectedIds = motionAssets.Where(asset => (motionSourcePaths ?? new string[0]).Contains(asset.LocalPath, StringComparer.OrdinalIgnoreCase)).Select(x => x.Id).ToList();
-            if(selectedIds.Count==0)throw new InvalidDataException("Motion Photo composite has no linked source assets.");
-            photos.Add(CreateAsset(captureId, null, motionCompositePath, CaptureAssetTypes.MotionPhotoComposite, 1, selectedIds));
-            var capture = new PhotoCapture { Id = captureId, SessionId = sessionId, FrameId = frameId, CompositeImageId = compositeImageId, CompositePath = compositePath, MediaMode = CaptureMediaModes.PictureAndMotion, SharePath = "/s/" + sessionId.ToString("N") + "/c/" + captureId + "/", Status = "Pending", CreatedAtUtc = DateTime.UtcNow, ExpiresAtUtc = expiresAtUtc, Photos = photos };
+            var selectedIds = videoAssets.Where(asset => (videoSourcePaths ?? new string[0]).Contains(asset.LocalPath, StringComparer.OrdinalIgnoreCase)).Select(x => x.Id).ToList();
+            if(selectedIds.Count==0)throw new InvalidDataException("Composite MP4 has no linked source videos.");
+            photos.Add(CreateAsset(captureId, null, compositeVideoPath, CaptureAssetTypes.CompositeVideo, 1, selectedIds));
+            var capture = new PhotoCapture { Id = captureId, SessionId = sessionId, FrameId = frameId, CompositeImageId = compositeImageId, CompositePath = compositePath, MediaMode = CaptureMediaModes.PictureAndVideo, SharePath = "/s/" + sessionId.ToString("N") + "/c/" + captureId + "/", Status = "Pending", CreatedAtUtc = DateTime.UtcNow, ExpiresAtUtc = expiresAtUtc, Photos = photos };
             await captures.SaveAsync(capture, token); return capture;
         }
 
@@ -74,7 +74,7 @@ namespace PhotoBooth.Business.Services
             if(string.IsNullOrWhiteSpace(path)||!File.Exists(path))throw new FileNotFoundException("Capture asset is unavailable.",path);
             return new CapturePhoto{Id=Guid.NewGuid().ToString("N"),CaptureId=captureId,CapturedImageId=capturedImageId,LocalPath=path,PhotoType=type,Position=position,MimeType=Mime(type,path),FileLength=new FileInfo(path).Length,ContentHashSha256=Hash(path),CreatedAtUtc=DateTime.UtcNow,AssetStatus="Ready",SourceAssetIds=(sourceIds??new string[0]).Distinct(StringComparer.Ordinal).ToList(),IsUploaded=false};
         }
-        static string Mime(string type,string path){if(string.Equals(type,CaptureAssetTypes.Picture,StringComparison.Ordinal)||string.Equals(type,CaptureAssetTypes.MotionPhoto,StringComparison.Ordinal)||string.Equals(type,CaptureAssetTypes.MotionPhotoComposite,StringComparison.Ordinal))return "image/jpeg";if(string.Equals(type,CaptureAssetTypes.Gif,StringComparison.Ordinal))return "image/gif";if(string.Equals(type,CaptureAssetTypes.ShareArchive,StringComparison.Ordinal))return "application/zip";var extension=Path.GetExtension(path);return string.Equals(extension,".png",StringComparison.OrdinalIgnoreCase)?"image/png":"application/octet-stream";}
+        static string Mime(string type,string path){if(string.Equals(type,CaptureAssetTypes.Video,StringComparison.Ordinal)||string.Equals(type,CaptureAssetTypes.CompositeVideo,StringComparison.Ordinal))return "video/mp4";if(string.Equals(type,CaptureAssetTypes.Picture,StringComparison.Ordinal))return "image/jpeg";if(string.Equals(type,CaptureAssetTypes.Gif,StringComparison.Ordinal))return "image/gif";if(string.Equals(type,CaptureAssetTypes.ShareArchive,StringComparison.Ordinal))return "application/zip";var extension=Path.GetExtension(path);return string.Equals(extension,".png",StringComparison.OrdinalIgnoreCase)?"image/png":"application/octet-stream";}
         static string Hash(string path){using(var stream=File.OpenRead(path))using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-",string.Empty).ToLowerInvariant();}
     }
 }

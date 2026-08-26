@@ -9,7 +9,7 @@ namespace PhotoBooth.Core.Services
     public interface ICaptureService
     {
         Task<PhotoCapture> CreateAsync(Guid sessionId, Guid? frameId, string compositeImageId, string compositePath, IReadOnlyList<CapturedShot> shots, DateTime? expiresAtUtc, CancellationToken token);
-        Task<PhotoCapture> CreateWithMotionCompositeAsync(Guid sessionId, Guid? frameId, string compositeImageId, string compositePath, IReadOnlyList<CapturedShot> shots, string motionCompositePath, IReadOnlyList<string> motionSourcePaths, DateTime? expiresAtUtc, CancellationToken token);
+        Task<PhotoCapture> CreateWithCompositeVideoAsync(Guid sessionId, Guid? frameId, string compositeImageId, string compositePath, IReadOnlyList<CapturedShot> shots, string compositeVideoPath, IReadOnlyList<string> videoSourcePaths, DateTime? expiresAtUtc, CancellationToken token);
         Task<PhotoCapture> GetAsync(string captureId, CancellationToken token);
         Task<PhotoCapture> GetAsync(Guid sessionId, string captureId, CancellationToken token);
         Task<IReadOnlyList<PhotoCapture>> GetBySessionAsync(Guid sessionId, CancellationToken token);
