@@ -22,6 +22,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         private readonly ILocalShareService localShare;
         private readonly IQrCodeService qr;
         private readonly IGifAnimationService gifAnimation;
+        private readonly ICaptureIntegrityService integrity;
         private readonly ILogger<CompleteViewModel> log;
         private readonly DispatcherTimer countdownTimer;
 
@@ -41,6 +42,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             ILocalShareService localShare,
             IQrCodeService qr,
             IGifAnimationService gifAnimation,
+            ICaptureIntegrityService integrity,
             ILogger<CompleteViewModel> log)
         {
             this.machine = machine;
@@ -50,6 +52,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             this.localShare = localShare;
             this.qr = qr;
             this.gifAnimation = gifAnimation;
+            this.integrity = integrity;
             this.log = log;
 
             DoneCommand = new AsyncCommand(Done);
@@ -153,6 +156,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     throw new InvalidOperationException("Capture was not found in SQLite.");
                 }
 
+                await integrity.ValidateAsync(capture, CancellationToken.None);
+
                 var files = (capture.Photos ?? new CapturePhoto[0])
                     .Where(photo => !string.Equals(photo.PhotoType, CaptureAssetTypes.ShareArchive, StringComparison.OrdinalIgnoreCase))
                     .Select(photo => photo.LocalPath)
@@ -213,7 +218,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             context.Session = null;
             context.CaptureId = null;
             context.WorkingDirectory = null;
-            context.CurrentCaptureFiles.Clear();
+            context.CurrentShots.Clear();
             context.SelectedFrame = null;
             QrSource = null;
             DownloadUrl = null;

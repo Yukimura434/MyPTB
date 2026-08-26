@@ -18,5 +18,6 @@ namespace PhotoBooth.Core.Services
         Task SetDefaultAsync(Guid id, CancellationToken cancellationToken);
         Task CompleteAsync(Session session, CancellationToken cancellationToken);
         Task UpdateAsync(Session session, CancellationToken cancellationToken);
+        Task ReplaceCapturedShotAsync(Guid sessionId, string previousShotId, CapturedShot replacement, CancellationToken cancellationToken);
     }
 }

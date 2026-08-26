@@ -57,6 +57,8 @@ namespace PhotoBooth.UnitTests
                 Assert.Contains("Item:Semantic=\"MotionPhoto\"", text);
                 Assert.True(Find(bytes, Encoding.ASCII.GetBytes("ftyp")) > 0);
                 using (var image = new Bitmap(destination)) Assert.Equal(new Size(64, 64), image.Size);
+                var preview = await service.CreatePreviewVideoAsync(destination, Path.Combine(root, "preview"), CancellationToken.None);
+                Assert.True(File.Exists(preview)); Assert.True(Find(File.ReadAllBytes(preview), Encoding.ASCII.GetBytes("ftyp")) >= 0);
             }
             finally { Directory.Delete(root, true); }
         }

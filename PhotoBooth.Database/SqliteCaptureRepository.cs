@@ -72,15 +72,16 @@ namespace PhotoBooth.Database
                 using (var command = connection.CreateCommand())
                 {
                     command.Transaction = transaction;
-                    command.CommandText = @"INSERT INTO Captures (Id,SessionId,FrameId,CompositeImageId,CompositePath,LocalSharePath,Status,UploadAttempts,CreatedAtUtc,UploadedAtUtc,ExpiresAtUtc,LastError)
-VALUES($id,$session,$frame,$compositeId,$path,$sharePath,$status,$attempts,$created,$uploaded,$expires,$error)
-ON CONFLICT(Id) DO UPDATE SET FrameId=excluded.FrameId,CompositeImageId=excluded.CompositeImageId,CompositePath=excluded.CompositePath,LocalSharePath=excluded.LocalSharePath,Status=excluded.Status,UploadAttempts=excluded.UploadAttempts,UploadedAtUtc=excluded.UploadedAtUtc,ExpiresAtUtc=excluded.ExpiresAtUtc,LastError=excluded.LastError";
+                    command.CommandText = @"INSERT INTO Captures (Id,SessionId,FrameId,CompositeImageId,CompositePath,LocalSharePath,MediaMode,Status,UploadAttempts,CreatedAtUtc,UploadedAtUtc,ExpiresAtUtc,LastError)
+VALUES($id,$session,$frame,$compositeId,$path,$sharePath,$mediaMode,$status,$attempts,$created,$uploaded,$expires,$error)
+ON CONFLICT(Id) DO UPDATE SET FrameId=excluded.FrameId,CompositeImageId=excluded.CompositeImageId,CompositePath=excluded.CompositePath,LocalSharePath=excluded.LocalSharePath,MediaMode=excluded.MediaMode,Status=excluded.Status,UploadAttempts=excluded.UploadAttempts,UploadedAtUtc=excluded.UploadedAtUtc,ExpiresAtUtc=excluded.ExpiresAtUtc,LastError=excluded.LastError";
                     command.Parameters.AddWithValue("$id", capture.Id);
                     command.Parameters.AddWithValue("$session", capture.SessionId.ToString());
                     command.Parameters.AddWithValue("$frame", capture.FrameId.HasValue ? (object)capture.FrameId.Value.ToString() : DBNull.Value);
                     command.Parameters.AddWithValue("$compositeId", Db(capture.CompositeImageId));
                     command.Parameters.AddWithValue("$path", capture.CompositePath);
                     command.Parameters.AddWithValue("$sharePath", Db(capture.SharePath));
+                    command.Parameters.AddWithValue("$mediaMode", string.IsNullOrWhiteSpace(capture.MediaMode) ? CaptureMediaModes.PictureOnly : capture.MediaMode);
                     command.Parameters.AddWithValue("$status", capture.Status ?? "Pending");
                     command.Parameters.AddWithValue("$attempts", capture.UploadAttempts);
                     command.Parameters.AddWithValue("$created", capture.CreatedAtUtc.ToString("O"));
@@ -98,15 +99,15 @@ ON CONFLICT(Id) DO UPDATE SET FrameId=excluded.FrameId,CompositeImageId=excluded
         static SqliteCommand CreateCaptureQuery(SqliteConnection connection, string suffix)
         {
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Id,SessionId,FrameId,CompositeImageId,CompositePath,LocalSharePath,Status,UploadAttempts,CreatedAtUtc,UploadedAtUtc,ExpiresAtUtc,LastError FROM Captures " + suffix;
+            command.CommandText = "SELECT Id,SessionId,FrameId,CompositeImageId,CompositePath,LocalSharePath,MediaMode,Status,UploadAttempts,CreatedAtUtc,UploadedAtUtc,ExpiresAtUtc,LastError FROM Captures " + suffix;
             return command;
         }
 
         static PhotoCapture ReadCapture(SqliteDataReader reader) => new PhotoCapture
         {
             Id = reader.GetString(0), SessionId = Guid.Parse(reader.GetString(1)), FrameId = reader.IsDBNull(2) ? (Guid?)null : Guid.Parse(reader.GetString(2)),
-            CompositeImageId = Text(reader, 3), CompositePath = reader.GetString(4), SharePath = Text(reader, 5), Status = reader.GetString(6), UploadAttempts = reader.GetInt32(7),
-            CreatedAtUtc = Parse(reader.GetString(8)), UploadedAtUtc = NullableDate(reader, 9), ExpiresAtUtc = NullableDate(reader, 10), LastError = Text(reader, 11)
+            CompositeImageId = Text(reader, 3), CompositePath = reader.GetString(4), SharePath = Text(reader, 5), MediaMode=Text(reader,6), Status = reader.GetString(7), UploadAttempts = reader.GetInt32(8),
+            CreatedAtUtc = Parse(reader.GetString(9)), UploadedAtUtc = NullableDate(reader, 10), ExpiresAtUtc = NullableDate(reader, 11), LastError = Text(reader, 12)
         };
 
         static IReadOnlyList<CapturePhoto> LoadPhotos(SqliteConnection connection, string captureId)
@@ -114,7 +115,7 @@ ON CONFLICT(Id) DO UPDATE SET FrameId=excluded.FrameId,CompositeImageId=excluded
             var photos = new List<CapturePhoto>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded,MimeType,FileLength,ContentHashSha256,CreatedAtUtc,AssetStatus FROM CapturePhotos WHERE CaptureId=$capture ORDER BY CASE PhotoType WHEN 'Picture' THEN 0 WHEN 'MotionPhoto' THEN 0 WHEN 'Composite' THEN 1 WHEN 'Gif' THEN 2 ELSE 3 END,Position";
+                command.CommandText = "SELECT Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,CloudinaryPublicId,UploadAttempts,UploadedAtUtc,LastError,IsUploaded,MimeType,FileLength,ContentHashSha256,CreatedAtUtc,AssetStatus FROM CapturePhotos WHERE CaptureId=$capture ORDER BY CASE PhotoType WHEN 'Picture' THEN 0 WHEN 'MotionPhoto' THEN 0 WHEN 'Composite' THEN 1 WHEN 'MotionPhotoComposite' THEN 2 WHEN 'Gif' THEN 3 ELSE 4 END,Position";
                 command.Parameters.AddWithValue("$capture", captureId);
                 using (var reader = command.ExecuteReader()) while (reader.Read()) photos.Add(new CapturePhoto
                 {

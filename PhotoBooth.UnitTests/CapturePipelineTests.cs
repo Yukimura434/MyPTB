@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using PhotoBooth.Business.Pipelines;using PhotoBooth.Core.Cameras;
@@ -129,6 +130,38 @@ namespace PhotoBooth.UnitTests
             finally { Directory.Delete(root, true); }
         }
 
+        [Fact]
+        public async Task ExecuteAsync_applies_lut_only_to_picture_and_keeps_motion_primary_raw()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
+            try
+            {
+                var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), PresetId = Guid.NewGuid(), SessionNumber = 5, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FakeMotionPhotoService(), new GreenLutService());
+                await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
+                var shot = Assert.Single(sessions.Session.CapturedShots); var picture = shot.PicturePath; var motion = shot.MotionPhotoPath;
+                using (var image = new Bitmap(picture)) AssertNear(Color.Lime, image.GetPixel(0, 0));
+                using (var image = new Bitmap(motion)) { AssertNear(Color.Red, image.GetPixel(0, 0)); AssertNear(Color.Blue, image.GetPixel(3, 0)); }
+                Assert.Equal(shot.Id, Assert.Single(sessions.Session.CapturedImageIds));
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public async Task ExecuteAsync_when_motion_module_is_disabled_keeps_picture_flow_working()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
+            try
+            {
+                var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), SessionNumber = 6, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingMotionPhotoService(), null, new FakeFeatureFlagService(false));
+                await pipeline.ExecuteAsync(sessions.Session.Id, "cam", CancellationToken.None);
+                var shot = Assert.Single(sessions.Session.CapturedShots); Assert.False(shot.HasMotionPhoto);
+                Assert.Single(sessions.Session.CapturedFiles); Assert.Empty(sessions.Session.CapturedMotionFiles);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
         static void AssertNear(Color expected, Color actual, int tolerance = 30)
         {
             Assert.InRange(Math.Abs(actual.R - expected.R), 0, tolerance);
@@ -167,18 +200,25 @@ namespace PhotoBooth.UnitTests
         sealed class FakeSessionRepository : ISessionRepository
         {
             public Session Session { get; private set; }
-            public FakeSessionRepository(Session session) { Session = session; Session.CapturedFiles = Array.Empty<string>(); Session.CapturedImageIds = Array.Empty<string>(); }
+            public FakeSessionRepository(Session session) { Session = session; Session.CapturedShots = Array.Empty<CapturedShot>(); Project(); }
             public Task<Session> GetAsync(Guid id, CancellationToken t) => Task.FromResult(Session);
             public Task<IReadOnlyList<Session>> GetAllAsync(CancellationToken t) => Task.FromResult<IReadOnlyList<Session>>(new[] { Session });
             public Task SaveAsync(Session s, CancellationToken t) { Session = s; return Task.CompletedTask; }
             public Task SetDefaultAsync(Guid id, CancellationToken t) => Task.CompletedTask;
             public Task<int> GetNextCaptureSequenceAsync(Guid id, CancellationToken t) => Task.FromResult(1);
-            public Task AddCapturedImageAsync(Guid sessionId, int sequence, string imageId, string filePath, CancellationToken t)
+            public Task AddCapturedShotAsync(Guid sessionId, CapturedShot shot, CancellationToken t)
             {
-                Session.CapturedFiles = new[] { filePath };
-                Session.CapturedImageIds = new[] { imageId };
+                Session.CapturedShots = (Session.CapturedShots ?? Array.Empty<CapturedShot>()).Concat(new[] { shot }).OrderBy(x => x.Sequence).ToArray();
+                Project();
                 return Task.CompletedTask;
             }
+            public Task ReplaceCapturedShotAsync(Guid sessionId, string previousShotId, CapturedShot replacement, CancellationToken t)
+            {
+                var shots = (Session.CapturedShots ?? Array.Empty<CapturedShot>()).Where(x => x.Id == previousShotId || x.Id != replacement.Id).ToList();
+                var index = shots.FindIndex(x => x.Id == previousShotId); if (index < 0) throw new InvalidOperationException("Captured shot not found.");
+                shots[index] = replacement; Session.CapturedShots = shots.OrderBy(x => x.Sequence).ToArray(); Project(); return Task.CompletedTask;
+            }
+            void Project() { var shots = Session.CapturedShots ?? Array.Empty<CapturedShot>(); Session.CapturedFiles = shots.Select(x => x.PicturePath).ToArray(); Session.CapturedMotionFiles = shots.Where(x => x.HasMotionPhoto).Select(x => x.MotionPhotoPath).ToArray(); Session.CapturedImageIds = shots.Select(x => x.Id).ToArray(); }
         }
 
         sealed class FakeSettingsService : ISettingsService
@@ -189,6 +229,24 @@ namespace PhotoBooth.UnitTests
             public Task SaveAsync(Settings s, CancellationToken t) => Task.CompletedTask;
         }
 
+        sealed class FakeFeatureFlagService : IFeatureFlagService
+        {
+            readonly bool enabled; public FakeFeatureFlagService(bool enabled) { this.enabled = enabled; }
+            public Task<bool> IsEnabledAsync(string feature, CancellationToken token) => Task.FromResult(enabled);
+        }
+
+        sealed class GreenLutService : IColorLutService
+        {
+            public Task ApplyCaptureAsync(Guid presetId, string imagePath, CancellationToken token) { using (var image = new Bitmap(4, 2)) { using (var graphics = Graphics.FromImage(image)) graphics.Clear(Color.Lime); image.Save(imagePath, ImageFormat.Jpeg); } return Task.CompletedTask; }
+            public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
+            public Task<ColorLutData> GetLiveAsync(Guid presetId, CancellationToken token) => Task.FromResult<ColorLutData>(null);
+            public Task<ColorLutImportResult> ImportAsync(string sourcePath, string displayName, CancellationToken token) => Task.FromResult<ColorLutImportResult>(null);
+            public Task AttachAsync(Guid presetId, Guid assetId, float strength, CancellationToken token) => Task.CompletedTask;
+            public Task DetachAsync(Guid presetId, CancellationToken token) => Task.CompletedTask;
+            public Task DeleteAsync(Guid assetId, long expectedRowVersion, CancellationToken token) => Task.CompletedTask;
+            public Task ReconcileAsync(CancellationToken token) => Task.CompletedTask;
+        }
+
         sealed class FakeMotionPhotoService : IMotionPhotoService
         {
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
@@ -197,6 +255,8 @@ namespace PhotoBooth.UnitTests
                 File.Copy(stillImagePath, destinationPath, true);
                 return Task.CompletedTask;
             }
+            public Task ComposeAsync(string stillCompositePath, Frame frame, IReadOnlyDictionary<int, string> slotAssignments, string destinationPath, CancellationToken token) => Task.CompletedTask;
+            public Task<string> CreatePreviewVideoAsync(string motionPhotoPath,string previewDirectory,CancellationToken token)=>Task.FromResult<string>(null);
         }
 
         sealed class FailingMotionPhotoService : IMotionPhotoService
@@ -206,6 +266,8 @@ namespace PhotoBooth.UnitTests
             {
                 throw new InvalidOperationException("encoder failed");
             }
+            public Task ComposeAsync(string stillCompositePath, Frame frame, IReadOnlyDictionary<int, string> slotAssignments, string destinationPath, CancellationToken token) => throw new InvalidOperationException("encoder failed");
+            public Task<string> CreatePreviewVideoAsync(string motionPhotoPath,string previewDirectory,CancellationToken token)=>throw new InvalidOperationException("encoder failed");
         }
     }
 }

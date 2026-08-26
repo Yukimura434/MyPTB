@@ -12,6 +12,7 @@ namespace PhotoBooth.Core.Models
         public string CompositePath { get; set; }
         public string SharePath { get; set; }
         public string Status { get; set; }
+        public string MediaMode { get; set; }
         public int UploadAttempts { get; set; }
         public DateTime CreatedAtUtc { get; set; }
         public DateTime? UploadedAtUtc { get; set; }
@@ -45,6 +46,7 @@ namespace PhotoBooth.Core.Models
     {
         public const string Picture = "Picture";
         public const string MotionPhoto = "MotionPhoto";
+        public const string MotionPhotoComposite = "MotionPhotoComposite";
         public const string Composite = "Composite";
         public const string Gif = "Gif";
         public const string ShareArchive = "ShareArchive";

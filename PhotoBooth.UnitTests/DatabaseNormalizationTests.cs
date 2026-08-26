@@ -29,6 +29,21 @@ namespace PhotoBooth.UnitTests
    using(var c=db.OpenConnection())using(var q=c.CreateCommand()){var capture1=Guid.NewGuid().ToString("N");var capture2=Guid.NewGuid().ToString("N");var asset1=Guid.NewGuid().ToString("N");var asset2=Guid.NewGuid().ToString("N");q.CommandText="INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES('"+capture1+"','"+sessionId+"','a','Pending','"+DateTime.UtcNow.ToString("O")+"'),('"+capture2+"','"+sessionId+"','b','Pending','"+DateTime.UtcNow.ToString("O")+"');INSERT INTO CapturePhotos(Id,CaptureId,LocalPath,PhotoType,Position,IsUploaded,FileLength) VALUES('"+asset1+"','"+capture1+"','a','Composite',1,0,0),('"+asset2+"','"+capture2+"','b','Composite',1,0,0);INSERT INTO CaptureAssetSources(AssetId,SourceAssetId) VALUES('"+asset1+"','"+asset2+"');";Assert.Throws<Microsoft.Data.Sqlite.SqliteException>(()=>q.ExecuteNonQuery());}
   }
 
+  [Fact] public void Reinitialize_backfills_only_compatible_asset_lineage()
+  {
+   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText=@"INSERT INTO CustomerSessions(Id,StartedAtUtc,OutputDirectory,SessionName) VALUES('session','2026-08-25T00:00:00Z',$root,'Event');
+INSERT INTO CapturedImages(Id,SessionId,Sequence,FilePath,CapturedAtUtc,MotionPhotoPath) VALUES('image','session',1,'picture.jpg','2026-08-25T00:00:00Z','motion_MP.jpg');
+INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc,MediaMode) VALUES('capture','session','composite.png','Pending','2026-08-25T00:00:00Z','PictureAndMotion');
+INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,FileLength,CreatedAtUtc,AssetStatus) VALUES
+('picture','capture','image','picture.jpg','Picture',1,1,'2026-08-25T00:00:00Z','Ready'),
+('motion','capture','image','motion_MP.jpg','MotionPhoto',1,1,'2026-08-25T00:00:00Z','Ready'),
+('composite','capture',NULL,'composite.png','Composite',1,1,'2026-08-25T00:00:00Z','Ready'),
+('motion-composite','capture',NULL,'composite_MP.jpg','MotionPhotoComposite',1,1,'2026-08-25T00:00:00Z','Ready');";q.Parameters.AddWithValue("$root",root);q.ExecuteNonQuery();}
+   db.Initialize();
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT AssetId||':'||SourceAssetId FROM CaptureAssetSources ORDER BY AssetId";var values=new List<string>();using(var reader=q.ExecuteReader())while(reader.Read())values.Add(reader.GetString(0));Assert.Equal(new[]{"composite:picture","motion-composite:motion"},values);}
+  }
+
   [Fact] public async Task Data_statistics_are_aggregated_only_from_sqlite()
   {
    var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var captureId=Guid.NewGuid().ToString("N");var imageId="image-1";var assetId=Guid.NewGuid().ToString("N");
@@ -42,6 +57,17 @@ namespace PhotoBooth.UnitTests
    using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="INSERT INTO Captures(Id,SessionId,CompositePath,Status,CreatedAtUtc) VALUES($capture,$session,'final.png','Pending',$now);INSERT INTO CapturePhotos(Id,CaptureId,CapturedImageId,LocalPath,PhotoType,Position,IsUploaded,FileLength) VALUES($asset,$capture,$image,'motion_MP.jpg','MotionPhoto',1,0,0)";q.Parameters.AddWithValue("$capture",Guid.NewGuid().ToString("N"));q.Parameters.AddWithValue("$session",sessionId.ToString());q.Parameters.AddWithValue("$image",imageId);q.Parameters.AddWithValue("$asset",Guid.NewGuid().ToString("N"));q.Parameters.AddWithValue("$now",DateTime.UtcNow.ToString("O"));q.ExecuteNonQuery();}
    session.CapturedFiles=new string[0];session.CapturedImageIds=new string[0];await sessions.SaveAsync(session,CancellationToken.None);
    using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT COUNT(*) FROM CapturedImages WHERE Id=$id";q.Parameters.AddWithValue("$id",imageId);Assert.Equal(1,Convert.ToInt32(q.ExecuteScalar()));}
+  }
+
+  [Fact] public async Task Retake_replaces_picture_and_motion_as_one_captured_shot()
+  {
+   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var repository=new SqliteSessionRepository(db);
+   await repository.SaveAsync(new Session{Id=sessionId,SessionName="Event",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedShots=new CapturedShot[0]},CancellationToken.None);
+   var oldShot=new CapturedShot{Id="old",Sequence=1,PicturePath=Path.Combine(root,"old.jpg"),MotionPhotoPath=Path.Combine(root,"old_MP.jpg"),CapturedAtUtc=DateTime.UtcNow};
+   var replacement=new CapturedShot{Id="new",Sequence=2,PicturePath=Path.Combine(root,"new.jpg"),MotionPhotoPath=Path.Combine(root,"new_MP.jpg"),CapturedAtUtc=DateTime.UtcNow};
+   await repository.AddCapturedShotAsync(sessionId,oldShot,CancellationToken.None);await repository.AddCapturedShotAsync(sessionId,replacement,CancellationToken.None);replacement.Sequence=oldShot.Sequence;await repository.ReplaceCapturedShotAsync(sessionId,oldShot.Id,replacement,CancellationToken.None);
+   var loaded=await repository.GetAsync(sessionId,CancellationToken.None);var shot=Assert.Single(loaded.CapturedShots);Assert.Equal("new",shot.Id);Assert.Equal(replacement.PicturePath,shot.PicturePath);Assert.Equal(replacement.MotionPhotoPath,shot.MotionPhotoPath);Assert.Equal(1,shot.Sequence);
+   using(var c=db.OpenConnection()){using(var q=c.CreateCommand()){q.CommandText="SELECT COUNT(*) FROM CapturedImages WHERE Id='old'";Assert.Equal(0,Convert.ToInt32(q.ExecuteScalar()));}using(var q=c.CreateCommand()){q.CommandText="PRAGMA foreign_key_check";using(var reader=q.ExecuteReader())Assert.False(reader.Read());}}
   }
  }
 }

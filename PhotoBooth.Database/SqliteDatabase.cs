@@ -143,8 +143,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS UX_PrinterProfiles_OneDefault ON PrinterProfil
             EnsureColumn("CapturePhotos", "ContentHashSha256", "TEXT");
             EnsureColumn("CapturePhotos", "CreatedAtUtc", "TEXT");
             EnsureColumn("CapturePhotos", "AssetStatus", "TEXT NOT NULL DEFAULT 'Ready'");
+            EnsureColumn("CapturedImages", "MotionPhotoPath", "TEXT");
             EnsureColumn("Captures", "DeviceId", "TEXT");
             EnsureColumn("Captures", "LocalSharePath", "TEXT");
+            EnsureColumn("Captures", "MediaMode", "TEXT NOT NULL DEFAULT 'PictureOnly'");
             EnsureColumn("ProductionSettings", "LocalShareEnabled", "INTEGER NOT NULL DEFAULT 1");
             Execute("CREATE TABLE IF NOT EXISTS InterfaceAssets (Id TEXT PRIMARY KEY, Name TEXT NOT NULL, FilePath TEXT NOT NULL UNIQUE, IsAnimated INTEGER NOT NULL DEFAULT 0, IsSelected INTEGER NOT NULL DEFAULT 0, CreatedAtUtc TEXT NOT NULL); CREATE UNIQUE INDEX IF NOT EXISTS UX_InterfaceAssets_OneSelected ON InterfaceAssets(IsSelected) WHERE IsSelected=1;");
             Execute(@"CREATE TABLE IF NOT EXISTS CaptureAssetSources (
@@ -157,29 +159,45 @@ CREATE UNIQUE INDEX IF NOT EXISTS UX_PrinterProfiles_OneDefault ON PrinterProfil
 );
 UPDATE CapturePhotos SET PhotoType='MotionPhoto' WHERE PhotoType='Original' AND lower(LocalPath) LIKE '%_mp.jpg';
 UPDATE CapturePhotos SET PhotoType='Picture' WHERE PhotoType='Original';
-UPDATE CapturePhotos SET MimeType=CASE PhotoType WHEN 'MotionPhoto' THEN 'image/jpeg' WHEN 'Composite' THEN 'image/png' WHEN 'Gif' THEN 'image/gif' WHEN 'ShareArchive' THEN 'application/zip' ELSE MimeType END WHERE MimeType IS NULL OR MimeType='';
+UPDATE CapturePhotos SET MimeType=CASE PhotoType WHEN 'MotionPhoto' THEN 'image/jpeg' WHEN 'MotionPhotoComposite' THEN 'image/jpeg' WHEN 'Composite' THEN 'image/png' WHEN 'Gif' THEN 'image/gif' WHEN 'ShareArchive' THEN 'application/zip' ELSE MimeType END WHERE MimeType IS NULL OR MimeType='';
 UPDATE CapturePhotos SET CreatedAtUtc=(SELECT CreatedAtUtc FROM Captures WHERE Captures.Id=CapturePhotos.CaptureId) WHERE CreatedAtUtc IS NULL OR CreatedAtUtc='';
 CREATE UNIQUE INDEX IF NOT EXISTS UX_Captures_CompositeImageId ON Captures(CompositeImageId) WHERE CompositeImageId IS NOT NULL AND CompositeImageId<>'';
 CREATE UNIQUE INDEX IF NOT EXISTS UX_CustomerSessions_FinalImageId ON CustomerSessions(FinalImageId) WHERE FinalImageId IS NOT NULL AND FinalImageId<>'';
 CREATE INDEX IF NOT EXISTS IX_CaptureAssetSources_Source ON CaptureAssetSources(SourceAssetId);
+UPDATE CapturePhotos SET AssetStatus='Legacy' WHERE CaptureId IN (
+ SELECT c.Id FROM Captures c WHERE
+  (SELECT COUNT(*) FROM CapturePhotos p WHERE p.CaptureId=c.Id AND p.PhotoType='Picture')<>(SELECT COUNT(*) FROM CapturePhotos p WHERE p.CaptureId=c.Id AND p.PhotoType='MotionPhoto')
+  OR (SELECT COUNT(*) FROM CapturePhotos p WHERE p.CaptureId=c.Id AND p.PhotoType='Composite')<>1
+  OR (SELECT COUNT(*) FROM CapturePhotos p WHERE p.CaptureId=c.Id AND p.PhotoType='MotionPhotoComposite')<>1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS UX_CapturePhotos_CapturedImage_Type_Ready ON CapturePhotos(CapturedImageId,PhotoType) WHERE CapturedImageId IS NOT NULL AND AssetStatus<>'Legacy' AND PhotoType IN ('Picture','MotionPhoto');
 DROP TRIGGER IF EXISTS TR_CapturePhotos_Validate_Insert;
 DROP TRIGGER IF EXISTS TR_CapturePhotos_Validate_Update;
 DROP TRIGGER IF EXISTS TR_CaptureAssetSources_SameCapture;
+DROP TRIGGER IF EXISTS TR_CaptureAssetSources_ValidateTypes;
 CREATE TRIGGER TR_CapturePhotos_Validate_Insert BEFORE INSERT ON CapturePhotos BEGIN
  SELECT CASE WHEN NEW.Id IS NULL OR trim(NEW.Id)='' THEN RAISE(ABORT,'Capture asset ID is required') END;
- SELECT CASE WHEN NEW.PhotoType NOT IN ('Picture','MotionPhoto','Composite','Gif','ShareArchive') THEN RAISE(ABORT,'Invalid capture asset type') END;
- SELECT CASE WHEN NEW.PhotoType='MotionPhoto' AND (NEW.CapturedImageId IS NULL OR trim(NEW.CapturedImageId)='') THEN RAISE(ABORT,'Motion Photo requires a captured image ID') END;
+ SELECT CASE WHEN NEW.PhotoType NOT IN ('Picture','MotionPhoto','MotionPhotoComposite','Composite','Gif','ShareArchive') THEN RAISE(ABORT,'Invalid capture asset type') END;
+ SELECT CASE WHEN NEW.PhotoType IN ('Picture','MotionPhoto') AND NEW.AssetStatus<>'Legacy' AND (NEW.CapturedImageId IS NULL OR trim(NEW.CapturedImageId)='') THEN RAISE(ABORT,'Original Picture and Motion Photo require a captured image ID') END;
  SELECT CASE WHEN NEW.FileLength<0 THEN RAISE(ABORT,'Invalid capture asset length') END;
  SELECT CASE WHEN NEW.CapturedImageId IS NOT NULL AND (SELECT SessionId FROM CapturedImages WHERE Id=NEW.CapturedImageId)<>(SELECT SessionId FROM Captures WHERE Id=NEW.CaptureId) THEN RAISE(ABORT,'Captured image and asset must belong to the same session') END;
 END;
 CREATE TRIGGER TR_CapturePhotos_Validate_Update BEFORE UPDATE ON CapturePhotos BEGIN
  SELECT CASE WHEN NEW.CaptureId<>OLD.CaptureId THEN RAISE(ABORT,'Capture asset ownership cannot change') END;
- SELECT CASE WHEN NEW.PhotoType NOT IN ('Picture','MotionPhoto','Composite','Gif','ShareArchive') THEN RAISE(ABORT,'Invalid capture asset type') END;
- SELECT CASE WHEN NEW.PhotoType='MotionPhoto' AND (NEW.CapturedImageId IS NULL OR trim(NEW.CapturedImageId)='') THEN RAISE(ABORT,'Motion Photo requires a captured image ID') END;
+ SELECT CASE WHEN NEW.PhotoType NOT IN ('Picture','MotionPhoto','MotionPhotoComposite','Composite','Gif','ShareArchive') THEN RAISE(ABORT,'Invalid capture asset type') END;
+ SELECT CASE WHEN NEW.PhotoType IN ('Picture','MotionPhoto') AND NEW.AssetStatus<>'Legacy' AND (NEW.CapturedImageId IS NULL OR trim(NEW.CapturedImageId)='') THEN RAISE(ABORT,'Original Picture and Motion Photo require a captured image ID') END;
  SELECT CASE WHEN NEW.CapturedImageId IS NOT NULL AND (SELECT SessionId FROM CapturedImages WHERE Id=NEW.CapturedImageId)<>(SELECT SessionId FROM Captures WHERE Id=NEW.CaptureId) THEN RAISE(ABORT,'Captured image and asset must belong to the same session') END;
 END;
 CREATE TRIGGER TR_CaptureAssetSources_SameCapture BEFORE INSERT ON CaptureAssetSources BEGIN
  SELECT CASE WHEN (SELECT CaptureId FROM CapturePhotos WHERE Id=NEW.AssetId)<>(SELECT CaptureId FROM CapturePhotos WHERE Id=NEW.SourceAssetId) THEN RAISE(ABORT,'Asset source must belong to the same capture') END;
+END;
+CREATE TRIGGER TR_CaptureAssetSources_ValidateTypes BEFORE INSERT ON CaptureAssetSources BEGIN
+ SELECT CASE WHEN (SELECT AssetStatus FROM CapturePhotos WHERE Id=NEW.AssetId)<>'Legacy' AND NOT (
+  ((SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.AssetId)='Composite' AND (SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.SourceAssetId)='Picture') OR
+  ((SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.AssetId)='MotionPhotoComposite' AND (SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.SourceAssetId)='MotionPhoto') OR
+  ((SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.AssetId)='Gif' AND (SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.SourceAssetId) IN ('Picture','MotionPhoto')) OR
+  ((SELECT PhotoType FROM CapturePhotos WHERE Id=NEW.AssetId)='ShareArchive')
+ ) THEN RAISE(ABORT,'Invalid capture asset lineage types') END;
 END;");
             Execute(@"DROP TRIGGER IF EXISTS TR_UploadQueue_Validate_Insert;
 DROP TRIGGER IF EXISTS TR_UploadQueue_Validate_Update;
@@ -192,13 +210,19 @@ CREATE TRIGGER TR_UploadQueue_Validate_Update BEFORE UPDATE ON UploadQueue BEGIN
 END;");
             Execute(@"INSERT OR IGNORE INTO CaptureAssetSources(AssetId,SourceAssetId)
 SELECT derived.Id,source.Id FROM CapturePhotos derived JOIN CapturePhotos source ON source.CaptureId=derived.CaptureId
-WHERE derived.PhotoType IN ('Composite','Gif') AND source.PhotoType IN ('Picture','MotionPhoto');
+WHERE ((derived.PhotoType='Composite' AND source.PhotoType='Picture')
+   OR (derived.PhotoType='MotionPhotoComposite' AND source.PhotoType='MotionPhoto')
+   OR (derived.PhotoType='Gif' AND source.PhotoType IN ('Picture','MotionPhoto')))
+AND NOT EXISTS(SELECT 1 FROM CaptureAssetSources existing WHERE existing.AssetId=derived.Id AND existing.SourceAssetId=source.Id);
 INSERT OR IGNORE INTO CaptureAssetSources(AssetId,SourceAssetId)
 SELECT archive.Id,source.Id FROM CapturePhotos archive JOIN CapturePhotos source ON source.CaptureId=archive.CaptureId AND source.Id<>archive.Id
-WHERE archive.PhotoType='ShareArchive';");
+WHERE archive.PhotoType='ShareArchive'
+AND NOT EXISTS(SELECT 1 FROM CaptureAssetSources existing WHERE existing.AssetId=archive.Id AND existing.SourceAssetId=source.Id);");
             BackfillCaptureAssetMetadata();
             RecordMigration(4, "capture_asset_identity_metadata_and_lineage");
             RecordMigration(5, "frame_event_collections");
+            RecordMigration(6, "motion_photo_composite_asset");
+            RecordMigration(7, "capture_media_mode");
             Execute("CREATE INDEX IF NOT EXISTS IX_CapturedImages_SessionId ON CapturedImages(SessionId); CREATE INDEX IF NOT EXISTS IX_FrameSlots_FrameId ON FrameSlots(FrameId); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_StartedAtUtc ON CustomerSessions(StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_Account_Device ON CustomerSessions(AccountId,DeviceId,StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_Captures_SessionId ON Captures(SessionId); CREATE INDEX IF NOT EXISTS IX_Captures_Account_Device ON Captures(AccountId,DeviceId,CreatedAtUtc); CREATE INDEX IF NOT EXISTS IX_Captures_Status_ExpiresAtUtc ON Captures(Status,ExpiresAtUtc); CREATE INDEX IF NOT EXISTS IX_CapturePhotos_CaptureId ON CapturePhotos(CaptureId); CREATE INDEX IF NOT EXISTS IX_CapturePhotos_IsUploaded ON CapturePhotos(IsUploaded); CREATE INDEX IF NOT EXISTS IX_UploadQueue_Due ON UploadQueue(Status,NextRetryAtUtc); CREATE INDEX IF NOT EXISTS IX_PrintJobs_PrintedAtUtc ON PrintJobs(PrintedAtUtc); CREATE INDEX IF NOT EXISTS IX_PrintJobs_Status ON PrintJobs(Status); CREATE INDEX IF NOT EXISTS IX_PrintJobs_SessionId ON PrintJobs(SessionId);");
         }
 
@@ -261,7 +285,7 @@ WHERE archive.PhotoType='ShareArchive';");
             {
                 if(string.IsNullOrWhiteSpace(asset.Item2)||!File.Exists(asset.Item2)){using(var missingConnection=OpenConnection())using(var missing=missingConnection.CreateCommand()){missing.CommandText="UPDATE CapturePhotos SET AssetStatus='Missing' WHERE Id=$id";missing.Parameters.AddWithValue("$id",asset.Item1);missing.ExecuteNonQuery();}continue;}
                 string hash;using(var stream=File.OpenRead(asset.Item2))using(var sha=SHA256.Create())hash=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-",string.Empty).ToLowerInvariant();
-                var mime=asset.Item3=="MotionPhoto"||asset.Item3=="Picture"?"image/jpeg":asset.Item3=="Composite"?"image/png":asset.Item3=="Gif"?"image/gif":asset.Item3=="ShareArchive"?"application/zip":"application/octet-stream";
+                var mime=asset.Item3=="MotionPhoto"||asset.Item3=="MotionPhotoComposite"||asset.Item3=="Picture"?"image/jpeg":asset.Item3=="Composite"?"image/png":asset.Item3=="Gif"?"image/gif":asset.Item3=="ShareArchive"?"application/zip":"application/octet-stream";
                 using(var connection=OpenConnection())using(var update=connection.CreateCommand()){update.CommandText="UPDATE CapturePhotos SET FileLength=$length,ContentHashSha256=$hash,MimeType=$mime,AssetStatus='Ready' WHERE Id=$id";update.Parameters.AddWithValue("$length",new FileInfo(asset.Item2).Length);update.Parameters.AddWithValue("$hash",hash);update.Parameters.AddWithValue("$mime",mime);update.Parameters.AddWithValue("$id",asset.Item1);update.ExecuteNonQuery();}
             }
         }

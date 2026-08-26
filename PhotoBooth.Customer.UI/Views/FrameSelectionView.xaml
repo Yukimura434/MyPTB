@@ -167,7 +167,7 @@
                         </Border>
                         <Button Content="+" Command="{Binding IncreaseCopiesCommand}" Style="{StaticResource CompactControlButton}"/>
                     </StackPanel>
-                    <Button Content="Hoàn tất" Command="{Binding PrintCommand}" Width="190"/>
+                    <Button Content="Tiếp tục ghép Motion Photo" Command="{Binding PrintCommand}" Width="260"/>
                 </StackPanel>
             </Grid>
 

@@ -29,7 +29,14 @@ namespace PhotoBooth.Admin.UI
         [STAThread]
         private static void Main(string[] args)
         {
-            if (args != null && args.Length > 0 && string.Equals(args[0], "--motion-photo-encode", StringComparison.Ordinal))
+            if (args != null && args.Length > 0 && string.Equals(args[0], "--camera-smoke", StringComparison.Ordinal))
+            {
+                Environment.ExitCode = RunCameraSmoke();
+                return;
+            }
+            if (args != null && args.Length > 0 &&
+                (string.Equals(args[0], "--motion-photo-encode", StringComparison.Ordinal) ||
+                 string.Equals(args[0], "--motion-photo-compose", StringComparison.Ordinal)))
             {
                 Environment.ExitCode = MotionPhotoService.RunEncoderCommand(args);
                 return;
@@ -38,9 +45,41 @@ namespace PhotoBooth.Admin.UI
             VelopackApp.Build().Run();
 #endif
 
-            var app = new App();
-            app.InitializeComponent();
-            app.Run();
+            bool ownsInstance;
+            using (var instanceMutex = new Mutex(true, @"Local\MiuCamezaPTB", out ownsInstance))
+            {
+                if (!ownsInstance)
+                    return;
+
+                var app = new App();
+                app.InitializeComponent();
+                app.Run();
+            }
+        }
+
+        private static int RunCameraSmoke()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "PhotoBooth-CameraSmoke-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var services = new ServiceCollection(); services.AddLogging();
+                var options = new ApplicationOptions { ApplicationName="PhotoBooth.CameraSmoke",DataDirectory=root,DatabasePath=Path.Combine(root,"smoke.db"),UseFakeCamera=true,RestartLiveViewDuringRecovery=false };
+                options.Features["MotionPhoto"] = false; options.Features["MotionPhotoNativeEncoder"] = false;
+                services.AddPhotoBoothInfrastructure(options);
+                using (var smokeProvider = services.BuildServiceProvider())
+                {
+                    smokeProvider.InitializePhotoBooth();
+                    var camera = smokeProvider.GetRequiredService<ICameraService>();
+                    camera.ConnectAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    var cameras = camera.ScanAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    if (cameras == null || cameras.Count == 0) throw new InvalidOperationException("Fake camera was not discovered.");
+                    camera.DisconnectAsync(CancellationToken.None).GetAwaiter().GetResult();
+                }
+                Console.WriteLine("Camera smoke passed."); return 0;
+            }
+            catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
+            finally { try { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -89,6 +128,18 @@ namespace PhotoBooth.Admin.UI
                 {
                 }
 
+                if (MainWindow == null || !MainWindow.IsVisible)
+                {
+                    MessageBox.Show(
+                        "PhotoBooth could not start. Details were written to Data\\Logs\\Error.log.",
+                        "PhotoBooth startup error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                    x.Handled = true;
+                    Shutdown(-1);
+                    return;
+                }
+
                 x.Handled = true;
             };
 
@@ -118,6 +169,8 @@ namespace PhotoBooth.Admin.UI
             // corrupt or terminate the main PhotoBooth workflow.
             applicationOptions.Features["MotionPhotoNativeEncoder"] =
                 !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_MOTION_PHOTO_NATIVE"), "0", StringComparison.Ordinal);
+            applicationOptions.Features["MotionPhoto"] =
+                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_MOTION_PHOTO"), "0", StringComparison.Ordinal);
             services.AddPhotoBoothInfrastructure(applicationOptions);
 
             services.AddCustomerMode();

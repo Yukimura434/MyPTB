@@ -37,7 +37,7 @@ namespace PhotoBooth.Business.Services
                 var number = Enumerable.Range(1, 99).FirstOrDefault(x => !used.Contains(x));
                 if (number == 0) throw new InvalidOperationException("The daily session limit (99) has been reached.");
                 var name = day + "_" + number; var folder = System.IO.Path.Combine(root, name);
-                return new Session { PresetId = presetId, StartedAtUtc = DateTime.UtcNow, OutputDirectory = folder, SessionName = name, SessionNumber = number, CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
+                return new Session { PresetId = presetId, StartedAtUtc = DateTime.UtcNow, OutputDirectory = folder, SessionName = name, SessionNumber = number, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
             }
             finally { SessionLock.Release(); }
         }
@@ -54,7 +54,7 @@ namespace PhotoBooth.Business.Services
                 if (all.Any(x => string.Equals(x.SessionName, draft.SessionName, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("A session with this name already exists.");
                 var folder = System.IO.Path.GetFullPath(draft.OutputDirectory);
                 System.IO.Directory.CreateDirectory(folder);
-                var value = new Session { Id = Guid.NewGuid(), PresetId = draft.PresetId, StartedAtUtc = DateTime.UtcNow, OutputDirectory = folder, SessionName = draft.SessionName.Trim(), SessionNumber = draft.SessionNumber, CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
+                var value = new Session { Id = Guid.NewGuid(), PresetId = draft.PresetId, StartedAtUtc = DateTime.UtcNow, OutputDirectory = folder, SessionName = draft.SessionName.Trim(), SessionNumber = draft.SessionNumber, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
                 await repository.SaveAsync(value, token); return value;
             }
             finally { SessionLock.Release(); }
@@ -68,7 +68,7 @@ namespace PhotoBooth.Business.Services
             var existing = all.FirstOrDefault(x => string.Equals(x.SessionName, "Base_session", StringComparison.OrdinalIgnoreCase));
             if (existing != null) { System.IO.Directory.CreateDirectory(existing.OutputDirectory); return existing; }
             var folder = System.IO.Path.Combine(options.DataDirectory, "Captures", "Base_session"); System.IO.Directory.CreateDirectory(folder);
-            var value = new Session { Id = Guid.NewGuid(), StartedAtUtc = DateTime.UtcNow, OutputDirectory = folder, SessionName = "Base_session", SessionNumber = 0, IsDefault = !all.Any(x => x.IsDefault), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
+            var value = new Session { Id = Guid.NewGuid(), StartedAtUtc = DateTime.UtcNow, OutputDirectory = folder, SessionName = "Base_session", SessionNumber = 0, IsDefault = !all.Any(x => x.IsDefault), CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
             await repository.SaveAsync(value, token); return value;
         }
         public async Task<Session> GetDefaultAsync(CancellationToken token)
@@ -79,6 +79,7 @@ namespace PhotoBooth.Business.Services
         }
         public Task SetDefaultAsync(Guid id, CancellationToken token) => repository.SetDefaultAsync(id, token);
         public Task UpdateAsync(Session session, CancellationToken token) => repository.SaveAsync(session, token);
+        public Task ReplaceCapturedShotAsync(Guid sessionId, string previousShotId, CapturedShot replacement, CancellationToken token) => repository.ReplaceCapturedShotAsync(sessionId, previousShotId, replacement, token);
         public Task CompleteAsync(Session session, CancellationToken token) { session.CompletedAtUtc = DateTime.UtcNow; return repository.SaveAsync(session, token); }
     }
 }

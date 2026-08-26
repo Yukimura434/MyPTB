@@ -73,6 +73,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IPrinterService, PrinterService>();
             services.AddSingleton<ISessionService, SessionService>();
             services.AddSingleton<ICaptureService, CaptureService>();
+            services.AddSingleton<ICaptureIntegrityService, CaptureIntegrityService>();
             services.AddSingleton<INavigationService, NavigationService>();
             services.AddSingleton<IFileStorageService, FileStorageService>();
             services.AddSingleton<ISettingsService, SettingsService>();

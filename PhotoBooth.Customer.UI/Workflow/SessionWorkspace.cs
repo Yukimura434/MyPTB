@@ -58,20 +58,23 @@ namespace PhotoBooth.Customer.UI.Workflow
 
         internal static void ReplaceWorkspaceFiles(Session session, IReadOnlyDictionary<string, string> promoted)
         {
-            var files = (session.CapturedFiles ?? new string[0]).ToList();
-            var ids = (session.CapturedImageIds ?? new string[0]).ToList();
-            var keptFiles = new List<string>();
-            var keptIds = new List<string>();
-            for (var i = 0; i < files.Count; i++)
+            var kept = new List<CapturedShot>();
+            foreach (var shot in session.CapturedShots ?? new CapturedShot[0])
             {
-                string replacement;
-                if (promoted.TryGetValue(files[i], out replacement)) keptFiles.Add(replacement);
-                else if (!Contains(session, files[i])) keptFiles.Add(files[i]);
+                string picture;
+                if (promoted.TryGetValue(shot.PicturePath, out picture)) { }
+                else if (!Contains(session, shot.PicturePath)) picture = shot.PicturePath;
                 else continue;
-                if (i < ids.Count) keptIds.Add(ids[i]);
+                var motion = shot.MotionPhotoPath;
+                string motionReplacement;
+                if (!string.IsNullOrWhiteSpace(motion) && promoted.TryGetValue(motion, out motionReplacement)) motion = motionReplacement;
+                else if (!string.IsNullOrWhiteSpace(motion) && Contains(session, motion)) motion = null;
+                kept.Add(new CapturedShot { Id=shot.Id, Sequence=shot.Sequence, PicturePath=picture, MotionPhotoPath=motion, CapturedAtUtc=shot.CapturedAtUtc });
             }
-            session.CapturedFiles = keptFiles;
-            session.CapturedImageIds = keptIds;
+            session.CapturedShots = kept;
+            session.CapturedFiles = kept.Select(x=>x.PicturePath).ToList();
+            session.CapturedMotionFiles = kept.Where(x=>x.HasMotionPhoto).Select(x=>x.MotionPhotoPath).ToList();
+            session.CapturedImageIds = kept.Select(x=>x.Id).ToList();
         }
 
         private static string EnsureTrailingSeparator(string path) =>

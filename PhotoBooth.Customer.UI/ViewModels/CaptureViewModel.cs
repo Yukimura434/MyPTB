@@ -161,7 +161,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     : allPresets.FirstOrDefault(x => x.IsDefault);
                 context.Session = await sessions.GetDefaultAsync(token);
                 context.CaptureId = null;
-                context.CurrentCaptureFiles.Clear();
+                context.CurrentShots.Clear();
                 await Task.Run(() => SessionWorkspace.Prepare(context.Session), token);
                 context.WorkingDirectory = SessionWorkspace.GetPath(context.Session);
                 SessionWorkspace.ReplaceWorkspaceFiles(context.Session, new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
@@ -176,10 +176,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     log.LogInformation("Physical capture and shutter effect starting {Current}/{Total}", i, TotalPhotos);
                     context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, token);
                     log.LogInformation("Physical capture completed {Current}/{Total}", i, TotalPhotos);
-                    var newest = context.Session.CapturedFiles?.LastOrDefault();
-                    if (!string.IsNullOrWhiteSpace(newest)) context.CurrentCaptureFiles.Add(newest);
+                    var newest = context.Session.CapturedShots?.LastOrDefault();
+                    if (newest == null) throw new InvalidOperationException("Camera did not return a captured shot.");
+                    context.CurrentShots.Add(newest);
                     CapturedImages.Clear();
-                    foreach (var file in context.CurrentCaptureFiles) CapturedImages.Add(file);
+                    foreach (var shot in context.CurrentShots) CapturedImages.Add(shot.PicturePath);
                     log.LogInformation("Capture finished {Current}/{Total}", i, TotalPhotos);
 
                     if (i < TotalPhotos)
@@ -227,8 +228,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     log.LogInformation("Physical retake and shutter effect starting {Current}/{Total}", sequence + 1, selected.Count);
                     context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, token);
                     log.LogInformation("Physical retake completed {Current}/{Total}", sequence + 1, selected.Count);
-                    var newest = context.Session.CapturedFiles?.LastOrDefault();
-                    if (string.IsNullOrWhiteSpace(newest)) throw new InvalidOperationException("Camera did not return the replacement photo.");
+                    var newest = context.Session.CapturedShots?.LastOrDefault();
+                    if (newest == null) throw new InvalidOperationException("Camera did not return the replacement shot.");
                     await ReplaceCaptureAsync(position, newest);
                     if (sequence < selected.Count - 1) machine.MoveTo(CustomerWorkflowState.InterShotDelay);
                 }
@@ -291,22 +292,23 @@ namespace PhotoBooth.Customer.UI.ViewModels
         async Task StartLive() { await StopLive(); var camera = context.Camera; if (camera == null) return; liveCts = new CancellationTokenSource(); await live.StartAsync(camera.Id, liveCts.Token); _ = LiveLoop(camera.Id, liveCts.Token); }
         async Task LiveLoop(string cameraId, CancellationToken token) { while (!token.IsCancellationRequested) try { var frame = await live.GetFrameAsync(cameraId, token); if (frame?.ImageData != null) { LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));LiveImage = frame.ImageData; motionPhotos.AddLiveViewFrame(frame.ImageData, frame.TimestampUtc == default(DateTime) ? DateTime.UtcNow : frame.TimestampUtc); } await Task.Delay(40, token); } catch (OperationCanceledException) { break; } catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } } }
         async Task StopLive() { var c = liveCts; if (c == null) return; c.Cancel(); liveCts = null; if (context.Camera != null) try { await live.StopAsync(context.Camera.Id, CancellationToken.None); } catch { } }
-        async Task CleanupTemporary() { var session=context.Session;if(session==null)return;SessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.UpdateAsync(session,CancellationToken.None);await Task.Run(()=>SessionWorkspace.Cleanup(session));context.CurrentCaptureFiles.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.Session=null; }
-        async Task ReplaceCaptureAsync(int position, string newest)
+        async Task CleanupTemporary() { var session=context.Session;if(session==null)return;SessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.UpdateAsync(session,CancellationToken.None);await Task.Run(()=>SessionWorkspace.Cleanup(session));context.CurrentShots.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.Session=null; }
+        async Task ReplaceCaptureAsync(int position, CapturedShot newest)
         {
-            if (position < 0 || position >= context.CurrentCaptureFiles.Count) throw new ArgumentOutOfRangeException(nameof(position));
-            var old = context.CurrentCaptureFiles[position]; context.CurrentCaptureFiles[position] = newest;
-            var files = (context.Session.CapturedFiles ?? new string[0]).ToList(); var ids = (context.Session.CapturedImageIds ?? new string[0]).ToList();
-            var oldIndex = files.FindIndex(x => string.Equals(x, old, StringComparison.OrdinalIgnoreCase));
-            if (oldIndex >= 0) { files.RemoveAt(oldIndex); if (oldIndex < ids.Count) ids.RemoveAt(oldIndex); }
-            context.Session.CapturedFiles = files; context.Session.CapturedImageIds = ids; await sessions.UpdateAsync(context.Session, CancellationToken.None);
-            try { if (SessionWorkspace.Contains(context.Session, old) && System.IO.File.Exists(old)) System.IO.File.Delete(old); } catch { }
-            CapturedImages.Clear(); foreach (var file in context.CurrentCaptureFiles) CapturedImages.Add(file);
+            if (position < 0 || position >= context.CurrentShots.Count) throw new ArgumentOutOfRangeException(nameof(position));
+            var old = context.CurrentShots[position];
+            newest.Sequence = old.Sequence;
+            await sessions.ReplaceCapturedShotAsync(context.Session.Id, old.Id, newest, CancellationToken.None);
+            context.Session = await sessions.GetAsync(context.Session.Id, CancellationToken.None);
+            context.CurrentShots[position] = newest;
+            try { if (SessionWorkspace.Contains(context.Session, old.PicturePath) && System.IO.File.Exists(old.PicturePath)) System.IO.File.Delete(old.PicturePath); } catch { }
+            try { if (SessionWorkspace.Contains(context.Session, old.MotionPhotoPath) && System.IO.File.Exists(old.MotionPhotoPath)) System.IO.File.Delete(old.MotionPhotoPath); } catch { }
+            CapturedImages.Clear(); foreach (var shot in context.CurrentShots) CapturedImages.Add(shot.PicturePath);
         }
         void RefreshReviewPhotos()
         {
             ReviewPhotos.Clear();
-            for (var i = 0; i < context.CurrentCaptureFiles.Count; i++) ReviewPhotos.Add(new CapturedPhotoItem(i, context.CurrentCaptureFiles[i], () => ((AsyncCommand)RetakeCommand).NotifyCanExecuteChanged()));
+            for (var i = 0; i < context.CurrentShots.Count; i++) ReviewPhotos.Add(new CapturedPhotoItem(i, context.CurrentShots[i].PicturePath, () => ((AsyncCommand)RetakeCommand).NotifyCanExecuteChanged()));
             SelectedReviewPhoto = ReviewPhotos.FirstOrDefault();
         }
         void OnStateChanged()

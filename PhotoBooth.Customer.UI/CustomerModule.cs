@@ -14,6 +14,7 @@ namespace PhotoBooth.Customer.UI
             services.AddSingleton<CaptureViewModel>();
             services.AddSingleton<LiveColorState>();
             services.AddSingleton<FrameSelectionViewModel>();
+            services.AddSingleton<MotionPhotoSelectionViewModel>();
             services.AddSingleton<CompleteViewModel>();
             services.AddSingleton<WaitingViewModel>();
             services.AddSingleton<CustomerShellViewModel>();

@@ -18,8 +18,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
     public sealed class CapturedPhotoChoice : ObservableObject
     {
         bool selected;
-        public CapturedPhotoChoice(string path, int number) { Path = path; Number = number; }
+        public CapturedPhotoChoice(string path, int number, string previewVideoPath = null) { Path = path; Number = number; PreviewVideoPath = previewVideoPath; }
         public string Path { get; }
+        public string PreviewVideoPath { get; }
         public int Number { get; }
         public bool IsSelected { get => selected; set => Set(ref selected, value); }
     }
@@ -53,6 +54,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly ICaptureService captures;
         readonly IPrintPipeline printPipeline;
         readonly ILogger<FrameSelectionViewModel> log;
+        readonly IFeatureFlagService features;
         readonly SemaphoreSlim composeGate = new SemaphoreSlim(1, 1);
         readonly AsyncCommand printCommand;
         Frame selected;
@@ -69,12 +71,12 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public FrameSelectionViewModel(CustomerWorkflowStateMachine m, CustomerWorkflowContext c, IFrameService f,
             IPresetService p, IPrinterService printer, IImageCompositionService compose, IPresetProcessor processor,
             IStorageManager storageManager, ISessionService session, ICaptureService captureService,
-            IGifAnimationService gifService, IPrintPipeline pipeline, ILogger<FrameSelectionViewModel> logger)
+            IGifAnimationService gifService, IPrintPipeline pipeline, IFeatureFlagService featureFlags, ILogger<FrameSelectionViewModel> logger)
         {
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
-            presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; log = logger;
+            presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; features = featureFlags; log = logger;
             CancelCommand = new RelayCommand(() => machine.MoveTo(CustomerWorkflowState.Preview));
-            printCommand = new AsyncCommand(Print, () => CanFinish && !IsPrinting);
+            printCommand = new AsyncCommand(ContinueToMotionPhoto, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
             RetryCommand = new AsyncCommand(UpdatePreview);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
@@ -232,51 +234,55 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     return;
                 }
                 context.Session.FrameIndex = working.FrameIndex; context.Session.FinalImageId = working.FinalImageId;
+                var currentShots = (context.CurrentShots??new List<CapturedShot>()).ToList();
                 var promoted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var source in sourceFiles) promoted[source] = SessionWorkspace.Promote(context.Session, source);
+                foreach (var source in context.CurrentShots.Where(x=>x.HasMotionPhoto).Select(x=>x.MotionPhotoPath).Where(File.Exists)) promoted[source] = SessionWorkspace.Promote(context.Session, source);
                 var finalComposite = SessionWorkspace.Promote(context.Session, composed);
-                context.CurrentCaptureFiles.Clear(); foreach (var source in sourceFiles) context.CurrentCaptureFiles.Add(promoted[source]);
-                SessionWorkspace.ReplaceWorkspaceFiles(context.Session, promoted); sourceFiles = context.CurrentCaptureFiles.ToList();
+                SessionWorkspace.ReplaceWorkspaceFiles(context.Session, promoted);
+                context.CurrentShots = currentShots.Select(x=>new CapturedShot{Id=x.Id,Sequence=x.Sequence,PicturePath=promoted.TryGetValue(x.PicturePath,out var picture)?picture:x.PicturePath,MotionPhotoPath=x.HasMotionPhoto&&promoted.TryGetValue(x.MotionPhotoPath,out var motion)?motion:x.MotionPhotoPath,CapturedAtUtc=x.CapturedAtUtc}).ToList(); sourceFiles = context.CurrentShots.Select(x=>x.PicturePath).ToList();
                 PreviewPath = finalComposite; context.Session.FinalImagePath = finalComposite; await sessions.UpdateAsync(context.Session, token);
-                if (string.IsNullOrWhiteSpace(context.CaptureId))
-                {
-                    var retentionDays = context.Settings?.SessionRetentionDays ?? 30;
-                    var expires = retentionDays > 0 ? (DateTime?)DateTime.UtcNow.AddDays(retentionDays) : null;
-                    var capture = await captures.CreateAsync(context.Session.Id, SelectedFrame.Id, context.Session.FinalImageId, finalComposite, sourceFiles, expires, token);
-                    context.CaptureId = capture.Id;
-                }
-                log.LogInformation("Frame selected {Frame} ({ImageId}, capture {CaptureId}, originals {OriginalCount})", SelectedFrame.Name, context.Session.FinalImageId, context.CaptureId, sourceFiles.Count);
+                log.LogInformation("Frame selected {Frame} ({ImageId}, originals {OriginalCount})", SelectedFrame.Name, context.Session.FinalImageId, sourceFiles.Count);
             }
             finally { composeGate.Release(); }
         }
 
         List<string> GetSourceFiles()
         {
-            var current = context.CurrentCaptureFiles ?? new List<string>();
-            var sessionFiles = context.Session?.CapturedFiles ?? new string[0];
-            return (current.Count > 0 ? current : sessionFiles.ToList()).Where(File.Exists).ToList();
+            var current = context.CurrentShots ?? new List<CapturedShot>();
+            var sessionShots = context.Session?.CapturedShots ?? new CapturedShot[0];
+            return (current.Count > 0 ? current : sessionShots.ToList()).Select(x=>x.PicturePath).Where(File.Exists).ToList();
         }
 
-        async Task Print()
+        async Task ContinueToMotionPhoto()
         {
             try
             {
-                ErrorMessage = null; IsPrinting = true; machine.MoveTo(CustomerWorkflowState.Printing); previewCancellation?.Cancel();
+                ErrorMessage = null; IsPrinting = true; previewCancellation?.Cancel();
                 await Compose(true, CancellationToken.None);
+                if (await features.IsEnabledAsync("MotionPhoto", CancellationToken.None))
+                {
+                    machine.MoveTo(CustomerWorkflowState.MotionPhotoSelection);
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(context.CaptureId))
+                {
+                    var days = context.Settings?.SessionRetentionDays ?? 30; var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
+                    var capture = await captures.CreateAsync(context.Session.Id, SelectedFrame.Id, context.Session.FinalImageId, context.Session.FinalImagePath, context.CurrentShots, expires, CancellationToken.None); context.CaptureId = capture.Id;
+                }
+                machine.MoveTo(CustomerWorkflowState.Printing);
                 if (context.PrintingEnabled)
                 {
                     var profiles = await printers.GetProfilesAsync(CancellationToken.None); var profile = profiles.SingleOrDefault(x => x.IsDefault);
                     if (profile == null || !string.Equals(profile.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Default printer changed. Reconnect the printer.");
-                    var copies = Math.Max(1, PrintCopies); await printPipeline.ExecuteAsync(context.Session.Id, profile.Id, copies, CancellationToken.None);
+                    await printPipeline.ExecuteAsync(context.Session.Id, profile.Id, Math.Max(1, PrintCopies), CancellationToken.None);
                 }
                 machine.MoveTo(CustomerWorkflowState.Complete);
             }
             catch (Exception e)
             {
-                var printerError = e.Message.IndexOf("printer", StringComparison.OrdinalIgnoreCase) >= 0;
-                Fail(e, printerError ? "Máy in mất kết nối. Vui lòng kết nối lại." : e.Message);
                 if (machine.State == CustomerWorkflowState.Printing) machine.MoveTo(CustomerWorkflowState.FrameSelection);
-                if (printerError) PrinterConnectionRequired?.Invoke(this, "Không thể in bằng máy in mặc định. Hãy bật hoặc kết nối lại đúng máy in.");
+                Fail(e, e.Message);
             }
             finally { IsPrinting = false; }
         }

@@ -17,6 +17,7 @@ namespace PhotoBooth.Shared
         {
             ["QR"] = true, ["Plugins"] = true, ["Diagnostics"] = true, ["Telemetry"] = false,
             ["ColorGpuLiveView"] = true, ["ColorGpuDiagnosticMonochrome"] = false,
+            ["MotionPhoto"] = true,
             ["MotionPhotoNativeEncoder"] = true
         };
     }

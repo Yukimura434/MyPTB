@@ -11,6 +11,7 @@
   <DataTemplate DataType="{x:Type vm:PrinterConnectionViewModel}"><views:PrinterConnectionView/></DataTemplate>
   <DataTemplate DataType="{x:Type vm:CaptureViewModel}"><views:CaptureView/></DataTemplate>
   <DataTemplate DataType="{x:Type vm:FrameSelectionViewModel}"><views:FrameSelectionView/></DataTemplate>
+  <DataTemplate DataType="{x:Type vm:MotionPhotoSelectionViewModel}"><views:MotionPhotoSelectionView/></DataTemplate>
   <DataTemplate DataType="{x:Type vm:CompleteViewModel}"><views:CompleteView/></DataTemplate>
   <DataTemplate DataType="{x:Type vm:WaitingViewModel}"><views:WaitingView/></DataTemplate>
 </ResourceDictionary>
