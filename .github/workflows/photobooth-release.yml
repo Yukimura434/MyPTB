@@ -60,3 +60,21 @@ jobs:
       - name: Publish GitHub Release
         shell: pwsh
         run: vpk upload github --repoUrl https://github.com/Yukimura434/MiuCamezaPTB --token ${{ secrets.MIUCAMEZAPTB_RELEASE_TOKEN }} --publish --tag photobooth-v${{ steps.version.outputs.version }} --releaseName "PhotoBooth ${{ steps.version.outputs.version }}" --merge
+
+      - name: Mark alpha releases as prerelease
+        if: contains(steps.version.outputs.version, '-')
+        shell: pwsh
+        env:
+          RELEASE_TOKEN: ${{ secrets.MIUCAMEZAPTB_RELEASE_TOKEN }}
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:RELEASE_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/Yukimura434/MiuCamezaPTB/releases?per_page=100"
+          foreach ($release in $releases) {
+            if ($release.tag_name -match '^photobooth-v.+-.+$' -and -not $release.prerelease) {
+              Invoke-RestMethod -Method Patch -Headers $headers -Uri "https://api.github.com/repos/Yukimura434/MiuCamezaPTB/releases/$($release.id)" -ContentType "application/json" -Body '{"prerelease":true}'
+            }
+          }
