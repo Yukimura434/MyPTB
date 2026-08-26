@@ -120,6 +120,19 @@
                         <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE771;" Style="{StaticResource IconText}"/><TextBlock Text="Interface" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
                     </Button>
 
+                    <Button Style="{StaticResource MenuButton}"
+                            Command="{Binding NavigateCommand}"
+                            CommandParameter="about">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&lt;!&gt;"
+                                       Style="{StaticResource IconText}"
+                                       FontFamily="Consolas"
+                                       FontWeight="Bold" />
+                            <TextBlock Text="About"
+                                       Visibility="{Binding MenuTextVisibility}" />
+                        </StackPanel>
+                    </Button>
+
                 </StackPanel>
 
             </DockPanel>

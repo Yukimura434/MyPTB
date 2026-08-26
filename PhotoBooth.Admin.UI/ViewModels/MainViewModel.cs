@@ -25,6 +25,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
             DiagnosticsViewModel diagnostics,
             LocalShareViewModel localShare,
             InterfaceViewModel interfacePage,
+            AboutViewModel about,
             Services.ICustomerModeController customerMode)
         {
             this.navigation = navigation;
@@ -39,6 +40,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 { "data", diagnostics },
                 { "share", localShare }
                 ,{ "interface", interfacePage }
+                ,{ "about", about }
             };
 
             NavigateCommand = new RelayCommand(Navigate);

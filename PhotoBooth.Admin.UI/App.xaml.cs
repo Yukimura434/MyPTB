@@ -189,6 +189,7 @@ namespace PhotoBooth.Admin.UI
             services.AddSingleton<DiagnosticsViewModel>();
             services.AddSingleton<LocalShareViewModel>();
             services.AddSingleton<InterfaceViewModel>();
+            services.AddSingleton<AboutViewModel>();
             services.AddSingleton<MainViewModel>();
 
             services.AddTransient<MainWindow>();
