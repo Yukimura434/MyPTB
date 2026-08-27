@@ -9,6 +9,7 @@ using PhotoBooth.Core.Models;
 using PhotoBooth.Core.Persistence;
 using PhotoBooth.Core.Pipelines;
 using PhotoBooth.Core.Services;
+using Microsoft.Extensions.Logging;
 
 namespace PhotoBooth.Business.Pipelines
 {
@@ -20,8 +21,11 @@ namespace PhotoBooth.Business.Pipelines
         readonly IVideoService videos;
         readonly IColorLutService colorLuts;
         readonly IFeatureFlagService features;
+        readonly IBeautySettingsService beautySettings;
+        readonly IBeautyRetouchService beauty;
+        readonly ILogger<CapturePipeline> log;
 
-        public CapturePipeline(ICameraService camera, ISessionRepository sessions, ISettingsService settings, IVideoService videos, IColorLutService colorLuts = null, IFeatureFlagService features = null)
+        public CapturePipeline(ICameraService camera, ISessionRepository sessions, ISettingsService settings, IVideoService videos, IColorLutService colorLuts = null, IFeatureFlagService features = null, IBeautySettingsService beautySettings = null, IBeautyRetouchService beauty = null, ILogger<CapturePipeline> log = null)
         {
             this.camera = camera;
             this.sessions = sessions;
@@ -29,6 +33,9 @@ namespace PhotoBooth.Business.Pipelines
             this.videos = videos;
             this.colorLuts = colorLuts;
             this.features = features;
+            this.beautySettings = beautySettings;
+            this.beauty = beauty;
+            this.log = log;
         }
 
         public async Task<Session> ExecuteAsync(Guid id, string cameraId, CancellationToken token)
@@ -37,6 +44,11 @@ namespace PhotoBooth.Business.Pipelines
         }
 
         public async Task<Session> ExecuteAsync(Guid id, string cameraId, string workingDirectory, CancellationToken token)
+        {
+            return await ExecuteAsync(id, cameraId, workingDirectory, true, token).ConfigureAwait(false);
+        }
+
+        public async Task<Session> ExecuteAsync(Guid id, string cameraId, string workingDirectory, bool includeVideo, CancellationToken token)
         {
             var session = await sessions.GetAsync(id, token);
             if (session == null) throw new InvalidOperationException("Session not found.");
@@ -53,7 +65,7 @@ namespace PhotoBooth.Business.Pipelines
             var appSettings = await settings.GetAsync(token) ?? new Settings();
             var saveMode = appSettings.SaveLocation;
             var autoFlip = appSettings.AutoFlip;
-            var videoEnabled = features == null || await features.IsEnabledAsync("Video", token).ConfigureAwait(false);
+            var videoEnabled = includeVideo && (features == null || await features.IsEnabledAsync("Video", token).ConfigureAwait(false));
 
             // Capture is staged to a temporary file first so that the camera's own
             // card copy (camera filename) and the software's renamed PC file never
@@ -70,13 +82,23 @@ namespace PhotoBooth.Business.Pipelines
                 var rawStill = Path.Combine(captureDirectory, imageId + ".video-still.jpg");
                 FinalizeImage(staging, rawStill, autoFlip);
                 File.Copy(rawStill, pictureDestination, true);
+                if (beautySettings != null && beauty != null)
+                {
+                    var beautySnapshot = await beautySettings.GetAsync(token).ConfigureAwait(false);
+                    if (beautySnapshot != null && beautySnapshot.HasEffect)
+                    {
+                        try { await beauty.ProcessAsync(pictureDestination, pictureDestination, beautySnapshot, token).ConfigureAwait(false); }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                        catch (Exception exception) { log?.LogWarning(exception, "Beauty retouch failed; the original captured picture will continue through the pipeline"); }
+                    }
+                }
                 var colorPresetId = session.PresetId ?? appSettings.DefaultPresetId;
                 if (colorPresetId.HasValue && colorLuts != null)
                     await colorLuts.ApplyCaptureAsync(colorPresetId.Value, pictureDestination, token).ConfigureAwait(false);
                 try
                 {
                     if (videoEnabled)
-                        await videos.CreateAsync(rawStill, videoDestination, shutterTimestampUtc, autoFlip, token).ConfigureAwait(false);
+                        await videos.CreateAsync(rawStill, videoDestination, shutterTimestampUtc, appSettings.CountdownSeconds, autoFlip, token).ConfigureAwait(false);
                 }
                 finally
                 {

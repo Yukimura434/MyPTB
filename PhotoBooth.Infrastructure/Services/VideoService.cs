@@ -17,7 +17,8 @@ namespace PhotoBooth.Infrastructure.Services
     public sealed class VideoService : IVideoService
     {
         internal const int FramesPerSecond = 18;
-        internal static readonly TimeSpan Preroll = TimeSpan.FromSeconds(3);
+        internal const int MaximumDurationSeconds = 8;
+        internal static readonly TimeSpan MaximumPreroll = TimeSpan.FromSeconds(MaximumDurationSeconds);
         static readonly TimeSpan FrameInterval = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / FramesPerSecond);
         readonly object sync = new object();
         readonly List<BufferedFrame> frames = new List<BufferedFrame>();
@@ -43,12 +44,12 @@ namespace PhotoBooth.Infrastructure.Services
                 if (lastAcceptedUtc != default(DateTime) && timestampUtc - lastAcceptedUtc < FrameInterval) return;
                 frames.Add(new BufferedFrame(timestampUtc, (byte[])imageData.Clone()));
                 lastAcceptedUtc = timestampUtc;
-                var cutoff = timestampUtc - Preroll - TimeSpan.FromSeconds(1);
+                var cutoff = timestampUtc - MaximumPreroll - TimeSpan.FromSeconds(1);
                 frames.RemoveAll(x => x.TimestampUtc < cutoff);
             }
         }
 
-        public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, bool flipHorizontally, CancellationToken token)
+        public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(stillImagePath)) throw new ArgumentException("Still image path is required.", nameof(stillImagePath));
             if (string.IsNullOrWhiteSpace(destinationPath)) throw new ArgumentException("Destination path is required.", nameof(destinationPath));
@@ -56,16 +57,18 @@ namespace PhotoBooth.Infrastructure.Services
             {
                 throw new InvalidOperationException("MP4 video encoding is disabled.");
             }
+            durationSeconds = NormalizeDuration(durationSeconds);
+            var preroll = TimeSpan.FromSeconds(durationSeconds);
             shutterTimestampUtc = shutterTimestampUtc.Kind == DateTimeKind.Utc ? shutterTimestampUtc : shutterTimestampUtc.ToUniversalTime();
             BufferedFrame[] snapshot;
             lock (sync)
-                snapshot = frames.Where(x => x.TimestampUtc > shutterTimestampUtc - Preroll - FrameInterval && x.TimestampUtc <= shutterTimestampUtc).ToArray();
+                snapshot = frames.Where(x => x.TimestampUtc > shutterTimestampUtc - preroll - FrameInterval && x.TimestampUtc <= shutterTimestampUtc).ToArray();
             return Task.Run(() =>
             {
                 if (isolateNativeEncoder)
-                    CreateExternal(stillImagePath, destinationPath, shutterTimestampUtc, snapshot, flipHorizontally, token);
+                    CreateExternal(stillImagePath, destinationPath, shutterTimestampUtc, durationSeconds, snapshot, flipHorizontally, token);
                 else
-                    Create(stillImagePath, destinationPath, shutterTimestampUtc, snapshot, flipHorizontally, token);
+                    Create(stillImagePath, destinationPath, shutterTimestampUtc, durationSeconds, snapshot, flipHorizontally, token);
             }, token);
         }
 
@@ -123,9 +126,9 @@ namespace PhotoBooth.Infrastructure.Services
             finally { try { if (Directory.Exists(attempt)) Directory.Delete(attempt, true); } catch { } }
         }
 
-        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
+        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
         {
-            ValidateSource(stillImagePath, shutterUtc, source);
+            ValidateSource(stillImagePath, shutterUtc, durationSeconds, source);
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
             Directory.CreateDirectory(directory);
             var attemptDirectory = Path.Combine(directory, ".video-" + Guid.NewGuid().ToString("N"));
@@ -134,7 +137,7 @@ namespace PhotoBooth.Infrastructure.Services
             Directory.CreateDirectory(frameDirectory);
             try
             {
-                var selected = Resample(source, shutterUtc);
+                var selected = Resample(source, shutterUtc, durationSeconds);
                 for (var i = 0; i < selected.Count; i++)
                 {
                     token.ThrowIfCancellationRequested();
@@ -187,7 +190,7 @@ namespace PhotoBooth.Infrastructure.Services
                     return RunCompositeCommand(args);
                 if (args == null || (args.Length != 4 && args.Length != 5)) throw new ArgumentException("Expected still image, frame directory, output path and optional flip flag.");
                 var files = Directory.GetFiles(args[2], "*.jpg").OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
-                if (files.Length != FramesPerSecond * 3) throw new InvalidDataException("The MP4 encoder requires exactly 54 frames.");
+                if (files.Length < FramesPerSecond || files.Length > FramesPerSecond * MaximumDurationSeconds) throw new InvalidDataException("The MP4 encoder received an unsupported frame count.");
                 var selected = new List<BufferedFrame>(files.Length);
                 for (var i = 0; i < files.Length; i++) selected.Add(new BufferedFrame(DateTime.UtcNow.AddTicks(i), File.ReadAllBytes(files[i])));
                 var videoPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[3])), Guid.NewGuid().ToString("N") + ".mp4");
@@ -277,10 +280,11 @@ namespace PhotoBooth.Infrastructure.Services
                 var scaleX = (double)width / overlay.Width;
                 var scaleY = (double)height / overlay.Height;
                 var last = new Bitmap[readers.Count];
-                var rendered = new List<BufferedFrame>(FramesPerSecond * 3);
+                var frameCount = Math.Max(1, Math.Min(FramesPerSecond * MaximumDurationSeconds, readers.Min(x => (int)x.FrameCount)));
+                var rendered = new List<BufferedFrame>(frameCount);
                 try
                 {
-                    for (var frameIndex = 0; frameIndex < FramesPerSecond * 3; frameIndex++)
+                    for (var frameIndex = 0; frameIndex < frameCount; frameIndex++)
                     using (var canvas = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
                     {
                         for (var readerIndex = 0; readerIndex < readers.Count; readerIndex++)
@@ -353,16 +357,17 @@ namespace PhotoBooth.Infrastructure.Services
             return header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p';
         }
 
-        static void ValidateSource(string stillImagePath, DateTime shutterUtc, BufferedFrame[] source)
+        static void ValidateSource(string stillImagePath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source)
         {
             if (!File.Exists(stillImagePath)) throw new FileNotFoundException("The captured still image is unavailable.", stillImagePath);
-            if (source.Length < FramesPerSecond || source[0].TimestampUtc > shutterUtc - Preroll + TimeSpan.FromMilliseconds(250))
-                throw new InvalidOperationException("MP4 video requires a complete three-second live-view buffer.");
+            var preroll = TimeSpan.FromSeconds(durationSeconds);
+            if (source.Length < FramesPerSecond || source[0].TimestampUtc > shutterUtc - preroll + TimeSpan.FromMilliseconds(250))
+                throw new InvalidOperationException("MP4 video requires a complete " + durationSeconds + "-second live-view buffer.");
         }
 
-        static void Create(string stillImagePath, string destinationPath, DateTime shutterUtc, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
+        static void Create(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
         {
-            ValidateSource(stillImagePath, shutterUtc, source);
+            ValidateSource(stillImagePath, shutterUtc, durationSeconds, source);
 
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
             Directory.CreateDirectory(directory);
@@ -371,7 +376,7 @@ namespace PhotoBooth.Infrastructure.Services
             var outputPath = Path.Combine(directory, attemptId + ".video.tmp");
             try
             {
-                var selected = Resample(source, shutterUtc);
+                var selected = Resample(source, shutterUtc, durationSeconds);
                 EncodeVideo(videoPath, selected, flipHorizontally, token);
                 if (!IsValidMp4(videoPath)) throw new InvalidDataException("MP4 video output validation failed.");
                 if (File.Exists(outputPath)) File.Delete(outputPath);
@@ -386,17 +391,21 @@ namespace PhotoBooth.Infrastructure.Services
             }
         }
 
-        static List<BufferedFrame> Resample(BufferedFrame[] source, DateTime shutterUtc)
+        static List<BufferedFrame> Resample(BufferedFrame[] source, DateTime shutterUtc, int durationSeconds)
         {
-            var result = new List<BufferedFrame>(FramesPerSecond * 3);
-            var start = shutterUtc - Preroll;
-            for (var index = 0; index < FramesPerSecond * 3; index++)
+            durationSeconds = NormalizeDuration(durationSeconds);
+            var frameCount = FramesPerSecond * durationSeconds;
+            var result = new List<BufferedFrame>(frameCount);
+            var start = shutterUtc - TimeSpan.FromSeconds(durationSeconds);
+            for (var index = 0; index < frameCount; index++)
             {
                 var target = start + TimeSpan.FromTicks(FrameInterval.Ticks * index);
                 result.Add(source.OrderBy(x => Math.Abs((x.TimestampUtc - target).Ticks)).First());
             }
             return result;
         }
+
+        static int NormalizeDuration(int durationSeconds) => Math.Max(1, Math.Min(MaximumDurationSeconds, durationSeconds));
 
         static void EncodeVideo(string path, IReadOnlyList<BufferedFrame> selected, bool flipHorizontally, CancellationToken token)
         {

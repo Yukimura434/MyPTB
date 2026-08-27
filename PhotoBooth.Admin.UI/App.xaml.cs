@@ -185,6 +185,7 @@ namespace PhotoBooth.Admin.UI
             services.AddSingleton<HomeViewModel>();
             services.AddSingleton<FrameManagerViewModel>();
             services.AddSingleton<PresetManagerViewModel>();
+            services.AddSingleton<BeautyViewModel>();
             services.AddSingleton<PrinterManagerViewModel>();
             services.AddSingleton<DiagnosticsViewModel>();
             services.AddSingleton<LocalShareViewModel>();

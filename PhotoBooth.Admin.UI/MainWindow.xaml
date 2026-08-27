@@ -116,6 +116,10 @@
                         </StackPanel>
                     </Button>
 
+                    <Button Style="{StaticResource MenuButton}" Command="{Binding NavigateCommand}" CommandParameter="beauty">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="✦" Style="{StaticResource IconText}"/><TextBlock Text="Beauty" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
+                    </Button>
+
                     <Button Style="{StaticResource MenuButton}" Command="{Binding NavigateCommand}" CommandParameter="interface">
                         <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE771;" Style="{StaticResource IconText}"/><TextBlock Text="Interface" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
                     </Button>

@@ -24,7 +24,7 @@ namespace PhotoBooth.UnitTests
             try
             {
                 var camera = new CapturingCamera();
-                var settings = new FakeSettingsService(new Settings { AutoFlip = true, SaveLocation = CameraSaveMode.PcOnly });
+                var settings = new FakeSettingsService(new Settings { AutoFlip = true, SaveLocation = CameraSaveMode.PcOnly, CountdownSeconds = 7 });
                 var sessions = new FakeSessionRepository(new Session
                 {
                     Id = Guid.NewGuid(),
@@ -51,6 +51,7 @@ namespace PhotoBooth.UnitTests
                 Assert.DoesNotContain(".staging.", file);
                 Assert.False(File.Exists(file + ".staging.jpg"));
                 Assert.True(videoService.LastFlipHorizontally);
+                Assert.Equal(7, videoService.LastDurationSeconds);
             }
             finally { Directory.Delete(root, true); }
         }
@@ -164,6 +165,50 @@ namespace PhotoBooth.UnitTests
             finally { Directory.Delete(root, true); }
         }
 
+        [Fact]
+        public async Task ExecuteAsync_when_video_is_excluded_keeps_admin_still_capture_working()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
+            try
+            {
+                var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), SessionNumber = 9, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
+                var pipeline = new CapturePipeline(new CapturingCamera(), sessions, new FakeSettingsService(new Settings()), new FailingVideoService());
+                await pipeline.ExecuteAsync(sessions.Session.Id, "cam", null, false, CancellationToken.None);
+                var shot = Assert.Single(sessions.Session.CapturedShots); Assert.False(shot.HasVideo);
+                Assert.True(File.Exists(shot.PicturePath)); Assert.Empty(sessions.Session.CapturedVideoFiles);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
+        public async Task ExecuteAsync_runs_beauty_before_lut_and_keeps_video_raw()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var events=new List<string>();var sessions=new FakeSessionRepository(new Session{Id=Guid.NewGuid(),PresetId=Guid.NewGuid(),SessionNumber=7,OutputDirectory=root,StartedAtUtc=DateTime.UtcNow});
+                var pipeline=new CapturePipeline(new CapturingCamera(),sessions,new FakeSettingsService(new Settings()),new FakeVideoService(),new OrderedLutService(events),null,new FakeBeautySettingsService(true),new OrderedBeautyService(events));
+                await pipeline.ExecuteAsync(sessions.Session.Id,"cam",CancellationToken.None);
+                Assert.Equal(new[]{"beauty","lut"},events);
+                using(var video=new Bitmap(Assert.Single(sessions.Session.CapturedShots).VideoPath)){AssertNear(Color.Red,video.GetPixel(0,0));AssertNear(Color.Blue,video.GetPixel(3,0));}
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
+        [Fact]
+        public async Task ExecuteAsync_beauty_failure_is_fail_open()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var sessions=new FakeSessionRepository(new Session{Id=Guid.NewGuid(),SessionNumber=8,OutputDirectory=root,StartedAtUtc=DateTime.UtcNow});
+                var pipeline=new CapturePipeline(new CapturingCamera(),sessions,new FakeSettingsService(new Settings()),new FakeVideoService(),null,null,new FakeBeautySettingsService(true),new FailingBeautyService());
+                await pipeline.ExecuteAsync(sessions.Session.Id,"cam",CancellationToken.None);
+                Assert.Single(sessions.Session.CapturedShots);Assert.True(File.Exists(sessions.Session.CapturedShots[0].PicturePath));
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
         static void AssertNear(Color expected, Color actual, int tolerance = 30)
         {
             Assert.InRange(Math.Abs(actual.R - expected.R), 0, tolerance);
@@ -237,6 +282,31 @@ namespace PhotoBooth.UnitTests
             public Task<bool> IsEnabledAsync(string feature, CancellationToken token) => Task.FromResult(enabled);
         }
 
+        sealed class FakeBeautySettingsService:IBeautySettingsService
+        {
+            readonly bool enabled;public FakeBeautySettingsService(bool value){enabled=value;}
+            public Task<BeautySettings> GetAsync(CancellationToken t)=>Task.FromResult(new BeautySettings{Enabled=enabled,SmoothSkin=30});
+            public Task SaveAsync(BeautySettings value,CancellationToken t)=>Task.CompletedTask;
+        }
+        sealed class OrderedBeautyService:IBeautyRetouchService
+        {
+            readonly List<string> events;public OrderedBeautyService(List<string> value){events=value;}
+            public Task<BeautyRetouchResult> ProcessAsync(string input,string output,BeautySettings value,CancellationToken t){events.Add("beauty");using(var image=new Bitmap(4,2)){using(var g=Graphics.FromImage(image))g.Clear(Color.Red);image.Save(output,ImageFormat.Jpeg);}return Task.FromResult(new BeautyRetouchResult{Applied=true,FacesDetected=1});}
+        }
+        sealed class FailingBeautyService:IBeautyRetouchService{public Task<BeautyRetouchResult> ProcessAsync(string input,string output,BeautySettings value,CancellationToken t)=>Task.FromException<BeautyRetouchResult>(new InvalidOperationException("expected"));}
+        sealed class OrderedLutService:IColorLutService
+        {
+            readonly List<string> events;public OrderedLutService(List<string> value){events=value;}
+            public Task ApplyCaptureAsync(Guid id,string path,CancellationToken t){events.Add("lut");using(var image=new Bitmap(path))AssertNear(Color.Red,image.GetPixel(0,0));return Task.CompletedTask;}
+            public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken t)=>Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
+            public Task<ColorLutData> GetLiveAsync(Guid id,CancellationToken t)=>Task.FromResult<ColorLutData>(null);
+            public Task<ColorLutImportResult> ImportAsync(string p,string n,CancellationToken t)=>Task.FromResult<ColorLutImportResult>(null);
+            public Task AttachAsync(Guid p,Guid l,float s,CancellationToken t)=>Task.CompletedTask;
+            public Task DetachAsync(Guid p,CancellationToken t)=>Task.CompletedTask;
+            public Task DeleteAsync(Guid id,long version,CancellationToken t)=>Task.CompletedTask;
+            public Task ReconcileAsync(CancellationToken t)=>Task.CompletedTask;
+        }
+
         sealed class GreenLutService : IColorLutService
         {
             public Task ApplyCaptureAsync(Guid presetId, string imagePath, CancellationToken token) { using (var image = new Bitmap(4, 2)) { using (var graphics = Graphics.FromImage(image)) graphics.Clear(Color.Lime); image.Save(imagePath, ImageFormat.Jpeg); } return Task.CompletedTask; }
@@ -252,10 +322,12 @@ namespace PhotoBooth.UnitTests
         sealed class FakeVideoService : IVideoService
         {
             public bool LastFlipHorizontally { get; private set; }
+            public int LastDurationSeconds { get; private set; }
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
-            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, bool flipHorizontally, CancellationToken token)
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, CancellationToken token)
             {
                 LastFlipHorizontally = flipHorizontally;
+                LastDurationSeconds = durationSeconds;
                 File.Copy(stillImagePath, destinationPath, true);
                 return Task.CompletedTask;
             }
@@ -266,7 +338,7 @@ namespace PhotoBooth.UnitTests
         sealed class FailingVideoService : IVideoService
         {
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
-            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, bool flipHorizontally, CancellationToken token)
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, CancellationToken token)
             {
                 throw new InvalidOperationException("encoder failed");
             }

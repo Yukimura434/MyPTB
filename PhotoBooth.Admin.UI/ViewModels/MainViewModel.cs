@@ -21,6 +21,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
             HomeViewModel home,
             FrameManagerViewModel frames,
             PresetManagerViewModel presets,
+            BeautyViewModel beauty,
             PrinterManagerViewModel printers,
             DiagnosticsViewModel diagnostics,
             LocalShareViewModel localShare,
@@ -36,6 +37,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 { "home", home },
                 { "frames", frames },
                 { "presets", presets },
+                { "beauty", beauty },
                 { "printers", printers },
                 { "data", diagnostics },
                 { "share", localShare }

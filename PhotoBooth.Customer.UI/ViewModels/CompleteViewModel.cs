@@ -136,7 +136,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
                 // The capture record is the source of truth for one booth turn.
                 // Frame composition may use fewer slots, but the GIF must retain
-                // every original photo captured in that turn, in position order.
+                // every final per-shot Picture captured in that turn, in position
+                // order. PicturePath already contains full Beauty followed by LUT,
+                // so GIF generation must not retouch these frames a second time.
                 var gifAssets = (capture.Photos ?? new CapturePhoto[0])
                     .Where(photo => string.Equals(photo.PhotoType, CaptureAssetTypes.Picture, StringComparison.OrdinalIgnoreCase))
                     .OrderBy(photo => photo.Position)

@@ -14,6 +14,7 @@ using PhotoBooth.Core.Pipelines;
 using PhotoBooth.FrameEngine;
 using PhotoBooth.Shared;
 using PhotoBooth.Business.Imaging;
+using PhotoBooth.OpenCvRetouch;
 
 namespace PhotoBooth.Infrastructure
 {
@@ -60,6 +61,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IFrameEventRepository, SqliteFrameEventRepository>();
             services.AddSingleton<IPrinterProfileRepository, SqlitePrinterProfileRepository>();
             services.AddSingleton<ISettingsRepository, SqliteSettingsRepository>();
+            services.AddSingleton<IBeautySettingsRepository, SqliteBeautySettingsRepository>();
             services.AddSingleton<IInterfaceAssetRepository, SqliteInterfaceAssetRepository>();
             services.AddSingleton<IPrintJobRepository, SqlitePrintJobRepository>();
             services.AddSingleton<IStatsRepository, SqliteStatsRepository>();
@@ -77,6 +79,9 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<INavigationService, NavigationService>();
             services.AddSingleton<IFileStorageService, FileStorageService>();
             services.AddSingleton<ISettingsService, SettingsService>();
+            services.AddSingleton<IBeautySettingsService, BeautySettingsService>();
+            services.AddSingleton<IBeautyRetouchService, OpenCvBeautyRetouchService>();
+            services.AddSingleton<ILiveBeautyPreviewService, OpenCvLiveBeautyPreviewService>();
             services.AddSingleton<IInterfaceAssetService, InterfaceAssetService>();
             services.AddSingleton<IImageCompositionService, ImageCompositionService>();
             services.AddSingleton<IImageEffectProcessor, BrightnessProcessor>();

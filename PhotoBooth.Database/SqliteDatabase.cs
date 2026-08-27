@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS AppSettings (Id INTEGER PRIMARY KEY CHECK(Id=1), Cult
 CREATE TABLE IF NOT EXISTS WorkflowSettings (Id INTEGER PRIMARY KEY CHECK(Id=1), Culture TEXT, CaptureDirectory TEXT, AlphaThreshold INTEGER, MinimumSlotArea INTEGER, MinimumSlotWidth INTEGER, MinimumSlotHeight INTEGER, IgnoreBorder INTEGER, MaximumSlots INTEGER, PhotoCount INTEGER, CountdownSeconds INTEGER, DefaultFrameId TEXT, DefaultPresetId TEXT, DefaultPrinterProfileId TEXT, KioskMode INTEGER, KeepFinal INTEGER, DelayBetweenShots INTEGER NOT NULL DEFAULT 1, AutoFlip INTEGER NOT NULL DEFAULT 0, SaveLocation INTEGER NOT NULL DEFAULT 0);";
                 command.CommandText += @"
 CREATE TABLE IF NOT EXISTS ProductionSettings (Id INTEGER PRIMARY KEY CHECK(Id=1), SessionRetentionDays INTEGER, TempRetentionHours INTEGER, PrintRetryCount INTEGER, CameraReconnectSeconds INTEGER, EnableQr INTEGER, EnablePlugins INTEGER, EnableDiagnostics INTEGER, EnableTelemetry INTEGER, AutoStart INTEGER, Theme TEXT, LogLevel TEXT, AdminPasswordHash TEXT);
+CREATE TABLE IF NOT EXISTS BeautySettings (Id INTEGER PRIMARY KEY CHECK(Id=1), Enabled INTEGER NOT NULL DEFAULT 0 CHECK(Enabled IN (0,1)), SmoothSkin INTEGER NOT NULL DEFAULT 0 CHECK(SmoothSkin BETWEEN 0 AND 100), BrightenSkin INTEGER NOT NULL DEFAULT 0 CHECK(BrightenSkin BETWEEN 0 AND 100), SkinTone INTEGER NOT NULL DEFAULT 0 CHECK(SkinTone BETWEEN 0 AND 100), Sharpen INTEGER NOT NULL DEFAULT 0 CHECK(Sharpen BETWEEN 0 AND 100), EyeSize INTEGER NOT NULL DEFAULT 0 CHECK(EyeSize BETWEEN 0 AND 100), SlimFace INTEGER NOT NULL DEFAULT 0 CHECK(SlimFace BETWEEN 0 AND 100), ModifiedAtUtc TEXT);
+INSERT OR IGNORE INTO BeautySettings(Id,Enabled,SmoothSkin,BrightenSkin,SkinTone,Sharpen) VALUES(1,0,0,0,0,0);
 CREATE TABLE IF NOT EXISTS LocalIdentity (Id INTEGER PRIMARY KEY CHECK(Id=1), AccountId TEXT, DeviceId TEXT, Email TEXT, LastOnlineAuthenticationAtUtc TEXT, UpdatedAtUtc TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS LocalSecureArtifacts (ArtifactType TEXT PRIMARY KEY NOT NULL, ProtectedValue BLOB NOT NULL, CreatedAtUtc TEXT NOT NULL, ExpiresAtUtc TEXT, UpdatedAtUtc TEXT NOT NULL, CHECK(ArtifactType IN ('RefreshToken','DeviceCredential','LicenseCache','AdminPin')));
 CREATE TABLE IF NOT EXISTS UploadQueue (Id TEXT PRIMARY KEY NOT NULL, AccountId TEXT NOT NULL, DeviceId TEXT NOT NULL, CaptureId TEXT NOT NULL, PhotoId TEXT NOT NULL, LocalPath TEXT NOT NULL, Status TEXT NOT NULL DEFAULT 'Pending' CHECK(Status IN ('Pending','Uploading','Uploaded','RetryWaiting','PermanentFailure')), AttemptCount INTEGER NOT NULL DEFAULT 0, NextRetryAtUtc TEXT, LeaseId TEXT, LeaseExpiresAtUtc TEXT, LastError TEXT, CreatedAtUtc TEXT NOT NULL, UpdatedAtUtc TEXT NOT NULL, UNIQUE(CaptureId,PhotoId));
@@ -100,6 +102,8 @@ CREATE INDEX IF NOT EXISTS IX_PresetColorSettings_LutAssetId ON PresetColorSetti
             EnsureColumn("WorkflowSettings", "WaitingLiveViewX", "REAL NOT NULL DEFAULT 10");
             EnsureColumn("WorkflowSettings", "WaitingLiveViewY", "REAL NOT NULL DEFAULT 10");
             EnsureColumn("WorkflowSettings", "SaveLocation", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn("BeautySettings", "EyeSize", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn("BeautySettings", "SlimFace", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn("Frames", "EventId", "TEXT");
             Execute("CREATE INDEX IF NOT EXISTS IX_Frames_EventId ON Frames(EventId);");
             EnsureColumn("CustomerSessions", "SessionName", "TEXT");

@@ -11,8 +11,8 @@
     <Reference Include="System.Drawing" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="..\PhotoBooth.Native\Canon\EDSDK.dll" Link="EDSDK.dll" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\PhotoBooth.Native\Canon\EdsImage.dll" Link="EdsImage.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\PhotoBooth.Native\Canon\EDSDK.dll" Link="EDSDK.dll" CopyToOutputDirectory="Always" />
+    <Content Include="..\PhotoBooth.Native\Canon\EdsImage.dll" Link="EdsImage.dll" CopyToOutputDirectory="Always" />
     <Content Include="Assets\Sounds\*.mp3" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

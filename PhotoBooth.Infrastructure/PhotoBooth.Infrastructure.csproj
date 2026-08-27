@@ -9,6 +9,7 @@
     <ProjectReference Include="..\PhotoBooth.Database\PhotoBooth.Database.csproj" />
     <ProjectReference Include="..\PhotoBooth.Business\PhotoBooth.Business.csproj" />
     <ProjectReference Include="..\PhotoBooth.FrameEngine\PhotoBooth.FrameEngine.csproj" />
+    <ProjectReference Include="..\PhotoBooth.OpenCvRetouch\PhotoBooth.OpenCvRetouch.csproj" />
     <ProjectReference Include="..\PhotoBooth.Shared\PhotoBooth.Shared.csproj" />
     <ProjectReference Include="..\CameraControl.Devices\CameraControl.Devices.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
