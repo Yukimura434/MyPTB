@@ -76,10 +76,12 @@ namespace Canon.Eos.Framework
             var memoryStream = IntPtr.Zero;
             try
             {
-                Edsdk.EdsCreateMemoryStream(0, out memoryStream);
+                Util.Assert(Edsdk.EdsCreateMemoryStream(0, out memoryStream),
+                    "Failed to create the Canon EVF memory stream.");
                 using (var image = EosLiveImage.CreateFromStream(memoryStream))
                 {
-                    Edsdk.EdsDownloadEvfImage(this.Handle, image.Handle);
+                    Util.Assert(Edsdk.EdsDownloadEvfImage(this.Handle, image.Handle),
+                        "Failed to download the Canon EVF image.");
 
                     var converter = new EosConverter();
                     this.OnLiveViewUpdate(
@@ -95,11 +97,6 @@ namespace Canon.Eos.Framework
                         });
 
                 }
-            }
-            catch (EosException eosEx)
-            {
-                //if (eosEx.EosErrorCode != EosErrorCode.DeviceBusy && eosEx.EosErrorCode != EosErrorCode.ObjectNotReady)
-                //    throw;
             }
             finally
             {

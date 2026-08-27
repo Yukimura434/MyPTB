@@ -525,7 +525,20 @@ namespace Canon.Eos.Framework
             var device = this.LiveViewDevice;
             device = device | EosLiveViewDevice.Host;
             this.LiveViewDevice = device;
-            return this.LiveViewAutoFocus;
+
+            // Newer EOS bodies can acknowledge the property write before their EVF
+            // stream is ready.  The Canon reference wrapper waits for the
+            // Evf_OutputDevice property event before starting its download loop.
+            // Reading the property back gives polling clients the same ordering
+            // guarantee without requiring a second background EVF thread.
+            const int attempts = 20;
+            for (var attempt = 0; attempt < attempts; attempt++)
+            {
+                if ((this.LiveViewDevice & EosLiveViewDevice.Host) != EosLiveViewDevice.None)
+                    return EosLiveViewAutoFocus.LiveMode;
+                Thread.Sleep(50);
+            }
+            throw new TimeoutException("Canon did not confirm the PC Live View output device.");
         }
 
         public EosLiveViewAutoFocus StartLiveViewCamera()
@@ -548,9 +561,11 @@ namespace Canon.Eos.Framework
         /// <returns></returns>
         public EosLiveViewAutoFocus StartLiveView(EosLiveViewAutoFocus autoFocus)
         {
-            this.StartLiveView();
-            this.LiveViewAutoFocus = autoFocus;
-            return this.LiveViewAutoFocus;
+            // Starting EVF must not force the legacy Evf_AFMode property.  Recent
+            // bodies (including EOS R-series models) negotiate their AF mode and
+            // may reject that otherwise unrelated write.  Focus commands remain
+            // available through EdsSendCommand(DoEvfAf).
+            return this.StartLiveView();
         }
 
         /// <summary>

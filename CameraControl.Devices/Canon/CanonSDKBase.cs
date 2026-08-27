@@ -1450,7 +1450,6 @@ namespace CameraControl.Devices.Canon
 
         public override LiveViewData GetLiveViewImage()
         {
-
                 LiveViewData viewData = new LiveViewData();
                 if (Monitor.TryEnter(Locker, 10))
                 {
@@ -1458,6 +1457,9 @@ namespace CameraControl.Devices.Canon
                     {
                         if (Camera == null)
                             return viewData;
+                        // Never return a stale frame when the current EVF download
+                        // reports OBJECT_NOTREADY/DEVICE_BUSY.
+                        _liveViewImageData = null;
                         Camera.DownloadEvf();
                         if (_liveViewImageData != null)
                         {
@@ -1478,9 +1480,19 @@ namespace CameraControl.Devices.Canon
                             viewData.MovieIsRecording = _recording;
                         }
                     }
-                    catch (Exception)
+                    catch (EosException exception) when
+                        (exception.EosErrorCode == EosErrorCode.ObjectNotReady ||
+                         exception.EosErrorCode == EosErrorCode.DeviceBusy)
                     {
-                        //Log.Error("Error get live view image ", e);
+                        // Canon documents OBJECT_NOTREADY as the normal response
+                        // while a newly enabled EVF stream is warming up.  DEVICE_BUSY
+                        // is likewise transient around capture/property changes.
+                        return viewData;
+                    }
+                    catch (Exception exception)
+                    {
+                        Log.Error("Error getting Canon live view image", exception);
+                        throw;
                     }
                     finally
                     {
