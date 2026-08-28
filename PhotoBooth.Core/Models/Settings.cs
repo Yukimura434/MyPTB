@@ -2,6 +2,8 @@ using System;
 
 namespace PhotoBooth.Core.Models
 {
+    public enum CustomerLayoutMode { Landscape = 0, Portrait = 1 }
+
     public sealed class Settings
     {
         public string Culture { get; set; }
@@ -18,9 +20,15 @@ namespace PhotoBooth.Core.Models
         public int GifFrameDurationMilliseconds { get; set; } = 1000;
         public int WaitingTimeoutSeconds { get; set; } = 30;
         public bool AutoFlip { get; set; }
+        public int ImageRotationDegrees { get; set; }
+        public CustomerLayoutMode CustomerLayoutMode { get; set; } = CustomerLayoutMode.Landscape;
         public bool ShowWaitingLiveView { get; set; } = true;
         public double WaitingLiveViewX { get; set; } = 10;
         public double WaitingLiveViewY { get; set; } = 10;
+        public double WaitingLiveViewAreaPercent { get; set; } = 5;
+        public double WaitingBackgroundZoom { get; set; } = 100;
+        public double WaitingBackgroundPanX { get; set; }
+        public double WaitingBackgroundPanY { get; set; }
         public PhotoBooth.Core.Cameras.CameraSaveMode SaveLocation { get; set; } = PhotoBooth.Core.Cameras.CameraSaveMode.PcOnly;
         public Guid? DefaultFrameId { get; set; }
         public Guid? DefaultPresetId { get; set; }

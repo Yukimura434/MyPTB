@@ -24,6 +24,7 @@ namespace PhotoBooth.Color.D3D11
         public static readonly DependencyProperty DomainMinProperty=DependencyProperty.Register(nameof(DomainMin),typeof(MediaColor),typeof(LiveColorSurface),new PropertyMetadata(MediaColor.FromScRgb(1,0,0,0),OnLut));
         public static readonly DependencyProperty DomainMaxProperty=DependencyProperty.Register(nameof(DomainMax),typeof(MediaColor),typeof(LiveColorSurface),new PropertyMetadata(MediaColor.FromScRgb(1,1,1,1),OnLut));
         public static readonly DependencyProperty StrengthProperty=DependencyProperty.Register(nameof(Strength),typeof(double),typeof(LiveColorSurface),new PropertyMetadata(1d,OnLut));
+        public static readonly DependencyProperty StretchProperty=DependencyProperty.Register(nameof(Stretch),typeof(System.Windows.Media.Stretch),typeof(LiveColorSurface),new PropertyMetadata(System.Windows.Media.Stretch.Uniform));
         public static readonly DependencyProperty FrameWidthProperty=DependencyProperty.Register(nameof(FrameWidth),typeof(int),typeof(LiveColorSurface),new PropertyMetadata(0,OnReportedSize));
         public static readonly DependencyProperty FrameHeightProperty=DependencyProperty.Register(nameof(FrameHeight),typeof(int),typeof(LiveColorSurface),new PropertyMetadata(0,OnReportedSize));
 
@@ -35,6 +36,7 @@ namespace PhotoBooth.Color.D3D11
         public MediaColor DomainMin{get=>(MediaColor)GetValue(DomainMinProperty);set=>SetValue(DomainMinProperty,value);}
         public MediaColor DomainMax{get=>(MediaColor)GetValue(DomainMaxProperty);set=>SetValue(DomainMaxProperty,value);}
         public double Strength{get=>(double)GetValue(StrengthProperty);set=>SetValue(StrengthProperty,value);}
+        public System.Windows.Media.Stretch Stretch{get=>(System.Windows.Media.Stretch)GetValue(StretchProperty);set=>SetValue(StretchProperty,value);}
         public int FrameWidth{get=>(int)GetValue(FrameWidthProperty);set=>SetValue(FrameWidthProperty,value);}
         public int FrameHeight{get=>(int)GetValue(FrameHeightProperty);set=>SetValue(FrameHeightProperty,value);}
         public event EventHandler<LiveColorFailedEventArgs> Failed;
@@ -56,6 +58,13 @@ namespace PhotoBooth.Color.D3D11
         {
             if(frameWidth<=0||frameHeight<=0){context.RSSetViewport(0,0,targetWidth,targetHeight);return;}
             var source=frameWidth/(double)frameHeight;var available=targetWidth/(double)targetHeight;float width,height,x,y;
+            if(Stretch==System.Windows.Media.Stretch.Fill){context.RSSetViewport(0,0,targetWidth,targetHeight);return;}
+            if(Stretch==System.Windows.Media.Stretch.UniformToFill)
+            {
+                if(available>source){width=targetWidth;height=(float)(targetWidth/source);x=0;y=(targetHeight-height)/2f;}
+                else{height=targetHeight;width=(float)(targetHeight*source);x=(targetWidth-width)/2f;y=0;}
+                context.RSSetViewport(x,y,width,height);return;
+            }
             if(available>source){height=targetHeight;width=(float)(targetHeight*source);x=(targetWidth-width)/2f;y=0;}
             else{width=targetWidth;height=(float)(targetWidth/source);x=0;y=(targetHeight-height)/2f;}
             context.RSSetViewport(x,y,width,height);

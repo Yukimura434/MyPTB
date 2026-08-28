@@ -314,53 +314,55 @@ namespace PhotoBooth.Infrastructure.Services
         destinations[id] = destinationBasePath;
       }
 
-      using (token.Register(() => completion.TrySetCanceled()))
+      token.ThrowIfCancellationRequested();
+      try
       {
-        try
+        await adapter.BeginCaptureAsync(camera, autoFocus, saveMode, token)
+          .ConfigureAwait(false);
+
+        // Once the shutter command has been accepted, cancellation must not tear
+        // down the session before Canon/Nikon delivers and releases its file
+        // handle. A Customer -> Admin handoff therefore waits for this bounded
+        // transfer to settle, then the pipeline observes its cancelled token.
+        var finished = await Task.WhenAny(
+          completion.Task,
+          Task.Delay(TimeSpan.FromSeconds(CaptureTimeout), CancellationToken.None))
+          .ConfigureAwait(false);
+
+        if (finished != completion.Task)
         {
-          await adapter.BeginCaptureAsync(camera, autoFocus, saveMode, token)
+          await adapter.RecoverCaptureAsync(camera, CancellationToken.None)
             .ConfigureAwait(false);
-
-          var finished = await Task.WhenAny(
-            completion.Task,
-            Task.Delay(TimeSpan.FromSeconds(CaptureTimeout), token))
-            .ConfigureAwait(false);
-
-          if (finished != completion.Task)
-          {
-            await adapter.RecoverCaptureAsync(camera, CancellationToken.None)
-              .ConfigureAwait(false);
-
-            return new CaptureResult
-            {
-              Succeeded = false,
-              CameraId = id,
-              CapturedAtUtc = DateTime.UtcNow,
-              Error = "Capture or file transfer timed out."
-            };
-          }
-
-          return await completion.Task.ConfigureAwait(false);
-        }
-        catch (Exception e) when (!(e is OperationCanceledException))
-        {
-          logger.LogError(e, "Capture failed for {CameraId}", id);
 
           return new CaptureResult
           {
             Succeeded = false,
             CameraId = id,
             CapturedAtUtc = DateTime.UtcNow,
-            Error = e.Message
+            Error = "Capture or file transfer timed out."
           };
         }
-        finally
+
+        return await completion.Task.ConfigureAwait(false);
+      }
+      catch (Exception e) when (!(e is OperationCanceledException))
+      {
+        logger.LogError(e, "Capture failed for {CameraId}", id);
+
+        return new CaptureResult
         {
-          camera.IsBusy = false;
-          pending.TryRemove(id, out _);
-          destinations.TryRemove(id, out _);
-          transfers.TryRemove(id, out _);
-        }
+          Succeeded = false,
+          CameraId = id,
+          CapturedAtUtc = DateTime.UtcNow,
+          Error = e.Message
+        };
+      }
+      finally
+      {
+        camera.IsBusy = false;
+        pending.TryRemove(id, out _);
+        destinations.TryRemove(id, out _);
+        transfers.TryRemove(id, out _);
       }
     }
     private void OnPhotoCaptured(object sender, PhotoCapturedEventArgs args)

@@ -50,6 +50,12 @@ namespace PhotoBooth.Business.Pipelines
 
         public async Task<Session> ExecuteAsync(Guid id, string cameraId, string workingDirectory, bool includeVideo, CancellationToken token)
         {
+            var configured = await settings.GetAsync(token).ConfigureAwait(false) ?? new Settings();
+            return await ExecuteAsync(id, cameraId, workingDirectory, includeVideo, configured.CountdownSeconds, token).ConfigureAwait(false);
+        }
+
+        public async Task<Session> ExecuteAsync(Guid id, string cameraId, string workingDirectory, bool includeVideo, int videoDurationSeconds, CancellationToken token)
+        {
             var session = await sessions.GetAsync(id, token);
             if (session == null) throw new InvalidOperationException("Session not found.");
 
@@ -65,6 +71,7 @@ namespace PhotoBooth.Business.Pipelines
             var appSettings = await settings.GetAsync(token) ?? new Settings();
             var saveMode = appSettings.SaveLocation;
             var autoFlip = appSettings.AutoFlip;
+            var imageRotation = NormalizeRotation(appSettings.ImageRotationDegrees);
             var videoEnabled = includeVideo && (features == null || await features.IsEnabledAsync("Video", token).ConfigureAwait(false));
 
             // Capture is staged to a temporary file first so that the camera's own
@@ -80,7 +87,7 @@ namespace PhotoBooth.Business.Pipelines
                 if (!File.Exists(staging)) throw new IOException("The camera transfer completed without a session image.");
 
                 var rawStill = Path.Combine(captureDirectory, imageId + ".video-still.jpg");
-                FinalizeImage(staging, rawStill, autoFlip);
+                FinalizeImage(staging, rawStill, autoFlip, imageRotation);
                 File.Copy(rawStill, pictureDestination, true);
                 if (beautySettings != null && beauty != null)
                 {
@@ -98,7 +105,7 @@ namespace PhotoBooth.Business.Pipelines
                 try
                 {
                     if (videoEnabled)
-                        await videos.CreateAsync(rawStill, videoDestination, shutterTimestampUtc, appSettings.CountdownSeconds, autoFlip, token).ConfigureAwait(false);
+                        await videos.CreateAsync(rawStill, videoDestination, shutterTimestampUtc, videoDurationSeconds, autoFlip, imageRotation, token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -128,9 +135,9 @@ namespace PhotoBooth.Business.Pipelines
             return await sessions.GetAsync(session.Id, token);
         }
 
-        static void FinalizeImage(string staging, string destination, bool autoFlip)
+        static void FinalizeImage(string staging, string destination, bool autoFlip, int rotationDegrees)
         {
-            if (!autoFlip)
+            if (!autoFlip && rotationDegrees == 0)
             {
                 if (File.Exists(destination)) File.Delete(destination);
                 File.Move(staging, destination);
@@ -138,9 +145,14 @@ namespace PhotoBooth.Business.Pipelines
             }
             using (var image = System.Drawing.Bitmap.FromFile(staging))
             {
-                image.RotateFlip(System.Drawing.RotateFlipType.RotateNoneFlipX);
+                if (autoFlip) image.RotateFlip(System.Drawing.RotateFlipType.RotateNoneFlipX);
+                if (rotationDegrees == 90) image.RotateFlip(System.Drawing.RotateFlipType.Rotate90FlipNone);
+                else if (rotationDegrees == -90) image.RotateFlip(System.Drawing.RotateFlipType.Rotate270FlipNone);
+                else if (rotationDegrees == 180) image.RotateFlip(System.Drawing.RotateFlipType.Rotate180FlipNone);
                 image.Save(destination, System.Drawing.Imaging.ImageFormat.Jpeg);
             }
         }
+
+        static int NormalizeRotation(int value) => value == 90 || value == -90 || value == 180 ? value : 0;
     }
 }

@@ -2,12 +2,14 @@ using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Threading.Tasks;
 
 namespace PhotoBooth.Customer.UI
 {
     public partial class MainWindow : Window
     {
         bool fullScreen;
+        bool returnInProgress;
         WindowState stateBeforeFullScreen = WindowState.Normal;
         public bool ReturnedToAdmin { get; private set; }
         public Func<bool> RequestAdminAccess { get; set; }
@@ -28,11 +30,12 @@ namespace PhotoBooth.Customer.UI
 
         void Close_Click(object sender, RoutedEventArgs e) => Close();
 
-        void Admin_Click(object sender, RoutedEventArgs e)
+        async void Admin_Click(object sender, RoutedEventArgs e)
         {
             if (!TryAuthorizeAdmin()) return;
-            ReturnedToAdmin = true;
-            Close();
+            var button = sender as System.Windows.Controls.Button;
+            if (button != null) button.IsEnabled = false;
+            await ReturnToAdminAsync();
         }
 
         void Window_Closing(object sender, CancelEventArgs e)
@@ -41,9 +44,27 @@ namespace PhotoBooth.Customer.UI
             // Admin window (including Alt+F4 and the title-bar close button) returns to Admin.
             if (Owner == null || ReturnedToAdmin) return;
             e.Cancel = true;
+            if (returnInProgress) return;
             if (!TryAuthorizeAdmin()) return;
-            ReturnedToAdmin = true;
-            Dispatcher.BeginInvoke(new Action(Close));
+            _ = ReturnToAdminAsync();
+        }
+
+        async Task ReturnToAdminAsync()
+        {
+            if (returnInProgress) return;
+            returnInProgress = true;
+            try
+            {
+                var shell = DataContext as ViewModels.CustomerShellViewModel;
+                if (shell != null) await shell.PrepareReturnToAdminAsync();
+            }
+            catch (OperationCanceledException) { }
+            finally
+            {
+                ReturnedToAdmin = true;
+                returnInProgress = false;
+                Close();
+            }
         }
 
         bool TryAuthorizeAdmin() => RequestAdminAccess == null || RequestAdminAccess();
@@ -58,6 +79,12 @@ namespace PhotoBooth.Customer.UI
         {
             if (e.Key == Key.F11) { ToggleFullScreen(); e.Handled = true; }
             else if (e.Key == Key.Escape && fullScreen) { ToggleFullScreen(); e.Handled = true; }
+            else if (e.Key == Key.Space)
+            {
+                var shell = DataContext as ViewModels.CustomerShellViewModel;
+                var capture = shell?.CurrentPage as ViewModels.CaptureViewModel;
+                if (capture != null && capture.RequestManualCapture()) e.Handled = true;
+            }
         }
 
         void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e) => (DataContext as ViewModels.CustomerShellViewModel)?.RegisterInteraction();

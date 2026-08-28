@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,14 +35,22 @@ namespace PhotoBooth.Customer.UI.ViewModels
         BeautySettings liveBeautySettings = new BeautySettings();
         bool liveBeautyFailed;
         CancellationTokenSource liveCts;
+        Task liveLoopTask;
+        string liveCameraId;
         CancellationTokenSource workflowCts;
+        readonly object workflowSync = new object();
+        Task activeWorkflowTask = Task.CompletedTask;
         byte[] liveImage;
         readonly SemaphoreSlim cameraGate = new SemaphoreSlim(1, 1);
+        readonly SemaphoreSlim liveGate = new SemaphoreSlim(1, 1);
+        static readonly TimeSpan LiveFrameInterval = TimeSpan.FromMilliseconds(40);
         int countdown, currentPhoto, totalPhotos, delayRemaining;
         string message = "Waiting for camera…", error;
         bool cameraConnected;
         bool shutterFlash;
+        bool manualModeSelected;
         double liveViewScaleX = 1d;
+        double liveViewRotation;
         CapturedPhotoItem selectedReviewPhoto;
         MediaPlayer clockPlayer;
         MediaPlayer shutterPlayer;
@@ -52,8 +61,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             machine = m; context = ctx; cameras = c; live = l; settings = st; sessions = ss;
             presets = ps; capturePipeline = pipeline; videos = videoService; liveColor=liveColorState; liveBeauty=liveBeautyPreview; beautySettings=beautySettingsService; log = logger;
-            StartCommand = new AsyncCommand(Start, () => machine.State == CustomerWorkflowState.Idle);
-            RetakeCommand = new AsyncCommand(Retake, () => machine.State == CustomerWorkflowState.Preview && ReviewPhotos.Any(x => x.IsRetakeSelected));
+            AutomaticCaptureCommand = new AsyncCommand(() => RunTracked(StartAutomatic), () => IsModeSelection);
+            ManualModeCommand = new AsyncCommand(() => RunTracked(PrepareManualMode), () => IsModeSelection);
+            ManualShutterCommand = new AsyncCommand(() => RunTracked(CaptureManualShot), () => IsManualReady);
+            StartCommand = AutomaticCaptureCommand;
+            RetakeCommand = new AsyncCommand(() => RunTracked(Retake), () => machine.State == CustomerWorkflowState.Preview && ReviewPhotos.Any(x => x.IsRetakeSelected));
             SelectFrameCommand = new RelayCommand(() => machine.MoveTo(CustomerWorkflowState.FrameSelection));
             RetryCommand = new AsyncCommand(CheckCamera);
             CancelErrorCommand = new RelayCommand(() => { ErrorMessage = null; machine.RecoverToIdle(); });
@@ -61,7 +73,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
             cameras.CamerasChanged += async (s, e) => await RecoverCamera();
         }
 
-        public byte[] LiveImage { get => liveImage; private set => Set(ref liveImage, value); }
+        public byte[] LiveImage { get => liveImage; private set { if (Set(ref liveImage, value)) Raise(nameof(HasLiveImage)); } }
+        public bool HasLiveImage => LiveImage != null && LiveImage.Length > 0;
         public int LiveFrameWidth { get; private set; }
         public int LiveFrameHeight { get; private set; }
         public LiveColorState LiveColor => liveColor;
@@ -77,6 +90,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string ErrorMessage { get => error; private set { Set(ref error, value); Raise(nameof(HasError)); } }
         public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
         public bool IsIdle => machine.State == CustomerWorkflowState.Idle;
+        public bool IsModeSelection => IsIdle && !manualModeSelected;
+        public bool IsManualReady => IsIdle && manualModeSelected && context.CurrentShots.Count < TotalPhotos;
         public bool IsCountdown => machine.State == CustomerWorkflowState.Countdown;
         public bool IsSmile => machine.State == CustomerWorkflowState.Smile;
         public bool IsCapturing => machine.State == CustomerWorkflowState.Capturing;
@@ -87,7 +102,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public bool IsBusy => IsCountdown || IsSmile || IsCapturing || IsInterShotDelay || IsPrinting;
         public bool CameraConnected { get => cameraConnected; private set => Set(ref cameraConnected, value); }
         public double LiveViewScaleX { get => liveViewScaleX; private set => Set(ref liveViewScaleX, value); }
+        public double LiveViewRotation { get => liveViewRotation; private set { if (Set(ref liveViewRotation, value)) { Raise(nameof(IsQuarterTurn)); Raise(nameof(RecentThumbnailHeight)); } } }
+        public bool IsQuarterTurn => LiveViewRotation == 90d || LiveViewRotation == -90d;
+        public double RecentThumbnailHeight => IsQuarterTurn ? 312d : 172d;
         public ICommand StartCommand { get; }
+        public ICommand AutomaticCaptureCommand { get; }
+        public ICommand ManualModeCommand { get; }
+        public ICommand ManualShutterCommand { get; }
         public ICommand RetakeCommand { get; }
         public ICommand SelectFrameCommand { get; }
         public ICommand RetryCommand { get; }
@@ -127,6 +148,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     if (state != CustomerWorkflowState.FrameSelection && state != CustomerWorkflowState.Printing && state != CustomerWorkflowState.Complete)
                     {
                         workflowCts?.Cancel();
+                        if (manualModeSelected && state == CustomerWorkflowState.Idle) { manualModeSelected = false; await CleanupTemporary(); RaiseCaptureMode(); }
                         machine.RecoverToIdle();
                         LiveImage = null;
                         StatusMessage = "Waiting for camera…";
@@ -147,7 +169,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             finally { cameraGate.Release(); }
         }
 
-        async Task Start()
+        async Task StartAutomatic()
         {
             if (!CameraConnected) { ErrorMessage = "Camera disconnected"; return; }
             var cameraId = context.Camera?.Id;
@@ -158,27 +180,15 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try
             {
                 ErrorMessage = null;
-                context.Settings = await settings.GetAsync(token) ?? new Settings();
-                var allPresets = await presets.GetAllAsync(token);
-                context.DefaultPreset = context.Settings.DefaultPresetId.HasValue
-                    ? allPresets.FirstOrDefault(x => x.Id == context.Settings.DefaultPresetId)
-                    : allPresets.FirstOrDefault(x => x.IsDefault);
-                context.Session = await sessions.GetDefaultAsync(token);
-                context.CaptureId = null;
-                context.CurrentShots.Clear();
-                await Task.Run(() => SessionWorkspace.Prepare(context.Session), token);
-                context.WorkingDirectory = SessionWorkspace.GetPath(context.Session);
-                SessionWorkspace.ReplaceWorkspaceFiles(context.Session, new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
-                await sessions.UpdateAsync(context.Session, token);
-                CapturedImages.Clear();
-                TotalPhotos = Math.Max(1, Math.Min(8, context.Settings.PhotoCount));
+                manualModeSelected = false;
+                await PrepareCaptureSession(token);
                 for (var i = 1; i <= TotalPhotos; i++)
                 {
                     token.ThrowIfCancellationRequested();
                     CurrentPhoto = i;
                     await RunCountdownAndSmileAsync(context.Settings.CountdownSeconds, token, i == 1);
                     log.LogInformation("Physical capture and shutter effect starting {Current}/{Total}", i, TotalPhotos);
-                    context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, token);
+                    context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, null, token);
                     log.LogInformation("Physical capture completed {Current}/{Total}", i, TotalPhotos);
                     var newest = context.Session.CapturedShots?.LastOrDefault();
                     if (newest == null) throw new InvalidOperationException("Camera did not return a captured shot.");
@@ -214,6 +224,77 @@ namespace PhotoBooth.Customer.UI.ViewModels
             finally { ReleaseAllAudio(); IsShutterFlash = false; }
         }
 
+        async Task PrepareManualMode()
+        {
+            if (!CameraConnected || string.IsNullOrEmpty(context.Camera?.Id)) { ErrorMessage = "Camera disconnected"; return; }
+            workflowCts?.Cancel(); workflowCts?.Dispose(); workflowCts = new CancellationTokenSource();
+            try
+            {
+                ErrorMessage = null;
+                await PrepareCaptureSession(workflowCts.Token);
+                manualModeSelected = true;
+                CurrentPhoto = 0;
+                StatusMessage = "Nhấn Space hoặc nút Chụp để bắt đầu";
+                RaiseCaptureMode();
+            }
+            catch (OperationCanceledException) { manualModeSelected = false; await CleanupTemporary(); machine.RecoverToIdle(); }
+            catch (Exception e) { manualModeSelected = false; Fail(e, "Không thể bắt đầu chụp thủ công", true); await CleanupTemporary(); machine.RecoverToIdle(); }
+        }
+
+        async Task CaptureManualShot()
+        {
+            if (!IsManualReady) return;
+            var cameraId = context.Camera?.Id;
+            if (string.IsNullOrWhiteSpace(cameraId)) { ErrorMessage = "Camera disconnected"; return; }
+            var token = workflowCts?.Token ?? CancellationToken.None;
+            try
+            {
+                CurrentPhoto = context.CurrentShots.Count + 1;
+                await RunCountdownAndSmileAsync(3, token);
+                log.LogInformation("Manual physical capture and shutter effect starting {Current}/{Total}", CurrentPhoto, TotalPhotos);
+                context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, 3, token);
+                var newest = context.Session.CapturedShots?.LastOrDefault();
+                if (newest == null) throw new InvalidOperationException("Camera did not return a captured shot.");
+                context.CurrentShots.Add(newest);
+                CapturedImages.Clear();
+                foreach (var shot in context.CurrentShots) CapturedImages.Add(shot.PicturePath);
+
+                if (context.CurrentShots.Count >= TotalPhotos)
+                {
+                    manualModeSelected = false;
+                    machine.MoveTo(CustomerWorkflowState.Preview);
+                    RefreshReviewPhotos();
+                    StatusMessage = "Looking wonderful!";
+                }
+                else
+                {
+                    machine.RecoverToIdle();
+                    StatusMessage = "Nhấn Space hoặc nút Chụp cho ảnh tiếp theo";
+                }
+            }
+            catch (OperationCanceledException) { manualModeSelected = false; await CleanupTemporary(); machine.RecoverToIdle(); StatusMessage = "Waiting for camera…"; }
+            catch (Exception e) { manualModeSelected = false; Fail(e, "Capture failed", true); await CleanupTemporary(); machine.RecoverToIdle(); }
+            finally { ReleaseAllAudio(); IsShutterFlash = false; RaiseCaptureMode(); }
+        }
+
+        async Task PrepareCaptureSession(CancellationToken token)
+        {
+            context.Settings = await settings.GetAsync(token) ?? new Settings();
+            var allPresets = await presets.GetAllAsync(token);
+            context.DefaultPreset = context.Settings.DefaultPresetId.HasValue
+                ? allPresets.FirstOrDefault(x => x.Id == context.Settings.DefaultPresetId)
+                : allPresets.FirstOrDefault(x => x.IsDefault);
+            context.Session = await sessions.GetDefaultAsync(token);
+            context.CaptureId = null;
+            context.CurrentShots.Clear();
+            await Task.Run(() => SessionWorkspace.Prepare(context.Session), token);
+            context.WorkingDirectory = SessionWorkspace.GetPath(context.Session);
+            SessionWorkspace.ReplaceWorkspaceFiles(context.Session, new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            await sessions.UpdateAsync(context.Session, token);
+            CapturedImages.Clear();
+            TotalPhotos = Math.Max(1, Math.Min(8, context.Settings.PhotoCount));
+        }
+
         async Task Retake()
         {
             var selected = ReviewPhotos.Where(x => x.IsRetakeSelected).Select(x => x.Position).OrderBy(x => x).ToList();
@@ -230,7 +311,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     var position = selected[sequence]; CurrentPhoto = sequence + 1;
                     await RunCountdownAndSmileAsync(context.Settings?.CountdownSeconds ?? 3, token);
                     log.LogInformation("Physical retake and shutter effect starting {Current}/{Total}", sequence + 1, selected.Count);
-                    context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, token);
+                    context.Session = await CaptureWithShutterAsync(context.Session.Id, cameraId, null, token);
                     log.LogInformation("Physical retake completed {Current}/{Total}", sequence + 1, selected.Count);
                     var newest = context.Session.CapturedShots?.LastOrDefault();
                     if (newest == null) throw new InvalidOperationException("Camera did not return the replacement shot.");
@@ -243,9 +324,58 @@ namespace PhotoBooth.Customer.UI.ViewModels
             catch (Exception e) { Fail(e, "Retake failed", true); await CleanupTemporary(); if (machine.State != CustomerWorkflowState.Preview) machine.RecoverToIdle(); }
             finally { ReleaseAllAudio(); IsShutterFlash = false; }
         }
-        public async Task ResetToStartAsync(){workflowCts?.Cancel();ReleaseAllAudio();if(context.Session!=null)await CleanupTemporary();ReviewPhotos.Clear();SelectedReviewPhoto=null;CurrentPhoto=0;TotalPhotos=0;CountdownNumber=0;DelayRemaining=0;StatusMessage=CameraConnected?"Ready":"Waiting for camera…";machine.RecoverToIdle();}
-        public async Task ActivateAsync(){var configured=await settings.GetAsync(CancellationToken.None);liveBeautySettings=await beautySettings.GetAsync(CancellationToken.None)??new BeautySettings();liveBeautyFailed=false;liveBeauty.Reset();LiveViewScaleX=configured?.AutoFlip==true?-1d:1d;await liveColor.RefreshAsync(configured,CancellationToken.None);await CheckCamera();}
-        public async Task ShutdownAsync(){workflowCts?.Cancel();ReleaseAllAudio();if(context.Session!=null)await CleanupTemporary();await StopLive();}
+        public async Task ResetToStartAsync()
+        {
+            workflowCts?.Cancel();
+            ReleaseAllAudio();
+            Task workflow;
+            lock (workflowSync) workflow = activeWorkflowTask;
+            await AwaitCompletion(workflow, CancellationToken.None);
+            if(context.Session!=null)await CleanupTemporary();
+            manualModeSelected=false;ReviewPhotos.Clear();SelectedReviewPhoto=null;CurrentPhoto=0;TotalPhotos=0;CountdownNumber=0;DelayRemaining=0;
+            StatusMessage=CameraConnected?"Ready":"Waiting for camera…";machine.RecoverToIdle();
+            RaiseCaptureMode();
+        }
+        public async Task ActivateAsync(){var configured=await settings.GetAsync(CancellationToken.None);liveBeautySettings=await beautySettings.GetAsync(CancellationToken.None)??new BeautySettings();liveBeautyFailed=false;liveBeauty.Reset();LiveViewScaleX=configured?.AutoFlip==true?-1d:1d;LiveViewRotation=configured?.ImageRotationDegrees??0;await liveColor.RefreshAsync(configured,CancellationToken.None);await CheckCamera();}
+        public Task ShutdownAsync() => ShutdownAsync(CancellationToken.None);
+        public async Task ShutdownAsync(CancellationToken token)
+        {
+            workflowCts?.Cancel();
+            ReleaseAllAudio();
+
+            Task workflow;
+            lock (workflowSync) workflow = activeWorkflowTask;
+            await AwaitCompletion(workflow, token);
+
+            // The tracked workflow normally owns cleanup. This remains necessary
+            // when Customer mode closes from Preview or another non-capture state.
+            if (context.Session != null) await CleanupTemporary();
+            await StopLive();
+        }
+
+        async Task RunTracked(Func<Task> action)
+        {
+            var task = action();
+            lock (workflowSync) activeWorkflowTask = task;
+            try { await task; }
+            finally
+            {
+                lock (workflowSync)
+                    if (ReferenceEquals(activeWorkflowTask, task)) activeWorkflowTask = Task.CompletedTask;
+            }
+        }
+
+        static async Task AwaitCompletion(Task task, CancellationToken token)
+        {
+            if (task == null || task.IsCompleted) { if (task != null) await task; return; }
+            var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (token.Register(() => cancelled.TrySetCanceled()))
+            {
+                var completed = await Task.WhenAny(task, cancelled.Task);
+                if (completed != task) token.ThrowIfCancellationRequested();
+                await task;
+            }
+        }
         async Task RunCountdownAndSmileAsync(int seconds, CancellationToken token, bool clockAlreadyPlaying = false)
         {
             machine.MoveTo(CustomerWorkflowState.Countdown);
@@ -256,11 +386,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
             await Task.Delay(500, token);
             ReleaseAllAudio();
         }
-        async Task<Session> CaptureWithShutterAsync(Guid sessionId, string cameraId, CancellationToken token)
+        async Task<Session> CaptureWithShutterAsync(Guid sessionId, string cameraId, int? videoDurationSeconds, CancellationToken token)
         {
             // Start the camera path first. Sound and overlay are deliberately kept
             // outside that critical path and run concurrently with capture/transfer.
-            var captureTask = capturePipeline.ExecuteAsync(sessionId, cameraId, context.WorkingDirectory, token);
+            var captureTask = videoDurationSeconds.HasValue
+                ? capturePipeline.ExecuteAsync(sessionId, cameraId, context.WorkingDirectory, true, videoDurationSeconds.Value, token)
+                : capturePipeline.ExecuteAsync(sessionId, cameraId, context.WorkingDirectory, token);
             var shutterTask = ShowShutterAsync(token);
             try { return await captureTask; }
             finally
@@ -293,9 +425,73 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try { current.Stop(); } catch { }
             try { current.Close(); } catch { }
         }
-        async Task StartLive() { await StopLive(); var camera = context.Camera; if (camera == null) return; liveCts = new CancellationTokenSource(); await live.StartAsync(camera.Id, liveCts.Token); _ = LiveLoop(camera.Id, liveCts.Token); }
-        async Task LiveLoop(string cameraId, CancellationToken token) { while (!token.IsCancellationRequested) try { var frame = await live.GetFrameAsync(cameraId, token); if (frame?.ImageData != null) { LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));var displayed=frame.ImageData;if(!liveBeautyFailed&&liveBeautySettings.HasEffect)try{displayed=await liveBeauty.ProcessAsync(frame.ImageData,liveBeautySettings,token)??frame.ImageData;}catch(OperationCanceledException)when(token.IsCancellationRequested){throw;}catch(Exception error){liveBeautyFailed=true;log.LogWarning(error,"Live Beauty failed; raw Live View and video frames remain active");}LiveImage=displayed;videos.AddLiveViewFrame(displayed,frame.TimestampUtc==default(DateTime)?DateTime.UtcNow:frame.TimestampUtc); } await Task.Delay(40, token); } catch (OperationCanceledException) { break; } catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } } }
-        async Task StopLive() { var c = liveCts; if (c == null) return; c.Cancel(); liveCts = null; liveBeauty.Reset(); if (context.Camera != null) try { await live.StopAsync(context.Camera.Id, CancellationToken.None); } catch { } }
+        async Task StartLive()
+        {
+            await liveGate.WaitAsync();
+            try
+            {
+                await StopLiveCore();
+                var camera = context.Camera;
+                if (camera == null) return;
+                var cts = new CancellationTokenSource();
+                try
+                {
+                    await live.StartAsync(camera.Id, cts.Token);
+                    liveCts = cts;
+                    liveCameraId = camera.Id;
+                    liveLoopTask = LiveLoop(camera.Id, cts.Token);
+                }
+                catch
+                {
+                    cts.Cancel();
+                    cts.Dispose();
+                    throw;
+                }
+            }
+            finally { liveGate.Release(); }
+        }
+        async Task LiveLoop(string cameraId, CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                var iteration = Stopwatch.StartNew();
+                try
+                {
+                    var frame = await live.GetFrameAsync(cameraId, token);
+                    if (frame?.ImageData != null)
+                    {
+                        LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));var displayed=frame.ImageData;
+                        if(!liveBeautyFailed&&liveBeautySettings.HasEffect)try{displayed=await liveBeauty.ProcessAsync(frame.ImageData,liveBeautySettings,token)??frame.ImageData;}catch(OperationCanceledException)when(token.IsCancellationRequested){throw;}catch(Exception error){liveBeautyFailed=true;log.LogWarning(error,"Live Beauty failed; raw Live View and video frames remain active");}
+                        LiveImage=displayed;videos.AddLiveViewFrame(displayed,frame.TimestampUtc==default(DateTime)?DateTime.UtcNow:frame.TimestampUtc);
+                    }
+                    var remaining = LiveFrameInterval - iteration.Elapsed;
+                    if (remaining > TimeSpan.Zero) await Task.Delay(remaining, token);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } }
+            }
+        }
+        async Task StopLive()
+        {
+            await liveGate.WaitAsync();
+            try { await StopLiveCore(); }
+            finally { liveGate.Release(); }
+        }
+        async Task StopLiveCore()
+        {
+            var cts = liveCts;
+            var loop = liveLoopTask;
+            var cameraId = liveCameraId;
+            liveCts = null;
+            liveLoopTask = null;
+            liveCameraId = null;
+            if (cts == null) return;
+            cts.Cancel();
+            if (loop != null) try { await loop; } catch (OperationCanceledException) { } catch (Exception error) { log.LogDebug(error,"Live View loop stopped with an error"); }
+            liveBeauty.Reset();
+            if (!string.IsNullOrWhiteSpace(cameraId)) try { await live.StopAsync(cameraId, CancellationToken.None); } catch (Exception error) { log.LogWarning(error,"Live View stop failed"); }
+            cts.Dispose();
+        }
         async Task CleanupTemporary() { var session=context.Session;if(session==null)return;SessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.UpdateAsync(session,CancellationToken.None);await Task.Run(()=>SessionWorkspace.Cleanup(session));context.CurrentShots.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.Session=null; }
         async Task ReplaceCaptureAsync(int position, CapturedShot newest)
         {
@@ -319,10 +515,17 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher != null && !dispatcher.CheckAccess()) { dispatcher.BeginInvoke(new Action(OnStateChanged)); return; }
-            RaiseState(); ((AsyncCommand)StartCommand).NotifyCanExecuteChanged(); ((AsyncCommand)RetakeCommand).NotifyCanExecuteChanged();
+            RaiseState(); RaiseCaptureMode(); ((AsyncCommand)RetakeCommand).NotifyCanExecuteChanged();
             if (machine.State == CustomerWorkflowState.Idle && context.CameraDisconnectedPending) { CameraConnected = false; LiveImage = null; StatusMessage = "Waiting for camera…"; }
         }
         void RaiseState() { Raise(nameof(IsIdle)); Raise(nameof(IsCountdown)); Raise(nameof(IsSmile)); Raise(nameof(IsCapturing)); Raise(nameof(IsInterShotDelay)); Raise(nameof(IsPreview)); Raise(nameof(IsPrinting)); Raise(nameof(IsBusy)); Raise(nameof(ProgressText)); }
+        void RaiseCaptureMode() { Raise(nameof(IsModeSelection)); Raise(nameof(IsManualReady)); ((AsyncCommand)AutomaticCaptureCommand).NotifyCanExecuteChanged(); ((AsyncCommand)ManualModeCommand).NotifyCanExecuteChanged(); ((AsyncCommand)ManualShutterCommand).NotifyCanExecuteChanged(); }
+        public bool RequestManualCapture()
+        {
+            if (!ManualShutterCommand.CanExecute(null)) return false;
+            ManualShutterCommand.Execute(null);
+            return true;
+        }
         void Fail(Exception e, string friendly, bool showError) { log.LogError(e, friendly); ErrorMessage = showError ? friendly : null; StatusMessage = friendly; }
     }
     public sealed class CapturedPhotoItem : ObservableObject

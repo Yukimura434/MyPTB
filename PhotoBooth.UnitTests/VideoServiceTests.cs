@@ -21,7 +21,7 @@ namespace PhotoBooth.UnitTests
             var service = new VideoService(options);
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                service.CreateAsync("still.jpg", "capture.mp4", DateTime.UtcNow, 3, false, CancellationToken.None));
+                service.CreateAsync("still.jpg", "capture.mp4", DateTime.UtcNow, 3, false, 0, CancellationToken.None));
 
             Assert.Contains("MP4 video encoding is disabled", exception.Message);
             Assert.False(File.Exists("capture.mp4"));
@@ -48,7 +48,7 @@ namespace PhotoBooth.UnitTests
                 var shutter = DateTime.UtcNow;
                 for (var i = 0; i <= 72; i++) service.AddLiveViewFrame(frame, shutter.AddSeconds(-4).AddTicks(TimeSpan.TicksPerSecond * i / 18));
 
-                await service.CreateAsync(still, destination, shutter, 4, false, CancellationToken.None);
+                await service.CreateAsync(still, destination, shutter, 4, false, 0, CancellationToken.None);
 
                 var bytes = File.ReadAllBytes(destination);
                 Assert.True(bytes.Length > 12);

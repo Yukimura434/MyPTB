@@ -108,6 +108,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
             {
                 navigation.Navigate(route);
                 CurrentPage = page;
+                if (page is InterfaceViewModel interfacePage)
+                    _ = interfacePage.RefreshAsync();
             }
         }
     }

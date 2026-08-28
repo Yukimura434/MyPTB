@@ -49,7 +49,7 @@ namespace PhotoBooth.Infrastructure.Services
             }
         }
 
-        public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, CancellationToken token)
+        public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(stillImagePath)) throw new ArgumentException("Still image path is required.", nameof(stillImagePath));
             if (string.IsNullOrWhiteSpace(destinationPath)) throw new ArgumentException("Destination path is required.", nameof(destinationPath));
@@ -58,6 +58,7 @@ namespace PhotoBooth.Infrastructure.Services
                 throw new InvalidOperationException("MP4 video encoding is disabled.");
             }
             durationSeconds = NormalizeDuration(durationSeconds);
+            rotationDegrees = NormalizeRotation(rotationDegrees);
             var preroll = TimeSpan.FromSeconds(durationSeconds);
             shutterTimestampUtc = shutterTimestampUtc.Kind == DateTimeKind.Utc ? shutterTimestampUtc : shutterTimestampUtc.ToUniversalTime();
             BufferedFrame[] snapshot;
@@ -66,9 +67,9 @@ namespace PhotoBooth.Infrastructure.Services
             return Task.Run(() =>
             {
                 if (isolateNativeEncoder)
-                    CreateExternal(stillImagePath, destinationPath, shutterTimestampUtc, durationSeconds, snapshot, flipHorizontally, token);
+                    CreateExternal(stillImagePath, destinationPath, shutterTimestampUtc, durationSeconds, snapshot, flipHorizontally, rotationDegrees, token);
                 else
-                    Create(stillImagePath, destinationPath, shutterTimestampUtc, durationSeconds, snapshot, flipHorizontally, token);
+                    Create(stillImagePath, destinationPath, shutterTimestampUtc, durationSeconds, snapshot, flipHorizontally, rotationDegrees, token);
             }, token);
         }
 
@@ -126,7 +127,7 @@ namespace PhotoBooth.Infrastructure.Services
             finally { try { if (Directory.Exists(attempt)) Directory.Delete(attempt, true); } catch { } }
         }
 
-        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
+        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
             ValidateSource(stillImagePath, shutterUtc, durationSeconds, source);
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
@@ -148,7 +149,7 @@ namespace PhotoBooth.Infrastructure.Services
                 var start = new ProcessStartInfo
                 {
                     FileName = helper,
-                    Arguments = "--video-encode " + Quote(stillImagePath) + " " + Quote(frameDirectory) + " " + Quote(outputPath) + (flipHorizontally ? " 1" : " 0"),
+                    Arguments = "--video-encode " + Quote(stillImagePath) + " " + Quote(frameDirectory) + " " + Quote(outputPath) + (flipHorizontally ? " 1 " : " 0 ") + rotationDegrees,
                     WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -188,7 +189,7 @@ namespace PhotoBooth.Infrastructure.Services
             {
                 if (args != null && args.Length > 0 && string.Equals(args[0], "--video-compose", StringComparison.Ordinal))
                     return RunCompositeCommand(args);
-                if (args == null || (args.Length != 4 && args.Length != 5)) throw new ArgumentException("Expected still image, frame directory, output path and optional flip flag.");
+                if (args == null || args.Length < 4 || args.Length > 6) throw new ArgumentException("Expected still image, frame directory, output path, optional flip flag and rotation.");
                 var files = Directory.GetFiles(args[2], "*.jpg").OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                 if (files.Length < FramesPerSecond || files.Length > FramesPerSecond * MaximumDurationSeconds) throw new InvalidDataException("The MP4 encoder received an unsupported frame count.");
                 var selected = new List<BufferedFrame>(files.Length);
@@ -196,7 +197,8 @@ namespace PhotoBooth.Infrastructure.Services
                 var videoPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args[3])), Guid.NewGuid().ToString("N") + ".mp4");
                 try
                 {
-                    EncodeVideo(videoPath, selected, args.Length == 5 && args[4] == "1", CancellationToken.None);
+                    var rotation = args.Length == 6 ? NormalizeRotation(int.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture)) : 0;
+                    EncodeVideo(videoPath, selected, args.Length >= 5 && args[4] == "1", rotation, CancellationToken.None);
                     if (!IsValidMp4(videoPath)) throw new InvalidDataException("MP4 video validation failed.");
                     if (File.Exists(args[3])) File.Delete(args[3]);
                     File.Move(videoPath, args[3]);
@@ -241,7 +243,7 @@ namespace PhotoBooth.Infrastructure.Services
                 var rendered = RenderCompositeFrames(args[2], specs, readers, readerIndexes);
                 foreach (var reader in readers) reader.Close();
                 readers.Clear();
-                EncodeVideo(temp, rendered, false, CancellationToken.None);
+                EncodeVideo(temp, rendered, false, 0, CancellationToken.None);
                 if (!IsValidMp4(temp)) throw new InvalidDataException("Composed MP4 video validation failed.");
                 if (File.Exists(args[4])) File.Delete(args[4]);
                 File.Move(temp, args[4]);
@@ -365,7 +367,7 @@ namespace PhotoBooth.Infrastructure.Services
                 throw new InvalidOperationException("MP4 video requires a complete " + durationSeconds + "-second live-view buffer.");
         }
 
-        static void Create(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, CancellationToken token)
+        static void Create(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
             ValidateSource(stillImagePath, shutterUtc, durationSeconds, source);
 
@@ -377,7 +379,7 @@ namespace PhotoBooth.Infrastructure.Services
             try
             {
                 var selected = Resample(source, shutterUtc, durationSeconds);
-                EncodeVideo(videoPath, selected, flipHorizontally, token);
+                EncodeVideo(videoPath, selected, flipHorizontally, rotationDegrees, token);
                 if (!IsValidMp4(videoPath)) throw new InvalidDataException("MP4 video output validation failed.");
                 if (File.Exists(outputPath)) File.Delete(outputPath);
                 File.Move(videoPath, outputPath);
@@ -407,7 +409,9 @@ namespace PhotoBooth.Infrastructure.Services
 
         static int NormalizeDuration(int durationSeconds) => Math.Max(1, Math.Min(MaximumDurationSeconds, durationSeconds));
 
-        static void EncodeVideo(string path, IReadOnlyList<BufferedFrame> selected, bool flipHorizontally, CancellationToken token)
+        static int NormalizeRotation(int value) => value == 90 || value == -90 || value == 180 ? value : 0;
+
+        static void EncodeVideo(string path, IReadOnlyList<BufferedFrame> selected, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
             using (var firstStream = new MemoryStream(selected[0].ImageData, false))
             using (var first = new Bitmap(firstStream))
@@ -418,9 +422,12 @@ namespace PhotoBooth.Infrastructure.Services
                 // 1280x720. Keep the primary JPEG untouched, but normalize the
                 // appended preview video to a safe, aspect-preserving size.
                 const int maximumVideoDimension = 640;
-                var scale = Math.Min(1d, (double)maximumVideoDimension / Math.Max(first.Width, first.Height));
-                var width = AlignVideoDimension((int)Math.Round(first.Width * scale));
-                var height = AlignVideoDimension((int)Math.Round(first.Height * scale));
+                var quarterTurn = rotationDegrees == 90 || rotationDegrees == -90;
+                var sourceWidth = quarterTurn ? first.Height : first.Width;
+                var sourceHeight = quarterTurn ? first.Width : first.Height;
+                var scale = Math.Min(1d, (double)maximumVideoDimension / Math.Max(sourceWidth, sourceHeight));
+                var width = AlignVideoDimension((int)Math.Round(sourceWidth * scale));
+                var height = AlignVideoDimension((int)Math.Round(sourceHeight * scale));
                 writer.Open(path, width, height, FramesPerSecond, VideoCodec.H264, 2500000);
                 foreach (var frame in selected)
                 {
@@ -430,6 +437,9 @@ namespace PhotoBooth.Infrastructure.Services
                     using (var encoded = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
                     {
                         if (flipHorizontally) original.RotateFlip(RotateFlipType.RotateNoneFlipX);
+                        if (rotationDegrees == 90) original.RotateFlip(RotateFlipType.Rotate90FlipNone);
+                        else if (rotationDegrees == -90) original.RotateFlip(RotateFlipType.Rotate270FlipNone);
+                        else if (rotationDegrees == 180) original.RotateFlip(RotateFlipType.Rotate180FlipNone);
                         using (var graphics = Graphics.FromImage(encoded)) graphics.DrawImage(original, 0, 0, width, height);
                         writer.WriteVideoFrame(encoded);
                     }

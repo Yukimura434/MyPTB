@@ -25,6 +25,8 @@ namespace PhotoBooth.Customer.UI.Converters
                 {
                     image.BeginInit();
                     image.CacheOption = BitmapCacheOption.OnLoad;
+                    if (parameter != null && int.TryParse(parameter.ToString(), out var decodeWidth) && decodeWidth > 0)
+                        image.DecodePixelWidth = decodeWidth;
                     image.StreamSource = stream;
                     image.EndInit();
                     image.Freeze();

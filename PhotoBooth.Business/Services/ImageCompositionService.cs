@@ -19,7 +19,7 @@ namespace PhotoBooth.Business.Services
         {
             return Task.Run(() =>
             {
-                token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested) return null;
                 if (session == null || frame == null)
                     throw new InvalidOperationException("Session or frame unavailable.");
 
@@ -43,7 +43,7 @@ namespace PhotoBooth.Business.Services
                                 continue;
                             if (!IsRasterImage(path))
                                 throw new InvalidDataException("Frame slots require a raster image, but received: " + Path.GetFileName(path));
-                            token.ThrowIfCancellationRequested();
+                            if (token.IsCancellationRequested) return null;
                             using (var image = Image.FromFile(path))
                                 DrawCrop(graphics, image, slot);
                         }
@@ -51,6 +51,7 @@ namespace PhotoBooth.Business.Services
                             using (var overlay = Image.FromFile(frame.SourcePath))
                                 graphics.DrawImage(overlay, new Rectangle(0, 0, canvas.Width, canvas.Height));
                     }
+                    if (token.IsCancellationRequested) return null;
                     canvas.Save(output, ImageFormat.Png);
                 }
 
@@ -61,7 +62,7 @@ namespace PhotoBooth.Business.Services
                                            session.SessionNumber.ToString("D2") + next.ToString("D4");
                 }
                 return output;
-            }, token);
+            });
         }
 
         static bool IsRasterImage(string path)

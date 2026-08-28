@@ -98,9 +98,16 @@ CREATE INDEX IF NOT EXISTS IX_PresetColorSettings_LutAssetId ON PresetColorSetti
             EnsureColumn("WorkflowSettings", "GifFrameDurationMs", "INTEGER NOT NULL DEFAULT 1000");
             EnsureColumn("WorkflowSettings", "WaitingTimeoutSeconds", "INTEGER NOT NULL DEFAULT 30");
             EnsureColumn("WorkflowSettings", "AutoFlip", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn("WorkflowSettings", "RotateLiveView180", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn("WorkflowSettings", "ImageRotationDegrees", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn("WorkflowSettings", "CustomerLayoutMode", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn("WorkflowSettings", "ShowWaitingLiveView", "INTEGER NOT NULL DEFAULT 1");
             EnsureColumn("WorkflowSettings", "WaitingLiveViewX", "REAL NOT NULL DEFAULT 10");
             EnsureColumn("WorkflowSettings", "WaitingLiveViewY", "REAL NOT NULL DEFAULT 10");
+            EnsureColumn("WorkflowSettings", "WaitingLiveViewAreaPercent", "REAL NOT NULL DEFAULT 5");
+            EnsureColumn("WorkflowSettings", "WaitingBackgroundZoom", "REAL NOT NULL DEFAULT 100");
+            EnsureColumn("WorkflowSettings", "WaitingBackgroundPanX", "REAL NOT NULL DEFAULT 0");
+            EnsureColumn("WorkflowSettings", "WaitingBackgroundPanY", "REAL NOT NULL DEFAULT 0");
             EnsureColumn("WorkflowSettings", "SaveLocation", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn("BeautySettings", "EyeSize", "INTEGER NOT NULL DEFAULT 0");
             EnsureColumn("BeautySettings", "SlimFace", "INTEGER NOT NULL DEFAULT 0");
@@ -230,6 +237,7 @@ AND NOT EXISTS(SELECT 1 FROM CaptureAssetSources existing WHERE existing.AssetId
             RecordMigration(5, "frame_event_collections");
             RecordMigration(6, "composite_video_asset");
             RecordMigration(7, "capture_media_mode");
+            ApplyMigration(8, "waiting_live_view_default_area_5_percent", "UPDATE WorkflowSettings SET WaitingLiveViewAreaPercent=5 WHERE WaitingLiveViewAreaPercent=10;");
             Execute("CREATE INDEX IF NOT EXISTS IX_CapturedImages_SessionId ON CapturedImages(SessionId); CREATE INDEX IF NOT EXISTS IX_FrameSlots_FrameId ON FrameSlots(FrameId); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_StartedAtUtc ON CustomerSessions(StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_Account_Device ON CustomerSessions(AccountId,DeviceId,StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_Captures_SessionId ON Captures(SessionId); CREATE INDEX IF NOT EXISTS IX_Captures_Account_Device ON Captures(AccountId,DeviceId,CreatedAtUtc); CREATE INDEX IF NOT EXISTS IX_Captures_Status_ExpiresAtUtc ON Captures(Status,ExpiresAtUtc); CREATE INDEX IF NOT EXISTS IX_CapturePhotos_CaptureId ON CapturePhotos(CaptureId); CREATE INDEX IF NOT EXISTS IX_CapturePhotos_IsUploaded ON CapturePhotos(IsUploaded); CREATE INDEX IF NOT EXISTS IX_UploadQueue_Due ON UploadQueue(Status,NextRetryAtUtc); CREATE INDEX IF NOT EXISTS IX_PrintJobs_PrintedAtUtc ON PrintJobs(PrintedAtUtc); CREATE INDEX IF NOT EXISTS IX_PrintJobs_Status ON PrintJobs(Status); CREATE INDEX IF NOT EXISTS IX_PrintJobs_SessionId ON PrintJobs(SessionId);");
         }
 
@@ -243,6 +251,32 @@ AND NOT EXISTS(SELECT 1 FROM CaptureAssetSources existing WHERE existing.AssetId
                 command.Parameters.AddWithValue("$name", name);
                 command.Parameters.AddWithValue("$applied", DateTime.UtcNow.ToString("O"));
                 command.ExecuteNonQuery();
+            }
+        }
+
+        private void ApplyMigration(int version, string name, string sql)
+        {
+            using (var connection = OpenConnection())
+            using (var transaction = connection.BeginTransaction())
+            {
+                using (var check = connection.CreateCommand())
+                {
+                    check.Transaction = transaction;
+                    check.CommandText = "SELECT COUNT(*) FROM SchemaMigrations WHERE Version=$version";
+                    check.Parameters.AddWithValue("$version", version);
+                    if (Convert.ToInt32(check.ExecuteScalar()) > 0) { transaction.Commit(); return; }
+                }
+                using (var update = connection.CreateCommand()) { update.Transaction = transaction; update.CommandText = sql; update.ExecuteNonQuery(); }
+                using (var record = connection.CreateCommand())
+                {
+                    record.Transaction = transaction;
+                    record.CommandText = "INSERT INTO SchemaMigrations(Version,Name,AppliedAtUtc) VALUES($version,$name,$applied)";
+                    record.Parameters.AddWithValue("$version", version);
+                    record.Parameters.AddWithValue("$name", name);
+                    record.Parameters.AddWithValue("$applied", DateTime.UtcNow.ToString("O"));
+                    record.ExecuteNonQuery();
+                }
+                transaction.Commit();
             }
         }
 

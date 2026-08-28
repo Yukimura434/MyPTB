@@ -44,7 +44,7 @@
             </Grid>
 
             <Grid x:Name="WorkspaceGrid" Grid.Row="1">
-                <Grid.RowDefinitions><RowDefinition x:Name="WorkspaceTopRow" Height="*"/><RowDefinition x:Name="WorkspaceBottomRow" Height="0"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition x:Name="WorkspaceTopRow" Height="*"/><RowDefinition x:Name="WorkspaceBottomRow" Height="0"/><RowDefinition x:Name="WorkspacePhotoRow" Height="0"/></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="280"/>
                     <ColumnDefinition Width="18"/>
@@ -56,7 +56,7 @@
                 <Border x:Name="FramesPanel" Style="{StaticResource SoftCard}" Background="#19171D" Padding="8">
                     <DockPanel>
                         <TextBlock Text="FRAME" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold" Foreground="#C9A7BB" Margin="6,2,6,8"/>
-                        <ListBox ItemsSource="{Binding PinnedFrames}" SelectedItem="{Binding SelectedFrame}"
+                        <ListBox x:Name="FrameList" ItemsSource="{Binding PinnedFrames}" SelectedItem="{Binding SelectedFrame}"
                                  Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Center"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemContainerStyle>
@@ -126,8 +126,8 @@
                 <Border x:Name="PhotosPanel" Grid.Column="4" Style="{StaticResource SoftCard}" Background="#19171D" Padding="8">
                     <DockPanel>
                         <TextBlock Text="ẢNH ĐÃ CHỤP" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold" Foreground="#C9A7BB" Margin="6,2,6,8"/>
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl ItemsSource="{Binding CapturedPhotos}">
+                        <ScrollViewer x:Name="CapturedPhotoScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+                            <ItemsControl x:Name="CapturedPhotoList" ItemsSource="{Binding CapturedPhotos}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Button Command="{Binding DataContext.SelectPhotoCommand,RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -155,10 +155,10 @@
                 </Border>
             </Grid>
 
-            <Grid Grid.Row="2" Margin="0,16,0,0">
-                <Button Content="Bỏ ảnh khỏi ô đang chọn" Command="{Binding ClearSlotCommand}" HorizontalAlignment="Left"
-                        Background="#85687A" Width="230"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+            <WrapPanel Grid.Row="2" Margin="0,16,0,0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Button Content="Bỏ ảnh khỏi ô đang chọn" Command="{Binding ClearSlotCommand}"
+                        Background="#85687A" MinWidth="220"/>
+                <StackPanel Orientation="Horizontal">
                     <Button Content="Quay lại" Command="{Binding CancelCommand}" Background="#CE93D8"/>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0" IsEnabled="{Binding PrintingEnabled}">
                         <TextBlock Text="Số bản in" FontSize="18" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -170,7 +170,7 @@
                     </StackPanel>
                     <Button Content="Tiếp tục ghép video" Command="{Binding PrintCommand}" Width="260"/>
                 </StackPanel>
-            </Grid>
+            </WrapPanel>
 
             <Border Grid.RowSpan="3" Background="#E60A0A0D" Visibility="{Binding HasError,Converter={StaticResource BoolVisibility}}">
                 <Border Style="{StaticResource SoftCard}" Width="520" VerticalAlignment="Center">

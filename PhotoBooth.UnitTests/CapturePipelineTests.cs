@@ -181,6 +181,28 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
+        public async Task ExecuteAsync_with_explicit_video_duration_uses_manual_capture_duration()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
+            try
+            {
+                var sessions = new FakeSessionRepository(new Session { Id = Guid.NewGuid(), SessionNumber = 10, OutputDirectory = root, StartedAtUtc = DateTime.UtcNow });
+                var video = new FakeVideoService();
+                var pipeline = new CapturePipeline(
+                    new CapturingCamera(),
+                    sessions,
+                    new FakeSettingsService(new Settings { CountdownSeconds = 8 }),
+                    video);
+
+                await pipeline.ExecuteAsync(sessions.Session.Id, "cam", null, true, 3, CancellationToken.None);
+
+                Assert.Equal(3, video.LastDurationSeconds);
+                Assert.Single(sessions.Session.CapturedShots);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Fact]
         public async Task ExecuteAsync_runs_beauty_before_lut_and_keeps_video_raw()
         {
             var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
@@ -324,7 +346,7 @@ namespace PhotoBooth.UnitTests
             public bool LastFlipHorizontally { get; private set; }
             public int LastDurationSeconds { get; private set; }
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
-            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, CancellationToken token)
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
             {
                 LastFlipHorizontally = flipHorizontally;
                 LastDurationSeconds = durationSeconds;
@@ -338,7 +360,7 @@ namespace PhotoBooth.UnitTests
         sealed class FailingVideoService : IVideoService
         {
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
-            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, CancellationToken token)
+            public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
             {
                 throw new InvalidOperationException("encoder failed");
             }

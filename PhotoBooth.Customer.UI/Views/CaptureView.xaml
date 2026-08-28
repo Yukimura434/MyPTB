@@ -1,19 +1,49 @@
-<UserControl x:Class="PhotoBooth.Customer.UI.Views.CaptureView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:color="clr-namespace:PhotoBooth.Color.D3D11;assembly=PhotoBooth.Color.D3D11">
+<UserControl x:Class="PhotoBooth.Customer.UI.Views.CaptureView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:PhotoBooth.Customer.UI.Controls" xmlns:color="clr-namespace:PhotoBooth.Color.D3D11;assembly=PhotoBooth.Color.D3D11">
  <Grid Background="#08080A" ClipToBounds="True">
-  <!-- Full-bleed live view: UniformToFill removes pillar-box bars. -->
-  <TextBlock Text="Không có tín hiệu camera" FontSize="26" Foreground="#77737D" VerticalAlignment="Center"/>
-  <Grid RenderTransformOrigin="0.5,0.5">
-   <Grid.RenderTransform><ScaleTransform ScaleX="{Binding LiveViewScaleX}"/></Grid.RenderTransform>
-   <Image Source="{Binding LiveImage,Converter={StaticResource ByteImage}}" Stretch="UniformToFill"/>
-   <color:LiveColorSurface Failed="OnGpuLiveColorFailed" FrameData="{Binding LiveImage}" LutValues="{Binding LiveColor.Values}" LutSize="{Binding LiveColor.Size}" DomainMin="{Binding LiveColor.DomainMin}" DomainMax="{Binding LiveColor.DomainMax}" Strength="{Binding LiveColor.Strength}" Visibility="{Binding LiveColor.IsEnabled,Converter={StaticResource BoolVisibility}}"/>
-  </Grid>
+  <Border x:Name="LiveViewPanel" VerticalAlignment="Stretch" Background="#08080A"
+          BorderBrush="#E08AB4C9" BorderThickness="5" CornerRadius="25">
+   <Border.Effect><DropShadowEffect Color="#E85D9E" BlurRadius="14" ShadowDepth="0" Opacity="0.34"/></Border.Effect>
+   <controls:RoundedClipBorder Background="#08080A" CornerRadius="20">
+    <Viewbox Stretch="Fill" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+     <Grid x:Name="LiveViewCanvas" Width="1200" Height="900">
+      <Grid.LayoutTransform>
+       <TransformGroup>
+        <ScaleTransform ScaleX="{Binding LiveViewScaleX}"/>
+        <RotateTransform Angle="{Binding LiveViewRotation}"/>
+       </TransformGroup>
+      </Grid.LayoutTransform>
+       <TextBlock Text="Không có tín hiệu camera" FontSize="26" Foreground="#77737D" VerticalAlignment="Center">
+        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding HasLiveImage}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+       </TextBlock>
+       <Image Source="{Binding LiveImage,Converter={StaticResource ByteImage}}" Stretch="Fill"/>
+       <color:LiveColorSurface Failed="OnGpuLiveColorFailed" FrameData="{Binding LiveImage}" LutValues="{Binding LiveColor.Values}" LutSize="{Binding LiveColor.Size}" DomainMin="{Binding LiveColor.DomainMin}" DomainMax="{Binding LiveColor.DomainMax}" Strength="{Binding LiveColor.Strength}" Stretch="Fill" Visibility="{Binding LiveColor.IsEnabled,Converter={StaticResource BoolVisibility}}"/>
+     </Grid>
+    </Viewbox>
+   </controls:RoundedClipBorder>
+  </Border>
+
+  <Border x:Name="RecentCapturesPanel" Width="1000" VerticalAlignment="Top" Margin="40,870,40,0"
+          Background="#17141B" BorderBrush="#4A414B" BorderThickness="2" CornerRadius="20" Padding="16" Visibility="Collapsed">
+   <Grid>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <TextBlock Text="ẢNH VỪA CHỤP" FontSize="17" FontWeight="SemiBold" Foreground="#D9B7C9" Margin="4,0,0,10" HorizontalAlignment="Left"/>
+    <ItemsControl Grid.Row="1" ItemsSource="{Binding CapturedImages}" HorizontalAlignment="Left">
+     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Width="960"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+     <ItemsControl.ItemTemplate><DataTemplate><controls:RoundedClipBorder Width="232" Height="{Binding DataContext.RecentThumbnailHeight,RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="4" CornerRadius="12" Background="#242129"><Image Source="{Binding Converter={StaticResource CustomerPathImage},ConverterParameter=360}" Stretch="Fill"/></controls:RoundedClipBorder></DataTemplate></ItemsControl.ItemTemplate>
+    </ItemsControl>
+   </Grid>
+  </Border>
   <Border VerticalAlignment="Top" HorizontalAlignment="Center" Background="#C9141419" BorderBrush="#44FFFFFF" BorderThickness="1" CornerRadius="18" Padding="20,9" Margin="20">
    <TextBlock Text="{Binding ProgressText}" FontSize="17" FontWeight="SemiBold" Foreground="White"/>
   </Border>
 
   <Border VerticalAlignment="Bottom" Background="#B30B0B0E" BorderBrush="#292830" BorderThickness="0,1,0,0" Padding="24,16">
    <Grid>
-    <Button Content="Bắt đầu chụp" Command="{Binding StartCommand}" Width="250" Height="60" FontSize="20" Visibility="{Binding IsIdle,Converter={StaticResource BoolVisibility}}" HorizontalAlignment="Center"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Visibility="{Binding IsModeSelection,Converter={StaticResource BoolVisibility}}">
+     <Button Content="Chụp thủ công" Command="{Binding ManualModeCommand}" Width="230" Height="60" FontSize="19" Style="{StaticResource SecondaryButton}"/>
+     <Button Content="Chụp tự động" Command="{Binding AutomaticCaptureCommand}" Width="230" Height="60" FontSize="19"/>
+    </StackPanel>
+    <Button Content="Chụp  ·  Space" Command="{Binding ManualShutterCommand}" Width="250" Height="60" FontSize="20" Visibility="{Binding IsManualReady,Converter={StaticResource BoolVisibility}}" HorizontalAlignment="Center"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}">
      <Button Content="Chụp lại ảnh đã chọn" Command="{Binding RetakeCommand}" Style="{StaticResource SecondaryButton}" MinWidth="230"/>
      <Button Content="Tiếp tục chọn frame" Command="{Binding SelectFrameCommand}" MinWidth="230"/>
@@ -33,7 +63,7 @@
    <Grid x:Name="ReviewLayout"><Grid.ColumnDefinitions><ColumnDefinition x:Name="ReviewImageColumn" Width="*"/><ColumnDefinition x:Name="ReviewListColumn" Width="230"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition x:Name="ReviewImageRow" Height="*"/><RowDefinition x:Name="ReviewListRow" Height="0"/></Grid.RowDefinitions>
     <Border x:Name="ReviewImagePanel" Margin="0,0,12,0" CornerRadius="12" Background="#08080A" ClipToBounds="True"><Image Source="{Binding SelectedReviewPhoto.Path,Converter={StaticResource CustomerPathImage}}" Stretch="Uniform"/></Border>
     <Border x:Name="ReviewListPanel" Grid.Column="1" CornerRadius="12" Background="#17171C" Padding="7" ClipToBounds="True">
-     <ListBox ItemsSource="{Binding ReviewPhotos}" SelectedItem="{Binding SelectedReviewPhoto}"
+     <ListBox x:Name="ReviewPhotoList" ItemsSource="{Binding ReviewPhotos}" SelectedItem="{Binding SelectedReviewPhoto}"
               ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
               ScrollViewer.PanningMode="VerticalOnly" HorizontalContentAlignment="Stretch">
       <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListBox.ItemContainerStyle>

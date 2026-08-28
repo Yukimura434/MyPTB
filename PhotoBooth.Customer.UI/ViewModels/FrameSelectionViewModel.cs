@@ -66,6 +66,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         FrameSlotChoice selectedSlot;
         CapturedPhotoChoice selectedPhoto;
         CancellationTokenSource previewCancellation;
+        Task previewTask = Task.CompletedTask;
         string preview;
         string error;
         bool printing;
@@ -80,7 +81,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
             presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; features = featureFlags; log = logger;
-            CancelCommand = new RelayCommand(() => machine.MoveTo(CustomerWorkflowState.Preview));
+            CancelCommand = new RelayCommand(BackToPreview);
             printCommand = new AsyncCommand(ContinueToVideo, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
             RetryCommand = new AsyncCommand(UpdatePreview);
@@ -100,7 +101,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public ObservableCollection<Frame> PinnedFrames { get; } = new ObservableCollection<Frame>();
         public ObservableCollection<CapturedPhotoChoice> CapturedPhotos { get; } = new ObservableCollection<CapturedPhotoChoice>();
         public ObservableCollection<FrameSlotChoice> FrameSlots { get; } = new ObservableCollection<FrameSlotChoice>();
-        public Frame SelectedFrame { get => selected; set { if (!Set(ref selected, value) || value == null) return; context.SelectedFrame = value; BuildSlots(value); _ = UpdatePreview(); } }
+        public Frame SelectedFrame { get => selected; set { if (!Set(ref selected, value) || value == null) return; context.SelectedFrame = value; BuildSlots(value); QueuePreview(); } }
         public FrameSlotChoice SelectedSlot { get => selectedSlot; private set => Set(ref selectedSlot, value); }
         public CapturedPhotoChoice SelectedPhoto { get => selectedPhoto; private set => Set(ref selectedPhoto, value); }
         public string PreviewPath { get => preview; private set => Set(ref preview, value); }
@@ -178,13 +179,20 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             slot.Photo = photo;
             NotifyAssignmentsChanged();
-            _ = UpdatePreview();
+            QueuePreview();
         }
 
         void ClearSelectedSlot()
         {
             if (SelectedSlot == null || IsPrinting) return;
-            SelectedSlot.Photo = null; NotifyAssignmentsChanged(); _ = UpdatePreview();
+            SelectedSlot.Photo = null; NotifyAssignmentsChanged(); QueuePreview();
+        }
+
+        void BackToPreview()
+        {
+            if (IsPrinting) return;
+            previewCancellation?.Cancel();
+            machine.MoveTo(CustomerWorkflowState.Preview);
         }
 
         void UpdateSelectionState()
@@ -209,12 +217,26 @@ namespace PhotoBooth.Customer.UI.ViewModels
             catch (Exception e) { Fail(e, "Không thể tạo bản xem trước"); }
         }
 
+        void QueuePreview()
+        {
+            previewTask = UpdatePreview();
+        }
+
+        public async Task ShutdownAsync()
+        {
+            var cancellation = Interlocked.Exchange(ref previewCancellation, null);
+            cancellation?.Cancel();
+            try { await previewTask; }
+            catch (OperationCanceledException) { }
+            finally { cancellation?.Dispose(); }
+        }
+
         async Task Compose(bool final, CancellationToken token)
         {
-            await composeGate.WaitAsync(token);
+            await composeGate.WaitAsync();
             try
             {
-                token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested) return;
                 if (context.Session == null || SelectedFrame == null) return;
                 if (final && !CanFinish) throw new InvalidOperationException("Hãy đặt ảnh vào tất cả các ô trước khi tiếp tục.");
                 var all = await presets.GetAllAsync(token);
@@ -225,7 +247,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 var working = new Session { Id = context.Session.Id, StartedAtUtc = context.Session.StartedAtUtc, OutputDirectory = workingDirectory, SessionNumber = context.Session.SessionNumber, FrameIndex = context.Session.FrameIndex, CapturedFiles = sourceFiles };
                 var assignments = FrameSlots.Where(x => x.Photo != null).ToDictionary(x => x.Slot.Index, x => x.Photo.Path);
                 var composed = await composer.ComposeAsync(working, FrameWithTransforms(), context.DefaultPreset, final, assignments, token);
-                token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(composed)) return;
                 if (final && context.DefaultPreset != null)
                 {
                     var temp = Path.Combine(workingDirectory, "preset-" + Guid.NewGuid().ToString("N") + ".png");

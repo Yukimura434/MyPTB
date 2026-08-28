@@ -4,8 +4,8 @@
         Title="PhotoBooth Admin"
         Width="1440"
         Height="900"
-        MinWidth="640"
-        MinHeight="600"
+        MinWidth="1100"
+        MinHeight="700"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BackgroundBrush}">
 
@@ -146,7 +146,7 @@
         <Grid Grid.Column="1">
 
             <ContentControl Content="{Binding CurrentPage, NotifyOnTargetUpdated=True}"
-                            Opacity="1" MinWidth="560">
+                            Opacity="1">
 
                 <ContentControl.RenderTransform>
                     <TranslateTransform />

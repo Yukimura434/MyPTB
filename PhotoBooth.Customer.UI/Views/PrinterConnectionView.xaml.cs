@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using PhotoBooth.Customer.UI.ViewModels;
 namespace PhotoBooth.Customer.UI.Views
 {
  public partial class PrinterConnectionView:UserControl
@@ -7,7 +8,8 @@ namespace PhotoBooth.Customer.UI.Views
   public PrinterConnectionView(){InitializeComponent();Loaded+=(s,e)=>ApplyOrientation();SizeChanged+=(s,e)=>ApplyOrientation();}
   void ApplyOrientation()
   {
-   var portrait=ActualHeight>ActualWidth*1.08;
+   var shell=Window.GetWindow(this)?.DataContext as CustomerShellViewModel;
+   var portrait=shell!=null&&shell.IsPortraitMode;
    if(portrait)
    {
     PrinterListColumn.Width=new GridLength(1,GridUnitType.Star);PrinterSettingsColumn.Width=new GridLength(0);PrinterListRow.Height=new GridLength(1,GridUnitType.Star);PrinterSettingsRow.Height=new GridLength(1,GridUnitType.Star);
