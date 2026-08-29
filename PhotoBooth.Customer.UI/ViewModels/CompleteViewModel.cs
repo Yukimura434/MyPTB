@@ -172,9 +172,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     files,
                     CancellationToken.None);
 
-                var archiveAsset = await captures.AddFileAsync(captureId, ticket.ZipPath, CaptureAssetTypes.ShareArchive, (capture.Photos ?? new CapturePhoto[0]).Select(x=>x.Id).ToList(), CancellationToken.None);
-                ticket.ArchiveAssetId = archiveAsset.Id;
-
                 await captures.UpdateSharePathAsync(
                     captureId,
                     ticket.DownloadUrl.AbsoluteUri,
@@ -185,7 +182,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     ticket.DownloadUrl,
                     360,
                     CancellationToken.None);
-                StatusText = "Quét QR để tải file ZIP";
+                StatusText = "Quét QR để xem và tải ảnh";
             }
             catch (Exception exception)
             {

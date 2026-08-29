@@ -14,7 +14,7 @@ namespace PhotoBooth.UnitTests
         public async Task Process_detects_faces_and_preserves_dimensions()
         {
             if(IntPtr.Size!=4)return;
-            var source=Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","..","..","..","CameraEngine","OpenCVRetouch","face-detection","images","harry-potter.jpg"));
+            var source=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","TestImages","harry-potter.jpg");
             var assets=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","Beauty");
             var output=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N")+".jpg");
             try
@@ -33,7 +33,7 @@ namespace PhotoBooth.UnitTests
         public async Task Live_preview_processes_jpeg_in_memory_and_preserves_dimensions()
         {
             if(IntPtr.Size!=4)return;
-            var source=Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"..","..","..","..","CameraEngine","OpenCVRetouch","face-detection","images","harry-potter.jpg"));
+            var source=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","TestImages","harry-potter.jpg");
             var assets=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","Beauty");var input=File.ReadAllBytes(source);
             using(var service=new OpenCvLiveBeautyPreviewService(assets))
             {

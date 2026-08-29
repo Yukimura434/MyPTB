@@ -11,7 +11,7 @@ This document defines the identity model that management features must use. Path
 | Composite | `CapturePhotos.Id` (`assetId`) | `CaptureId`; source assets in `CaptureAssetSources` |
 | GIF | `CapturePhotos.Id` (`assetId`) | `CaptureId`; source assets in `CaptureAssetSources` |
 | Share ZIP | `CapturePhotos.Id` (`assetId`) | `CaptureId`; packaged assets in `CaptureAssetSources` |
-| Local share request | `LocalShareTicket.Id` | `SessionId`, `CaptureId`, `ArchiveAssetId` |
+| Local share request | `LocalShareTicket.Id` | `SessionId`, `CaptureId`, token-scoped asset IDs |
 | Upload work item | `UploadQueue.Id` | `CaptureId`, `PhotoId` (asset ID) |
 | Print history | `PrintJobs.Id` | `SessionId`, `CaptureId`, `PrinterProfileId` |
 | Frame / frame slot | `Frames.Id` / `FrameSlots.Id` | Slot belongs to frame |

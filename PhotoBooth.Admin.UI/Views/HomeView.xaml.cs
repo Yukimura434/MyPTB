@@ -23,11 +23,11 @@ namespace PhotoBooth.Admin.UI.Views
    {
     var services=((App)Application.Current).Services;if(services==null)return;
     var state=services.GetRequiredService<LiveColorState>();var settings=await services.GetRequiredService<ISettingsService>().GetAsync(CancellationToken.None);await state.RefreshAsync(settings,CancellationToken.None);
-    GpuLiveColor.LutValues=state.Values;GpuLiveColor.LutSize=state.Size;GpuLiveColor.DomainMin=state.DomainMin;GpuLiveColor.DomainMax=state.DomainMax;GpuLiveColor.Strength=state.Strength;GpuLiveColor.Visibility=state.IsEnabled?Visibility.Visible:Visibility.Collapsed;
+    GpuLiveColor.LutValues=state.Values;GpuLiveColor.LutSize=state.Size;GpuLiveColor.DomainMin=state.DomainMin;GpuLiveColor.DomainMax=state.DomainMax;GpuLiveColor.Strength=state.Strength;GpuLiveColor.Visibility=state.IsEnabled?Visibility.Visible:Visibility.Collapsed;CpuLiveView.Visibility=state.IsEnabled?Visibility.Collapsed:Visibility.Visible;
    }
-   catch{GpuLiveColor.Visibility=Visibility.Collapsed;}
+   catch{GpuLiveColor.Visibility=Visibility.Collapsed;CpuLiveView.Visibility=Visibility.Visible;}
   }
-  void GpuLiveColor_OnFailed(object sender,PhotoBooth.Color.D3D11.LiveColorFailedEventArgs e){GpuLiveColor.Visibility=Visibility.Collapsed;}
+  void GpuLiveColor_OnFailed(object sender,PhotoBooth.Color.D3D11.LiveColorFailedEventArgs e){GpuLiveColor.Visibility=Visibility.Collapsed;CpuLiveView.Visibility=Visibility.Visible;}
   private void ComboBox_SelectionChanged(object sender,SelectionChangedEventArgs e) { }
  }
 }

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -72,14 +74,14 @@ namespace PhotoBooth.Color.D3D11
 
         sealed class Renderer
         {
-            readonly LiveColorSurface owner;byte[] pending;int lutDirty=1;ID3D11VertexShader vs;ID3D11PixelShader ps;ID3D11Texture2D input;ID3D11ShaderResourceView inputView;ID3D11Texture3D lut;ID3D11ShaderResourceView lutView;ID3D11SamplerState sampler;ID3D11RasterizerState raster;ID3D11DepthStencilState depth;byte[] pixels;int width,height;
+            readonly LiveColorSurface owner;readonly ConcurrentBag<byte[]> buffers=new ConcurrentBag<byte[]>();byte[] pending;DecodedFrame decoded;int decoding,active,lutDirty=1;ID3D11VertexShader vs;ID3D11PixelShader ps;ID3D11Texture2D input;ID3D11ShaderResourceView inputView;ID3D11Texture3D lut;ID3D11ShaderResourceView lutView;ID3D11SamplerState sampler;ID3D11RasterizerState raster;ID3D11DepthStencilState depth;int width,height;
             internal Renderer(LiveColorSurface owner){this.owner=owner;}
-            internal void Publish(byte[] value){if(value!=null)Interlocked.Exchange(ref pending,value);}
+            internal void Publish(byte[] value){if(value==null)return;Interlocked.Exchange(ref pending,value);StartDecoder();}
             internal void InvalidateLut(){Interlocked.Exchange(ref lutDirty,1);}
-            internal void Load(object sender,SurfaceEventArgs e){var path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","LiveColor.hlsl");var vertex=Compiler.CompileFromFile(path,"VSMain","vs_4_0");vs=e.Device.CreateVertexShader(vertex.Span);var pixel=Compiler.CompileFromFile(path,"PSMain","ps_4_0");ps=e.Device.CreatePixelShader(pixel.Span);sampler=e.Device.CreateSamplerState(SamplerDescription.LinearClamp);raster=e.Device.CreateRasterizerState(new RasterizerDescription(CullMode.None,FillMode.Solid));depth=e.Device.CreateDepthStencilState(DepthStencilDescription.None);CreateLut(e.Device);}
+            internal void Load(object sender,SurfaceEventArgs e){Volatile.Write(ref active,1);var path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","LiveColor.hlsl");var vertex=Compiler.CompileFromFile(path,"VSMain","vs_4_0");vs=e.Device.CreateVertexShader(vertex.Span);var pixel=Compiler.CompileFromFile(path,"PSMain","ps_4_0");ps=e.Device.CreatePixelShader(pixel.Span);sampler=e.Device.CreateSamplerState(SamplerDescription.LinearClamp);raster=e.Device.CreateRasterizerState(new RasterizerDescription(CullMode.None,FillMode.Solid));depth=e.Device.CreateDepthStencilState(DepthStencilDescription.None);CreateLut(e.Device);StartDecoder();}
             internal void Draw(object sender,DrawEventArgs e)
             {
-                if(Interlocked.Exchange(ref lutDirty,0)!=0)CreateLut(e.Device);var frame=Interlocked.Exchange(ref pending,null);if(frame!=null)Upload(e,frame);e.Context.ClearRenderTargetView(e.Surface.ColorTextureView,new Color4(0,0,0,1));if(inputView==null||lutView==null||ps==null)return;owner.SetFrameViewport(e.Context,e.Surface.TextureWidth,e.Surface.TextureHeight);e.Context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);e.Context.RSSetState(raster);e.Context.OMSetDepthStencilState(depth);e.Context.VSSetShader(vs);e.Context.PSSetShader(ps);e.Context.PSSetShaderResource(0,inputView);e.Context.PSSetShaderResource(1,lutView);e.Context.PSSetSampler(0,sampler);e.Context.PSSetSampler(1,sampler);e.Context.Draw(3,0);
+                if(Interlocked.Exchange(ref lutDirty,0)!=0)CreateLut(e.Device);var frame=Interlocked.Exchange(ref decoded,null);if(frame!=null)try{Upload(e,frame);}finally{Return(frame.Pixels);}e.Context.ClearRenderTargetView(e.Surface.ColorTextureView,new Color4(0,0,0,1));if(inputView==null||lutView==null||ps==null)return;owner.SetFrameViewport(e.Context,e.Surface.TextureWidth,e.Surface.TextureHeight);e.Context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);e.Context.RSSetState(raster);e.Context.OMSetDepthStencilState(depth);e.Context.VSSetShader(vs);e.Context.PSSetShader(ps);e.Context.PSSetShaderResource(0,inputView);e.Context.PSSetShaderResource(1,lutView);e.Context.PSSetSampler(0,sampler);e.Context.PSSetSampler(1,sampler);e.Context.Draw(3,0);
             }
             unsafe void CreateLut(ID3D11Device device)
             {
@@ -87,12 +89,38 @@ namespace PhotoBooth.Color.D3D11
                 lutView?.Dispose();lutView=null;lut?.Dispose();lut=null;var strength=(float)Math.Max(0,Math.Min(1,owner.Strength));var rgba=new float[size*size*size*4];for(int z=0,s=0,d=0;z<size;z++)for(int y=0;y<size;y++)for(int x=0;x<size;x++,s+=3){rgba[d++]=x/(float)(size-1)+(values[s]-x/(float)(size-1))*strength;rgba[d++]=y/(float)(size-1)+(values[s+1]-y/(float)(size-1))*strength;rgba[d++]=z/(float)(size-1)+(values[s+2]-z/(float)(size-1))*strength;rgba[d++]=1;}
                 fixed(float* ptr=rgba){var description=new Texture3DDescription{Width=size,Height=size,Depth=size,MipLevels=1,Format=Format.R32G32B32A32_Float,Usage=ResourceUsage.Immutable,BindFlags=BindFlags.ShaderResource};lut=device.CreateTexture3D(description,new[]{new SubresourceData((IntPtr)ptr,size*16,size*size*16)});}lutView=device.CreateShaderResourceView(lut);
             }
-            void Upload(DrawEventArgs e,byte[] frame)
+            void StartDecoder()
             {
-                BitmapSource source;using(var stream=new MemoryStream(frame,false)){var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);source=decoder.Frames[0];}if(source.Format!=PixelFormats.Bgra32)source=new FormatConvertedBitmap(source,PixelFormats.Bgra32,null,0);EnsureInput(e.Device,source.PixelWidth,source.PixelHeight);source.CopyPixels(pixels,width*4,0);var mapped=e.Context.Map(input,0,MapMode.WriteDiscard);try{for(var y=0;y<height;y++)Marshal.Copy(pixels,y*width*4,mapped.DataPointer+y*(int)mapped.RowPitch,width*4);}finally{e.Context.Unmap(input,0);}
+                if(Volatile.Read(ref active)==0||Interlocked.CompareExchange(ref decoding,1,0)!=0)return;
+                _=Task.Run((Action)DecodeLoop);
             }
-            void EnsureInput(ID3D11Device device,int w,int h){if(input!=null&&w==width&&h==height)return;inputView?.Dispose();inputView=null;input?.Dispose();input=null;width=w;height=h;owner.SetFrameAspect(w,h);pixels=new byte[w*h*4];input=device.CreateTexture2D(new Texture2DDescription{Width=w,Height=h,ArraySize=1,MipLevels=1,Format=Format.B8G8R8A8_UNorm,SampleDescription=new SampleDescription(1,0),Usage=ResourceUsage.Dynamic,BindFlags=BindFlags.ShaderResource,CPUAccessFlags=CpuAccessFlags.Write});inputView=device.CreateShaderResourceView(input);}
-            internal void Unload(object sender,SurfaceEventArgs e){e.Context.PSSetShaderResource(0,null);e.Context.PSSetShaderResource(1,null);inputView?.Dispose();inputView=null;input?.Dispose();input=null;lutView?.Dispose();lutView=null;lut?.Dispose();lut=null;sampler?.Dispose();sampler=null;raster?.Dispose();raster=null;depth?.Dispose();depth=null;ps?.Dispose();ps=null;vs?.Dispose();vs=null;pixels=null;pending=null;}
+            void DecodeLoop()
+            {
+                try
+                {
+                    while(Volatile.Read(ref active)!=0)
+                    {
+                        var jpeg=Interlocked.Exchange(ref pending,null);if(jpeg==null)break;DecodedFrame frame=null;
+                        try{frame=Decode(jpeg);}catch{}
+                        if(frame==null)continue;
+                        var old=Interlocked.Exchange(ref decoded,frame);if(old!=null)Return(old.Pixels);
+                    }
+                }
+                finally{Interlocked.Exchange(ref decoding,0);if(Volatile.Read(ref active)!=0&&Volatile.Read(ref pending)!=null)StartDecoder();}
+            }
+            DecodedFrame Decode(byte[] jpeg)
+            {
+                BitmapSource source;using(var stream=new MemoryStream(jpeg,false)){var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);source=decoder.Frames[0];}if(source.Format!=PixelFormats.Bgra32)source=new FormatConvertedBitmap(source,PixelFormats.Bgra32,null,0);var stride=checked(source.PixelWidth*4);var length=checked(stride*source.PixelHeight);var pixels=Rent(length);try{source.CopyPixels(pixels,stride,0);return new DecodedFrame(source.PixelWidth,source.PixelHeight,stride,pixels);}catch{Return(pixels);throw;}
+            }
+            void Upload(DrawEventArgs e,DecodedFrame frame)
+            {
+                EnsureInput(e.Device,frame.Width,frame.Height);var mapped=e.Context.Map(input,0,MapMode.WriteDiscard);try{if((int)mapped.RowPitch==frame.Stride)Marshal.Copy(frame.Pixels,0,mapped.DataPointer,frame.Pixels.Length);else for(var y=0;y<frame.Height;y++)Marshal.Copy(frame.Pixels,y*frame.Stride,mapped.DataPointer+y*(int)mapped.RowPitch,frame.Stride);}finally{e.Context.Unmap(input,0);}
+            }
+            byte[] Rent(int length){while(buffers.TryTake(out var value))if(value.Length==length)return value;return new byte[length];}
+            void Return(byte[] value){if(value!=null&&buffers.Count<3)buffers.Add(value);}
+            void EnsureInput(ID3D11Device device,int w,int h){if(input!=null&&w==width&&h==height)return;inputView?.Dispose();inputView=null;input?.Dispose();input=null;width=w;height=h;owner.SetFrameAspect(w,h);input=device.CreateTexture2D(new Texture2DDescription{Width=w,Height=h,ArraySize=1,MipLevels=1,Format=Format.B8G8R8A8_UNorm,SampleDescription=new SampleDescription(1,0),Usage=ResourceUsage.Dynamic,BindFlags=BindFlags.ShaderResource,CPUAccessFlags=CpuAccessFlags.Write});inputView=device.CreateShaderResourceView(input);}
+            internal void Unload(object sender,SurfaceEventArgs e){Volatile.Write(ref active,0);pending=null;var frame=Interlocked.Exchange(ref decoded,null);if(frame!=null)Return(frame.Pixels);e.Context.PSSetShaderResource(0,null);e.Context.PSSetShaderResource(1,null);inputView?.Dispose();inputView=null;input?.Dispose();input=null;lutView?.Dispose();lutView=null;lut?.Dispose();lut=null;sampler?.Dispose();sampler=null;raster?.Dispose();raster=null;depth?.Dispose();depth=null;ps?.Dispose();ps=null;vs?.Dispose();vs=null;}
+            sealed class DecodedFrame{internal DecodedFrame(int width,int height,int stride,byte[] pixels){Width=width;Height=height;Stride=stride;Pixels=pixels;}internal int Width{get;}internal int Height{get;}internal int Stride{get;}internal byte[] Pixels{get;}}
         }
     }
     public sealed class LiveColorFailedEventArgs:EventArgs{internal LiveColorFailedEventArgs(Exception error){Error=error;}public Exception Error{get;}}

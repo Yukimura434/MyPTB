@@ -15,7 +15,7 @@
        <TextBlock Text="Không có tín hiệu camera" FontSize="26" Foreground="#77737D" VerticalAlignment="Center">
         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding HasLiveImage}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
        </TextBlock>
-       <Image Source="{Binding LiveImage,Converter={StaticResource ByteImage}}" Stretch="Fill"/>
+       <color:LatestJpegImage FrameData="{Binding LiveImage}" Stretch="Fill"><color:LatestJpegImage.Style><Style TargetType="color:LatestJpegImage"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding LiveColor.IsEnabled}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></color:LatestJpegImage.Style></color:LatestJpegImage>
        <color:LiveColorSurface Failed="OnGpuLiveColorFailed" FrameData="{Binding LiveImage}" LutValues="{Binding LiveColor.Values}" LutSize="{Binding LiveColor.Size}" DomainMin="{Binding LiveColor.DomainMin}" DomainMax="{Binding LiveColor.DomainMax}" Strength="{Binding LiveColor.Strength}" Stretch="Fill" Visibility="{Binding LiveColor.IsEnabled,Converter={StaticResource BoolVisibility}}"/>
      </Grid>
     </Viewbox>

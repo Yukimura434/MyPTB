@@ -43,7 +43,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         byte[] liveImage;
         readonly SemaphoreSlim cameraGate = new SemaphoreSlim(1, 1);
         readonly SemaphoreSlim liveGate = new SemaphoreSlim(1, 1);
-        static readonly TimeSpan LiveFrameInterval = TimeSpan.FromMilliseconds(40);
         int countdown, currentPhoto, totalPhotos, delayRemaining;
         string message = "Waiting for camera…", error;
         bool cameraConnected;
@@ -452,25 +451,30 @@ namespace PhotoBooth.Customer.UI.ViewModels
         }
         async Task LiveLoop(string cameraId, CancellationToken token)
         {
+            var lastSignature = 0;
             while (!token.IsCancellationRequested)
             {
-                var iteration = Stopwatch.StartNew();
                 try
                 {
                     var frame = await live.GetFrameAsync(cameraId, token);
+                    var published = false;
                     if (frame?.ImageData != null)
                     {
-                        LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));var displayed=frame.ImageData;
-                        if(!liveBeautyFailed&&liveBeautySettings.HasEffect)try{displayed=await liveBeauty.ProcessAsync(frame.ImageData,liveBeautySettings,token)??frame.ImageData;}catch(OperationCanceledException)when(token.IsCancellationRequested){throw;}catch(Exception error){liveBeautyFailed=true;log.LogWarning(error,"Live Beauty failed; raw Live View and video frames remain active");}
-                        LiveImage=displayed;videos.AddLiveViewFrame(displayed,frame.TimestampUtc==default(DateTime)?DateTime.UtcNow:frame.TimestampUtc);
+                        var signature=FrameSignature(frame.ImageData);
+                        if(signature!=lastSignature)
+                        {
+                            lastSignature=signature;LiveFrameWidth=frame.Width;LiveFrameHeight=frame.Height;Raise(nameof(LiveFrameWidth));Raise(nameof(LiveFrameHeight));var displayed=frame.ImageData;
+                            if(!liveBeautyFailed&&liveBeautySettings.HasEffect)try{displayed=await liveBeauty.ProcessAsync(frame.ImageData,liveBeautySettings,token)??frame.ImageData;}catch(OperationCanceledException)when(token.IsCancellationRequested){throw;}catch(Exception error){liveBeautyFailed=true;log.LogWarning(error,"Live Beauty failed; raw Live View and video frames remain active");}
+                            LiveImage=displayed;videos.AddLiveViewFrame(displayed,frame.TimestampUtc==default(DateTime)?DateTime.UtcNow:frame.TimestampUtc);published=true;
+                        }
                     }
-                    var remaining = LiveFrameInterval - iteration.Elapsed;
-                    if (remaining > TimeSpan.Zero) await Task.Delay(remaining, token);
+                    if(!published)await Task.Delay(1,token);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } }
             }
         }
+        static int FrameSignature(byte[] data){unchecked{var hash=data.Length;var step=Math.Max(1,data.Length/32);for(var i=0;i<data.Length;i+=step)hash=(hash*397)^data[i];return hash;}}
         async Task StopLive()
         {
             await liveGate.WaitAsync();

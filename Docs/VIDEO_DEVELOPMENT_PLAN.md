@@ -12,9 +12,9 @@ After frame arrangement the workflow creates:
 - `Composite`: static framed image sourced from `Picture` assets.
 - `CompositeVideo`: standalone framed MP4 sourced only from videos assigned to frame slots.
 - `Gif`: animation sourced from accepted `Picture` assets.
-- `ShareArchive`: verified ZIP containing capture assets.
+- Local Share gallery: one tokenized HTML page with per-asset downloads; no ZIP is created.
 
-For `N` accepted shots, a complete video capture contains `N Picture`, `N Video`, one `Composite`, one `CompositeVideo`, and optionally one `Gif` and one `ShareArchive`.
+For `N` accepted shots, a complete video capture contains `N Picture`, `N Video`, one `Composite`, one `CompositeVideo`, and optionally one `Gif`. Local Share is a transient delivery view, not a capture asset. See `Docs/LOCAL_SHARE.md`.
 
 ## Integrity rules
 
@@ -23,7 +23,7 @@ For `N` accepted shots, a complete video capture contains `N Picture`, `N Video`
 - `Composite.SourceAssetIds` references Picture assets.
 - `CompositeVideo.SourceAssetIds` is a non-empty subset of Video assets actually assigned to slots.
 - Assets store stable ID, MIME type, file length, SHA-256, UTC creation time and status.
-- Integrity validation runs before ZIP creation; the ZIP is reopened and every entry hash is compared with its source.
+- Integrity validation runs before Local Share publishes the token-scoped asset list.
 
 ## Encoding and composition
 
@@ -40,7 +40,7 @@ For `N` accepted shots, a complete video capture contains `N Picture`, `N Video`
 - Customer flow is `FrameSelection → VideoSelection → Printing → Complete` when video is enabled.
 - When video is disabled, the Picture/Composite flow remains available and no placeholder video asset is created.
 - UI preview uses the standalone MP4 directly.
-- QR Local Share serves the verified ZIP over the LAN; it does not impose an asset-count limit.
+- QR Local Share serves a thumbnail gallery and streams original assets individually over the LAN; it does not create a ZIP.
 
 ## Runtime files
 
@@ -51,7 +51,7 @@ For `N` accepted shots, a complete video capture contains `N Picture`, `N Video`
 ├── <composite>.png
 ├── <composite>.mp4
 ├── <capture>.gif
-└── LocalShare/<session.capture>.zip
+└── LocalShare/<token>/*.jpg    # transient thumbnails only
 ```
 
 ## Verification gate
@@ -62,4 +62,4 @@ dotnet test PhotoBooth.UnitTests\PhotoBooth.UnitTests.csproj --configuration Deb
 PhotoBooth.Admin.UI.exe --camera-smoke
 ```
 
-Hardware acceptance verifies timing, playback, LUT isolation, retake pairing, frame composition, MP4 playback on Android/iOS, and ZIP download over the target Wi-Fi network.
+Hardware acceptance verifies timing, playback, LUT isolation, retake pairing, frame composition, MP4 playback on Android/iOS, and individual Local Share downloads over the target Wi-Fi network.
