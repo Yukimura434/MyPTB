@@ -59,6 +59,23 @@ namespace PhotoBooth.UnitTests
             finally { Directory.Delete(root, true); }
         }
 
+        [Fact]
+        public void Live_view_buffer_is_bounded_and_can_be_released()
+        {
+            var service = new VideoService();
+            var frame = new byte[1024];
+            var start = DateTime.UtcNow;
+            for (var i = 0; i < 400; i++)
+                service.AddLiveViewFrame(frame, start.AddTicks(TimeSpan.TicksPerSecond * i / 18));
+
+            Assert.InRange(service.BufferedFrameCount, 1, VideoService.MaximumBufferedFrames);
+            Assert.Equal((long)service.BufferedFrameCount * frame.Length, service.BufferedBytes);
+
+            service.ClearLiveViewFrames();
+            Assert.Equal(0, service.BufferedFrameCount);
+            Assert.Equal(0, service.BufferedBytes);
+        }
+
         static int Find(byte[] source, byte[] value)
         {
             for (var i = 0; i <= source.Length - value.Length; i++)

@@ -122,7 +122,7 @@ namespace PhotoBooth.Infrastructure.Cameras
         {
             var now = DateTime.UtcNow;
             if (nextFrame.TryGetValue(camera, out var due) && now < due) return lastFrame.TryGetValue(camera, out var cached) ? cached : null;
-            nextFrame[camera] = now.AddMilliseconds(67); // At most 15 MTP frame commands/sec; GetEvent already consumes 10/sec.
+            nextFrame[camera] = now.AddTicks(TimeSpan.TicksPerSecond / 30); // At most 30 MTP preview commands/sec.
             var frame = await base.GetLiveViewFrameAsync(camera, token).ConfigureAwait(false); if (frame != null) lastFrame[camera] = frame; return frame;
         }
         public override async Task RecoverCaptureAsync(ICameraDevice camera, CancellationToken token) { await Operations.RunMtpAsync(() => ((NikonBase)camera).ResetTimer(), token).ConfigureAwait(false); await base.RecoverCaptureAsync(camera, token).ConfigureAwait(false); }

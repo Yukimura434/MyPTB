@@ -12,7 +12,6 @@ namespace PhotoBooth.Customer.UI.Controls
     public sealed class MediaSlotControl : Canvas
     {
         readonly Image image = new Image { Stretch = Stretch.Fill };
-        readonly MediaElement video = new MediaElement { Stretch = Stretch.Fill, LoadedBehavior = MediaState.Manual, UnloadedBehavior = MediaState.Manual, IsMuted = true };
         FrameworkElement media;
         Point previous;
         bool dragging;
@@ -22,17 +21,14 @@ namespace PhotoBooth.Customer.UI.Controls
         public MediaSlotControl()
         {
             ClipToBounds = true; Background = Brushes.Transparent; Cursor = Cursors.Hand;
-            video.MediaOpened += (s, e) => { naturalWidth = video.NaturalVideoWidth; naturalHeight = video.NaturalVideoHeight; video.Play(); Render(); };
-            video.MediaEnded += (s, e) => { video.Position = TimeSpan.Zero; video.Play(); };
             SizeChanged += (s, e) => Render();
             MouseLeftButtonDown += Down; MouseMove += Move; MouseLeftButtonUp += Up; LostMouseCapture += (s, e) => dragging = false;
             MouseWheel += Wheel;
-            Loaded += (s, e) => { if (IsVideo && video.Source != null) video.Play(); };
-            Unloaded += (s, e) => video.Stop();
+            Loaded += (s, e) => LoadSource();
+            Unloaded += (s, e) => ReleaseMedia();
         }
 
         public static readonly DependencyProperty SourcePathProperty = DependencyProperty.Register(nameof(SourcePath), typeof(string), typeof(MediaSlotControl), new PropertyMetadata(null, SourceChanged));
-        public static readonly DependencyProperty IsVideoProperty = DependencyProperty.Register(nameof(IsVideo), typeof(bool), typeof(MediaSlotControl), new PropertyMetadata(false, SourceChanged));
         public static readonly DependencyProperty ZoomProperty = DependencyProperty.Register(nameof(Zoom), typeof(double), typeof(MediaSlotControl), new FrameworkPropertyMetadata(1d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, TransformChanged));
         public static readonly DependencyProperty CenterXProperty = DependencyProperty.Register(nameof(CenterX), typeof(double), typeof(MediaSlotControl), new FrameworkPropertyMetadata(0.5d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, TransformChanged));
         public static readonly DependencyProperty CenterYProperty = DependencyProperty.Register(nameof(CenterY), typeof(double), typeof(MediaSlotControl), new FrameworkPropertyMetadata(0.5d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, TransformChanged));
@@ -40,7 +36,6 @@ namespace PhotoBooth.Customer.UI.Controls
         public static readonly DependencyProperty SelectCommandParameterProperty = DependencyProperty.Register(nameof(SelectCommandParameter), typeof(object), typeof(MediaSlotControl));
 
         public string SourcePath { get => (string)GetValue(SourcePathProperty); set => SetValue(SourcePathProperty, value); }
-        public bool IsVideo { get => (bool)GetValue(IsVideoProperty); set => SetValue(IsVideoProperty, value); }
         public double Zoom { get => (double)GetValue(ZoomProperty); set => SetValue(ZoomProperty, value); }
         public double CenterX { get => (double)GetValue(CenterXProperty); set => SetValue(CenterXProperty, value); }
         public double CenterY { get => (double)GetValue(CenterYProperty); set => SetValue(CenterYProperty, value); }
@@ -52,20 +47,28 @@ namespace PhotoBooth.Customer.UI.Controls
 
         void LoadSource()
         {
-            Children.Clear(); video.Stop(); image.Source = null; video.Source = null; naturalWidth = naturalHeight = 0;
-            media = IsVideo ? (FrameworkElement)video : image; Children.Add(media);
-            if (string.IsNullOrWhiteSpace(SourcePath)) return;
+            ReleaseMedia();
+            var path = SourcePath;
+            media = image;
+            Children.Add(media);
+            if (string.IsNullOrWhiteSpace(path)) return;
             try
             {
-                var uri = new Uri(SourcePath, UriKind.Absolute);
-                if (IsVideo) { video.Source = uri; if (IsLoaded) video.Play(); }
-                else
-                {
-                    var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad; bitmap.UriSource = uri; bitmap.EndInit(); bitmap.Freeze();
-                    image.Source = bitmap; naturalWidth = bitmap.PixelWidth; naturalHeight = bitmap.PixelHeight; Render();
-                }
+                var uri = new Uri(path, UriKind.Absolute);
+                var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad; bitmap.UriSource = uri; bitmap.EndInit(); bitmap.Freeze();
+                image.Source = bitmap; naturalWidth = bitmap.PixelWidth; naturalHeight = bitmap.PixelHeight; Render();
             }
             catch { naturalWidth = naturalHeight = 0; }
+        }
+
+        void ReleaseMedia()
+        {
+            dragging = false;
+            if (IsMouseCaptured) ReleaseMouseCapture();
+            image.Source = null;
+            Children.Clear();
+            media = null;
+            naturalWidth = naturalHeight = 0;
         }
 
         void Down(object sender, MouseButtonEventArgs e)

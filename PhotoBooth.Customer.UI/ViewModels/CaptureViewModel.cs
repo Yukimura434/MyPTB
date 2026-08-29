@@ -349,7 +349,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             // The tracked workflow normally owns cleanup. This remains necessary
             // when Customer mode closes from Preview or another non-capture state.
             if (context.Session != null) await CleanupTemporary();
-            await StopLive();
+            await StopLive(token);
         }
 
         async Task RunTracked(Func<Task> action)
@@ -475,13 +475,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
             }
         }
         static int FrameSignature(byte[] data){unchecked{var hash=data.Length;var step=Math.Max(1,data.Length/32);for(var i=0;i<data.Length;i+=step)hash=(hash*397)^data[i];return hash;}}
-        async Task StopLive()
+        async Task StopLive(CancellationToken token = default(CancellationToken))
         {
-            await liveGate.WaitAsync();
-            try { await StopLiveCore(); }
+            await liveGate.WaitAsync(token);
+            try { await StopLiveCore(token); }
             finally { liveGate.Release(); }
         }
-        async Task StopLiveCore()
+        async Task StopLiveCore(CancellationToken token = default(CancellationToken))
         {
             var cts = liveCts;
             var loop = liveLoopTask;
@@ -489,12 +489,22 @@ namespace PhotoBooth.Customer.UI.ViewModels
             liveCts = null;
             liveLoopTask = null;
             liveCameraId = null;
-            if (cts == null) return;
-            cts.Cancel();
-            if (loop != null) try { await loop; } catch (OperationCanceledException) { } catch (Exception error) { log.LogDebug(error,"Live View loop stopped with an error"); }
-            liveBeauty.Reset();
-            if (!string.IsNullOrWhiteSpace(cameraId)) try { await live.StopAsync(cameraId, CancellationToken.None); } catch (Exception error) { log.LogWarning(error,"Live View stop failed"); }
-            cts.Dispose();
+            try
+            {
+                if (cts != null) cts.Cancel();
+                if (loop != null) await AwaitCompletion(loop, token);
+                if (!string.IsNullOrWhiteSpace(cameraId)) await live.StopAsync(cameraId, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { log.LogWarning(error,"Live View stop failed"); }
+            finally
+            {
+                liveBeauty.Reset();
+                LiveImage = null;
+                videos.ClearLiveViewFrames();
+                cts?.Dispose();
+            }
         }
         async Task CleanupTemporary() { var session=context.Session;if(session==null)return;SessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.UpdateAsync(session,CancellationToken.None);await Task.Run(()=>SessionWorkspace.Cleanup(session));context.CurrentShots.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.Session=null; }
         async Task ReplaceCaptureAsync(int position, CapturedShot newest)

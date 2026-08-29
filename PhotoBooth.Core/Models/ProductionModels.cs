@@ -54,6 +54,10 @@ namespace PhotoBooth.Core.Models
         public ComponentHealth Queue { get; set; }
         public long AvailableDiskBytes { get; set; }
         public long ManagedMemoryBytes { get; set; }
+        public long WorkingSetBytes { get; set; }
+        public long PrivateMemoryBytes { get; set; }
+        public long PeakWorkingSetBytes { get; set; }
+        public bool Is64BitProcess { get; set; }
         public double CpuPercent { get; set; }
         public double LiveViewFps { get; set; }
         public int PendingPrintJobs { get; set; }

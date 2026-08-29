@@ -23,12 +23,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly ILogger<VideoSelectionViewModel> log; readonly AsyncCommand finishCommand;
         readonly object lifecycleSync = new object();
         CancellationTokenSource lifecycleCts = new CancellationTokenSource();
-        CancellationTokenSource previewCts;
         Task loadTask = Task.CompletedTask;
-        Task previewTask = Task.CompletedTask;
         Task finishTask = Task.CompletedTask;
         int lifecycleGeneration;
-        FrameSlotChoice selectedSlot; CapturedPhotoChoice selectedPhoto; string previewPath; string error; bool busy; int copies = 1;
+        FrameSlotChoice selectedSlot; CapturedPhotoChoice selectedPhoto; string error; bool busy; int copies = 1;
 
         public VideoSelectionViewModel(CustomerWorkflowStateMachine machine, CustomerWorkflowContext context,
             IImageCompositionService composer, IVideoService videos, ICaptureService captures,
@@ -48,7 +46,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public Frame SelectedFrame=>context.SelectedFrame;
         public FrameSlotChoice SelectedSlot{get=>selectedSlot;private set=>Set(ref selectedSlot,value);}
         public CapturedPhotoChoice SelectedPhoto{get=>selectedPhoto;private set=>Set(ref selectedPhoto,value);}
-        public string PreviewPath{get=>previewPath;private set=>Set(ref previewPath,value);}
         public string ErrorMessage{get=>error;private set{Set(ref error,value);Raise(nameof(HasError));}}
         public bool HasError=>!string.IsNullOrWhiteSpace(ErrorMessage);
         public bool IsBusy{get=>busy;private set{Set(ref busy,value);finishCommand.NotifyCanExecuteChanged();}}
@@ -68,7 +65,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 loadTask=Load(token,generation);
             }
         }
-        async Task Load(CancellationToken token,int generation)
+        Task Load(CancellationToken token,int generation)
         {
             try
             {
@@ -76,58 +73,30 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if(SelectedFrame==null)throw new InvalidOperationException("Frame đã chọn không còn khả dụng.");
                 var shots=(context.CurrentShots??new List<CapturedShot>()).Where(x=>x.HasVideo&&File.Exists(x.VideoPath)&&File.Exists(x.PicturePath)).ToList();
                 if(shots.Count==0)throw new InvalidOperationException("Lượt chụp hiện tại không có cặp ảnh và video hợp lệ. Hãy quay lại và chụp lại ảnh.");
-                var previewDirectory=Path.Combine(context.WorkingDirectory??context.Session.OutputDirectory,"VideoPreview");
-                for(var i=0;i<shots.Count;i++){var video=await videos.CreatePreviewVideoAsync(shots[i].VideoPath,previewDirectory,token);token.ThrowIfCancellationRequested();if(generation!=lifecycleGeneration)return;Videos.Add(new CapturedPhotoChoice(shots[i].VideoPath,i+1,video,shots[i].PicturePath));}
+                for(var i=0;i<shots.Count;i++){token.ThrowIfCancellationRequested();if(generation!=lifecycleGeneration)return Task.CompletedTask;Videos.Add(new CapturedPhotoChoice(shots[i].VideoPath,i+1,shots[i].PicturePath));}
                 foreach(var slot in SelectedFrame.Slots.OrderBy(x=>x.Index))FrameSlots.Add(new FrameSlotChoice(slot));
                 for(var i=0;i<FrameSlots.Count&&Videos.Count>0;i++)FrameSlots[i].Photo=Videos[i%Videos.Count];
-                SelectedSlot=FrameSlots.FirstOrDefault();SelectedPhoto=null;Changed();await Preview(token,generation);
+                SelectedSlot=FrameSlots.FirstOrDefault();SelectedPhoto=null;Selection();Changed();
             }catch(OperationCanceledException) when(token.IsCancellationRequested){}
             catch(Exception e){if(generation==lifecycleGeneration)Fail(e,"Không thể tải video");}
             finally{if(generation==lifecycleGeneration)IsBusy=false;}
+            return Task.CompletedTask;
         }
-        void SelectSlot(FrameSlotChoice value){if(value==null||IsBusy)return;SelectedSlot=value;if(SelectedPhoto!=null)value.Photo=SelectedPhoto;Selection();Changed();_=Preview();}
-        void SelectPhoto(CapturedPhotoChoice value){if(value==null||IsBusy)return;SelectedPhoto=value;if(SelectedSlot!=null)SelectedSlot.Photo=value;Selection();Changed();_=Preview();}
-        void ClearSelectedSlot(){if(SelectedSlot==null||IsBusy)return;SelectedSlot.Photo=null;Changed();_=Preview();}
-        void BackToFrameSelection(){lock(lifecycleSync){++lifecycleGeneration;lifecycleCts.Cancel();previewCts?.Cancel();}machine.MoveTo(CustomerWorkflowState.FrameSelection);}
+        void SelectSlot(FrameSlotChoice value){if(value==null||IsBusy)return;SelectedSlot=value;if(SelectedPhoto!=null)value.Photo=SelectedPhoto;Selection();Changed();}
+        void SelectPhoto(CapturedPhotoChoice value){if(value==null||IsBusy)return;SelectedPhoto=value;if(SelectedSlot!=null)SelectedSlot.Photo=value;Selection();Changed();}
+        void ClearSelectedSlot(){if(SelectedSlot==null||IsBusy)return;SelectedSlot.Photo=null;Changed();}
+        void BackToFrameSelection(){lock(lifecycleSync){++lifecycleGeneration;lifecycleCts.Cancel();}machine.MoveTo(CustomerWorkflowState.FrameSelection);}
         void Selection(){foreach(var x in FrameSlots)x.IsSelected=x==SelectedSlot;foreach(var x in Videos)x.IsSelected=x==SelectedPhoto;Raise(nameof(Guidance));}
         void Changed(){Raise(nameof(CanFinish));Raise(nameof(AssignmentStatus));Raise(nameof(Guidance));finishCommand.NotifyCanExecuteChanged();}
-        Task Preview()
-        {
-            CancellationToken token; int generation;
-            lock(lifecycleSync)
-            {
-                previewCts?.Cancel();previewCts?.Dispose();
-                previewCts=CancellationTokenSource.CreateLinkedTokenSource(lifecycleCts.Token);
-                token=previewCts.Token;generation=lifecycleGeneration;
-            }
-            var task=PreviewSafely(token,generation);
-            lock(lifecycleSync)previewTask=task;
-            return task;
-        }
-        async Task PreviewSafely(CancellationToken token,int generation)
-        {
-            try{await Preview(token,generation);}
-            catch(OperationCanceledException) when(token.IsCancellationRequested){}
-            catch(Exception e){if(generation==lifecycleGeneration)Fail(e,"Không thể tải video");}
-        }
-        async Task Preview(CancellationToken token,int generation)
-        {
-            if(context.Session==null||SelectedFrame==null)return;
-            var map=FrameSlots.Where(x=>x.Photo!=null).ToDictionary(x=>x.Slot.Index,x=>x.Photo.PicturePath);
-            var working=new Session{Id=context.Session.Id,StartedAtUtc=context.Session.StartedAtUtc,OutputDirectory=context.WorkingDirectory??context.Session.OutputDirectory,SessionNumber=context.Session.SessionNumber,FrameIndex=context.Session.FrameIndex,CapturedShots=context.CurrentShots,CapturedFiles=context.CurrentShots.Select(x=>x.PicturePath).ToList()};
-            var next=await composer.ComposeAsync(working,FrameWithTransforms(),context.DefaultPreset,false,map,token);
-            token.ThrowIfCancellationRequested();if(generation!=lifecycleGeneration)return;
-            var old=PreviewPath;PreviewPath=next;try{if(!string.IsNullOrWhiteSpace(old)&&old!=next&&File.Exists(old))File.Delete(old);}catch{}
-        }
         public async Task ResetAsync()
         {
-            Task pendingLoad,pendingPreview,pendingFinish;
+            Task pendingLoad,pendingFinish;
             lock(lifecycleSync)
             {
-                ++lifecycleGeneration;lifecycleCts.Cancel();previewCts?.Cancel();pendingLoad=loadTask;pendingPreview=previewTask;pendingFinish=finishTask;
+                ++lifecycleGeneration;lifecycleCts.Cancel();pendingLoad=loadTask;pendingFinish=finishTask;
             }
-            try{await Task.WhenAll(pendingLoad,pendingPreview,pendingFinish);}catch(OperationCanceledException){}
-            FrameSlots.Clear();Videos.Clear();SelectedSlot=null;SelectedPhoto=null;PreviewPath=null;ErrorMessage=null;IsBusy=false;Changed();
+            try{await Task.WhenAll(pendingLoad,pendingFinish);}catch(OperationCanceledException){}
+            FrameSlots.Clear();Videos.Clear();SelectedSlot=null;SelectedPhoto=null;ErrorMessage=null;IsBusy=false;Changed();
         }
         Task BeginFinish()
         {

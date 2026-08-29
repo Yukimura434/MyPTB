@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Accord.Video.FFMPEG;
+using Microsoft.Extensions.Logging;
 using PhotoBooth.Core.Models;
 using PhotoBooth.Core.Services;
 using PhotoBooth.Shared;
@@ -19,20 +20,22 @@ namespace PhotoBooth.Infrastructure.Services
         internal const int FramesPerSecond = 18;
         internal const int MaximumDurationSeconds = 8;
         internal static readonly TimeSpan MaximumPreroll = TimeSpan.FromSeconds(MaximumDurationSeconds);
+        internal const int MaximumBufferedFrames = FramesPerSecond * MaximumDurationSeconds + 2;
         static readonly TimeSpan FrameInterval = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / FramesPerSecond);
         readonly object sync = new object();
         readonly List<BufferedFrame> frames = new List<BufferedFrame>();
         readonly bool nativeEncoderEnabled;
         readonly bool isolateNativeEncoder;
+        readonly ILogger<VideoService> log;
         DateTime lastAcceptedUtc;
 
         // Kept for in-process encoder tests. Production DI isolates native
         // FFmpeg work in a child process so a native crash cannot kill the UI.
-        public VideoService() : this(true, false) { }
-        public VideoService(ApplicationOptions options) : this(
+        public VideoService() : this(true, false, null) { }
+        public VideoService(ApplicationOptions options, ILogger<VideoService> logger = null) : this(
             options != null && options.Features.TryGetValue("Video", out var moduleEnabled) && moduleEnabled &&
-            options.Features.TryGetValue("VideoNativeEncoder", out var encoderEnabled) && encoderEnabled, true) { }
-        VideoService(bool nativeEncoderEnabled, bool isolateNativeEncoder) { this.nativeEncoderEnabled = nativeEncoderEnabled; this.isolateNativeEncoder = isolateNativeEncoder; }
+            options.Features.TryGetValue("VideoNativeEncoder", out var encoderEnabled) && encoderEnabled, true, logger) { }
+        VideoService(bool nativeEncoderEnabled, bool isolateNativeEncoder, ILogger<VideoService> logger) { this.nativeEncoderEnabled = nativeEncoderEnabled; this.isolateNativeEncoder = isolateNativeEncoder; log=logger; }
 
         public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc)
         {
@@ -44,10 +47,24 @@ namespace PhotoBooth.Infrastructure.Services
                 if (lastAcceptedUtc != default(DateTime) && timestampUtc - lastAcceptedUtc < FrameInterval) return;
                 frames.Add(new BufferedFrame(timestampUtc, (byte[])imageData.Clone()));
                 lastAcceptedUtc = timestampUtc;
-                var cutoff = timestampUtc - MaximumPreroll - TimeSpan.FromSeconds(1);
+                var cutoff = timestampUtc - MaximumPreroll - FrameInterval;
                 frames.RemoveAll(x => x.TimestampUtc < cutoff);
+                if (frames.Count > MaximumBufferedFrames)
+                    frames.RemoveRange(0, frames.Count - MaximumBufferedFrames);
             }
         }
+
+        public void ClearLiveViewFrames()
+        {
+            lock (sync)
+            {
+                frames.Clear();
+                lastAcceptedUtc = default(DateTime);
+            }
+        }
+
+        internal int BufferedFrameCount { get { lock (sync) return frames.Count; } }
+        internal long BufferedBytes { get { lock (sync) return frames.Sum(x => (long)x.ImageData.Length); } }
 
         public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
@@ -64,6 +81,7 @@ namespace PhotoBooth.Infrastructure.Services
             BufferedFrame[] snapshot;
             lock (sync)
                 snapshot = frames.Where(x => x.TimestampUtc > shutterTimestampUtc - preroll - FrameInterval && x.TimestampUtc <= shutterTimestampUtc).ToArray();
+            LogMemory("Video capture encode starting", snapshot.Length, snapshot.Sum(x => (long)x.ImageData.Length));
             return Task.Run(() =>
             {
                 if (isolateNativeEncoder)
@@ -78,6 +96,7 @@ namespace PhotoBooth.Infrastructure.Services
             if (!nativeEncoderEnabled) throw new InvalidOperationException("MP4 video encoding is disabled.");
             if (frame == null) throw new ArgumentNullException(nameof(frame));
             if (slotAssignments == null || slotAssignments.Count == 0) throw new ArgumentException("MP4 video slot assignments are required.", nameof(slotAssignments));
+            LogMemory("Composite video encode starting", slotAssignments.Count, 0);
             return Task.Run(() => ComposeExternal(stillCompositePath, frame, slotAssignments, destinationPath, token), token);
         }
 
@@ -91,7 +110,7 @@ namespace PhotoBooth.Infrastructure.Services
             }, token);
         }
 
-        static void ComposeExternal(string stillPath, Frame frame, IReadOnlyDictionary<int, string> assignments, string destinationPath, CancellationToken token)
+        void ComposeExternal(string stillPath, Frame frame, IReadOnlyDictionary<int, string> assignments, string destinationPath, CancellationToken token)
         {
             if (!File.Exists(stillPath)) throw new FileNotFoundException("The still composite is unavailable.", stillPath);
             if (!File.Exists(frame.SourcePath)) throw new FileNotFoundException("The frame overlay is unavailable.", frame.SourcePath);
@@ -127,7 +146,7 @@ namespace PhotoBooth.Infrastructure.Services
             finally { try { if (Directory.Exists(attempt)) Directory.Delete(attempt, true); } catch { } }
         }
 
-        static void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, int rotationDegrees, CancellationToken token)
+        void CreateExternal(string stillImagePath, string destinationPath, DateTime shutterUtc, int durationSeconds, BufferedFrame[] source, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
             ValidateSource(stillImagePath, shutterUtc, durationSeconds, source);
             var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
@@ -156,6 +175,7 @@ namespace PhotoBooth.Infrastructure.Services
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
+                start.EnvironmentVariables["PHOTOBOOTH_ENCODER_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 using (var process = Process.Start(start))
                 {
                     if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
@@ -171,6 +191,7 @@ namespace PhotoBooth.Infrastructure.Services
                             throw new TimeoutException("Video encoding exceeded two minutes.");
                         }
                     }
+                    LogChildPeak("Video capture encoder", process);
                     if (process.ExitCode != 0) throw new InvalidOperationException("Video encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
                 }
                 if (!IsValidMp4(outputPath)) throw new InvalidDataException("The encoder output is not a valid MP4 video.");
@@ -211,6 +232,22 @@ namespace PhotoBooth.Infrastructure.Services
                 try { Console.Error.WriteLine(exception); } catch { }
                 return 1;
             }
+        }
+
+        public static void StartEncoderParentWatchdog()
+        {
+            int parentId;
+            if (!int.TryParse(Environment.GetEnvironmentVariable("PHOTOBOOTH_ENCODER_PARENT_PID"), out parentId) || parentId <= 0) return;
+            var watcher = new Thread(() =>
+            {
+                try
+                {
+                    using (var parent = Process.GetProcessById(parentId)) parent.WaitForExit();
+                }
+                catch { }
+                try { Process.GetCurrentProcess().Kill(); } catch { }
+            }) { IsBackground = true, Name = "PhotoBooth encoder parent watchdog" };
+            watcher.Start();
         }
 
         static int RunCompositeCommand(string[] args)
@@ -335,18 +372,44 @@ namespace PhotoBooth.Infrastructure.Services
             return value - value % 4;
         }
 
-        static void RunHelper(string arguments, CancellationToken token)
+        void RunHelper(string arguments, CancellationToken token)
         {
             var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
             if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
             var start = new ProcessStartInfo { FileName = helper, Arguments = arguments, WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.EnvironmentVariables["PHOTOBOOTH_ENCODER_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
             using (var process = Process.Start(start))
             {
                 if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
                 var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync(); var elapsed = Stopwatch.StartNew();
                 while (!process.WaitForExit(100)) { if (token.IsCancellationRequested || elapsed.Elapsed > TimeSpan.FromMinutes(3)) { try { process.Kill(); } catch { } token.ThrowIfCancellationRequested(); throw new TimeoutException("Video composition exceeded three minutes."); } }
+                LogChildPeak("Composite video encoder", process);
                 if (process.ExitCode != 0) throw new InvalidOperationException("Video encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
             }
+        }
+
+        void LogMemory(string stage, int itemCount, long bufferedBytes)
+        {
+            if (log == null) return;
+            try
+            {
+                using (var process = Process.GetCurrentProcess())
+                    log.LogInformation("{Stage}: Items={ItemCount}, Buffer={BufferMb:F1} MB, WorkingSet={WorkingSetMb:F1} MB, Private={PrivateMb:F1} MB, Managed={ManagedMb:F1} MB",
+                        stage, itemCount, bufferedBytes / 1048576d, process.WorkingSet64 / 1048576d, process.PrivateMemorySize64 / 1048576d, GC.GetTotalMemory(false) / 1048576d);
+            }
+            catch { }
+        }
+
+        void LogChildPeak(string stage, Process process)
+        {
+            if (log == null || process == null) return;
+            try
+            {
+                process.Refresh();
+                log.LogInformation("{Stage} completed: ChildPeakWorkingSet={PeakMb:F1} MB", stage, process.PeakWorkingSet64 / 1048576d);
+                LogMemory(stage + " parent after completion", 0, BufferedBytes);
+            }
+            catch { }
         }
 
         static string Quote(string value) => "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
@@ -399,10 +462,14 @@ namespace PhotoBooth.Infrastructure.Services
             var frameCount = FramesPerSecond * durationSeconds;
             var result = new List<BufferedFrame>(frameCount);
             var start = shutterUtc - TimeSpan.FromSeconds(durationSeconds);
+            var sourceIndex = 0;
             for (var index = 0; index < frameCount; index++)
             {
                 var target = start + TimeSpan.FromTicks(FrameInterval.Ticks * index);
-                result.Add(source.OrderBy(x => Math.Abs((x.TimestampUtc - target).Ticks)).First());
+                while (sourceIndex + 1 < source.Length &&
+                       Math.Abs((source[sourceIndex + 1].TimestampUtc - target).Ticks) <= Math.Abs((source[sourceIndex].TimestampUtc - target).Ticks))
+                    sourceIndex++;
+                result.Add(source[sourceIndex]);
             }
             return result;
         }

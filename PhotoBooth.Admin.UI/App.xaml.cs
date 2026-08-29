@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Diagnostics;
 using System.Threading;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +39,7 @@ namespace PhotoBooth.Admin.UI
                 (string.Equals(args[0], "--video-encode", StringComparison.Ordinal) ||
                  string.Equals(args[0], "--video-compose", StringComparison.Ordinal)))
             {
+                VideoService.StartEncoderParentWatchdog();
                 Environment.ExitCode = VideoService.RunEncoderCommand(args);
                 return;
             }
@@ -45,13 +47,16 @@ namespace PhotoBooth.Admin.UI
             VelopackApp.Build().Run();
 #endif
 
-            bool ownsInstance;
-            using (var instanceMutex = new Mutex(true, @"Local\MiuCamezaPTB", out ownsInstance))
+            var dataDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "PhotoBooth",
+                "Data");
+            using (var instance = SingleInstanceCoordinator.TryAcquire(dataDirectory))
             {
-                if (!ownsInstance)
-                    return;
+                if (instance == null) return;
 
                 var app = new App();
+                instance.Attach(app);
                 app.InitializeComponent();
                 app.Run();
             }
@@ -128,19 +133,17 @@ namespace PhotoBooth.Admin.UI
                 {
                 }
 
-                if (MainWindow == null || !MainWindow.IsVisible)
-                {
-                    MessageBox.Show(
-                        "PhotoBooth could not start. Details were written to Data\\Logs\\Error.log.",
-                        "PhotoBooth startup error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
-                    x.Handled = true;
-                    Shutdown(-1);
-                    return;
-                }
-
+                var startup = MainWindow == null || !MainWindow.IsVisible;
+                MessageBox.Show(
+                    startup
+                        ? "PhotoBooth could not start. Details were written to Data\\Logs\\Error.log."
+                        : "PhotoBooth gặp lỗi và sẽ đóng an toàn. Bạn có thể mở lại ứng dụng ngay mà không cần khởi động lại Windows. Chi tiết: Data\\Logs\\Error.log.",
+                    startup ? "PhotoBooth startup error" : "PhotoBooth error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
                 x.Handled = true;
+                Shutdown(-1);
+                return;
             };
 
             var services = new ServiceCollection();
@@ -269,7 +272,7 @@ namespace PhotoBooth.Admin.UI
                 {
                     provider?
                         .GetService<CaptureViewModel>()?
-                        .ShutdownAsync()
+                        .ShutdownAsync(timeout.Token)
                         .GetAwaiter()
                         .GetResult();
                 }
@@ -293,11 +296,25 @@ namespace PhotoBooth.Admin.UI
 
         protected override void OnExit(ExitEventArgs e)
         {
-            ShutdownCamera();
-
-            provider?.Dispose();
+            using (var watchdog = new Timer(_ => ForceTerminateHungExit(), null, TimeSpan.FromSeconds(15), Timeout.InfiniteTimeSpan))
+            {
+                ShutdownCamera();
+                provider?.Dispose();
+            }
 
             base.OnExit(e);
+        }
+
+        private void ForceTerminateHungExit()
+        {
+            try
+            {
+                var logs = Path.Combine(dataDirectory ?? string.Empty, "Logs");
+                Directory.CreateDirectory(logs);
+                File.AppendAllText(Path.Combine(logs, "Error.log"), DateTime.UtcNow.ToString("O") + " PhotoBooth shutdown exceeded 15 seconds; forcing process termination so the next run can recover." + Environment.NewLine);
+            }
+            catch { }
+            try { Process.GetCurrentProcess().Kill(); } catch { }
         }
     }
 }

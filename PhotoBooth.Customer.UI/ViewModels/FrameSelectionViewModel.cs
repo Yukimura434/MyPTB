@@ -18,10 +18,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
     public sealed class CapturedPhotoChoice : ObservableObject
     {
         bool selected;
-        public CapturedPhotoChoice(string path, int number, string previewVideoPath = null, string picturePath = null) { Path = path; Number = number; PreviewVideoPath = previewVideoPath; PicturePath = picturePath ?? path; }
+        public CapturedPhotoChoice(string path, int number, string picturePath = null) { Path = path; Number = number; PicturePath = picturePath ?? path; }
         public string Path { get; }
         public string PicturePath { get; }
-        public string PreviewVideoPath { get; }
         public int Number { get; }
         public bool IsSelected { get => selected; set => Set(ref selected, value); }
     }

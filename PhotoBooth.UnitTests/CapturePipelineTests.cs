@@ -346,6 +346,7 @@ namespace PhotoBooth.UnitTests
             public bool LastFlipHorizontally { get; private set; }
             public int LastDurationSeconds { get; private set; }
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
+            public void ClearLiveViewFrames() { }
             public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
             {
                 LastFlipHorizontally = flipHorizontally;
@@ -360,6 +361,7 @@ namespace PhotoBooth.UnitTests
         sealed class FailingVideoService : IVideoService
         {
             public void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc) { }
+            public void ClearLiveViewFrames() { }
             public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
             {
                 throw new InvalidOperationException("encoder failed");
