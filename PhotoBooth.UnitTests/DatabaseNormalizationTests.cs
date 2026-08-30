@@ -1,4 +1,4 @@
-using System;using System.Collections.Generic;using System.IO;using System.Threading;using System.Threading.Tasks;using PhotoBooth.Core.Models;using PhotoBooth.Database;using Xunit;
+using System;using System.Collections.Generic;using System.IO;using System.Linq;using System.Threading;using System.Threading.Tasks;using PhotoBooth.Core.Models;using PhotoBooth.Database;using Xunit;
 namespace PhotoBooth.UnitTests
 {
  public sealed class DatabaseNormalizationTests
@@ -91,6 +91,15 @@ CREATE TRIGGER TR_CapturePhotos_Validate_Update BEFORE UPDATE ON CapturePhotos B
    var changed=await repository.GetAsync(CancellationToken.None);changed.Culture="vi";changed.Theme="force-failure";
    await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(()=>repository.SaveAsync(changed,CancellationToken.None));
    var loaded=await repository.GetAsync(CancellationToken.None);Assert.Equal("en",loaded.Culture);Assert.Equal("original",loaded.Theme);
+  }
+
+  [Fact] public async Task Bulk_loading_preserves_frame_slots_and_session_shot_order()
+  {
+   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var frames=new SqliteFrameRepository(db);var sessions=new SqliteSessionRepository(db);
+   for(var f=0;f<3;f++){var frame=new Frame{Id=Guid.NewGuid(),Name="Frame "+f,CreatedAtUtc=DateTime.UtcNow.AddMinutes(f),Slots=new[]{new FrameSlot{Id=Guid.NewGuid(),Index=1,X=10,Y=20,Width=30,Height=40},new FrameSlot{Id=Guid.NewGuid(),Index=0,X=1,Y=2,Width=3,Height=4}}};await frames.SaveAsync(frame,CancellationToken.None);}
+   for(var s=0;s<3;s++){var session=new Session{Id=Guid.NewGuid(),SessionName="Event "+s,StartedAtUtc=DateTime.UtcNow.AddMinutes(s),OutputDirectory=root,CapturedShots=new[]{new CapturedShot{Id=Guid.NewGuid().ToString("N"),Sequence=2,PicturePath="second-"+s+".jpg",CapturedAtUtc=DateTime.UtcNow},new CapturedShot{Id=Guid.NewGuid().ToString("N"),Sequence=1,PicturePath="first-"+s+".jpg",CapturedAtUtc=DateTime.UtcNow}}};await sessions.SaveAsync(session,CancellationToken.None);}
+   var loadedFrames=await frames.GetAllAsync(CancellationToken.None);Assert.Equal(3,loadedFrames.Count);Assert.All(loadedFrames,frame=>Assert.Equal(new[]{0,1},frame.Slots.Select(x=>x.Index).ToArray()));
+   var loadedSessions=await sessions.GetAllAsync(CancellationToken.None);Assert.Equal(3,loadedSessions.Count);Assert.All(loadedSessions,session=>{Assert.Equal(new[]{1,2},session.CapturedShots.Select(x=>x.Sequence).ToArray());Assert.StartsWith("first-",session.CapturedFiles[0]);});
   }
  }
 }
