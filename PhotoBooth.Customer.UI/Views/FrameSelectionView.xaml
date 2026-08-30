@@ -84,7 +84,7 @@
                             </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Image Source="{Binding ThumbnailPath,Converter={StaticResource CustomerPathImage}}"
+                                    <Image Source="{Binding ThumbnailPath,Converter={StaticResource CustomerPathImage},ConverterParameter=320}"
                                            Height="220" MaxWidth="240" Stretch="Uniform" SnapsToDevicePixels="True"/>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -108,7 +108,7 @@
                                         <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Canvas.Left" Value="{Binding X}"/><Setter Property="Canvas.Top" Value="{Binding Y}"/></Style></ItemsControl.ItemContainerStyle>
                                         <ItemsControl.ItemTemplate><DataTemplate><controls:MediaSlotControl Width="{Binding Width}" Height="{Binding Height}" SourcePath="{Binding PhotoPath}" Zoom="{Binding MediaZoom,Mode=TwoWay}" CenterX="{Binding MediaCenterX,Mode=TwoWay}" CenterY="{Binding MediaCenterY,Mode=TwoWay}" SelectCommand="{Binding DataContext.SelectSlotCommand,RelativeSource={RelativeSource AncestorType=UserControl}}" SelectCommandParameter="{Binding}" ToolTip="Giữ chuột trái để di chuyển; lăn chuột để phóng đại"/></DataTemplate></ItemsControl.ItemTemplate>
                                     </ItemsControl>
-                                    <Image Source="{Binding SelectedFrame.SourcePath,Converter={StaticResource CustomerPathImage}}" Stretch="Fill" IsHitTestVisible="False"/>
+                                    <Image Source="{Binding SelectedFrame.SourcePath,Converter={StaticResource CustomerPathImage},ConverterParameter=1280}" Stretch="Fill" IsHitTestVisible="False"/>
                                 </Grid>
                             </Viewbox>
                         </ScrollViewer>
@@ -141,7 +141,7 @@
                                                 </Style>
                                             </Button.Style>
                                             <Grid>
-                                                <Image Source="{Binding Path,Converter={StaticResource CustomerPathImage}}" Height="150" Width="210" Stretch="Uniform"/>
+                                                <Image Source="{Binding Path,Converter={StaticResource CustomerPathImage},ConverterParameter=360}" Height="150" Width="210" Stretch="Uniform"/>
                                                 <Border HorizontalAlignment="Left" VerticalAlignment="Top" Background="#CC27232A" CornerRadius="12" Padding="8,4">
                                                     <TextBlock Text="{Binding Number}" Foreground="White" FontSize="16" FontWeight="Bold"/>
                                                 </Border>

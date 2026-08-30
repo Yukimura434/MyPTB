@@ -21,9 +21,6 @@
             <DataTemplate DataType="{x:Type vm:FrameSelectionViewModel}">
                 <views:FrameSelectionView/>
             </DataTemplate>
-            <DataTemplate DataType="{x:Type vm:VideoSelectionViewModel}">
-                <views:VideoSelectionView/>
-            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:CompleteViewModel}">
                 <views:CompleteView/>
             </DataTemplate>

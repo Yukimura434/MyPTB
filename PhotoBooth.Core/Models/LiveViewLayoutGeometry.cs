@@ -20,7 +20,9 @@ namespace PhotoBooth.Core.Models
             areaPercent = Clamp(areaPercent, MinimumAreaPercent, MaximumAreaPercent);
 
             var quarterTurn = rotationDegrees == 90 || rotationDegrees == -90;
-            var aspectRatio = quarterTurn ? 9d / 16d : 16d / 9d;
+            // Display ratio is width:height. A horizontal camera view is 4:3
+            // (3:4 when expressed as height:width); a quarter turn is 3:4.
+            var aspectRatio = quarterTurn ? 3d / 4d : 4d / 3d;
             var targetArea = canvasWidth * canvasHeight * areaPercent / 100d;
             var width = Math.Sqrt(targetArea * aspectRatio);
             var height = width / aspectRatio;
@@ -31,8 +33,10 @@ namespace PhotoBooth.Core.Models
             width *= fitScale;
             height *= fitScale;
 
-            var left = (canvasWidth - width) * Clamp(horizontalPositionPercent, 0d, 100d) / 100d;
-            var top = (canvasHeight - height) * Clamp(verticalPositionPercent, 0d, 100d) / 100d;
+            // Live View is intentionally fixed at the exact canvas centre.
+            // Position arguments remain in the contract for settings compatibility.
+            var left = (canvasWidth - width) / 2d;
+            var top = (canvasHeight - height) / 2d;
             return new LiveViewLayout(width, height, left, top);
         }
 

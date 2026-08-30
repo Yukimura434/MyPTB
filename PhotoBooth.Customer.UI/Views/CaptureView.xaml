@@ -4,7 +4,7 @@
           BorderBrush="#E08AB4C9" BorderThickness="5" CornerRadius="25">
    <Border.Effect><DropShadowEffect Color="#E85D9E" BlurRadius="14" ShadowDepth="0" Opacity="0.34"/></Border.Effect>
    <controls:RoundedClipBorder Background="#08080A" CornerRadius="20">
-    <Viewbox Stretch="Fill" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+    <Viewbox Stretch="UniformToFill" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
      <Grid x:Name="LiveViewCanvas" Width="1200" Height="900">
       <Grid.LayoutTransform>
        <TransformGroup>
@@ -15,8 +15,7 @@
        <TextBlock Text="Không có tín hiệu camera" FontSize="26" Foreground="#77737D" VerticalAlignment="Center">
         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding HasLiveImage}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
        </TextBlock>
-       <color:LatestJpegImage FrameData="{Binding LiveImage}" Stretch="Fill"><color:LatestJpegImage.Style><Style TargetType="color:LatestJpegImage"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding LiveColor.IsEnabled}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></color:LatestJpegImage.Style></color:LatestJpegImage>
-       <color:LiveColorSurface Failed="OnGpuLiveColorFailed" FrameData="{Binding LiveImage}" LutValues="{Binding LiveColor.Values}" LutSize="{Binding LiveColor.Size}" DomainMin="{Binding LiveColor.DomainMin}" DomainMax="{Binding LiveColor.DomainMax}" Strength="{Binding LiveColor.Strength}" Stretch="Fill" Visibility="{Binding LiveColor.IsEnabled,Converter={StaticResource BoolVisibility}}"/>
+       <color:LatestJpegImage FrameData="{Binding LiveImage}" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
      </Grid>
     </Viewbox>
    </controls:RoundedClipBorder>
@@ -61,13 +60,13 @@
 
   <Border Background="#F20E0E11" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}" Margin="28,28,28,104" CornerRadius="18" Padding="14" BorderBrush="#303039" BorderThickness="1">
    <Grid x:Name="ReviewLayout"><Grid.ColumnDefinitions><ColumnDefinition x:Name="ReviewImageColumn" Width="*"/><ColumnDefinition x:Name="ReviewListColumn" Width="230"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition x:Name="ReviewImageRow" Height="*"/><RowDefinition x:Name="ReviewListRow" Height="0"/></Grid.RowDefinitions>
-    <Border x:Name="ReviewImagePanel" Margin="0,0,12,0" CornerRadius="12" Background="#08080A" ClipToBounds="True"><Image Source="{Binding SelectedReviewPhoto.Path,Converter={StaticResource CustomerPathImage}}" Stretch="Uniform"/></Border>
+    <Border x:Name="ReviewImagePanel" Margin="0,0,12,0" CornerRadius="12" Background="#08080A" ClipToBounds="True"><Image Source="{Binding SelectedReviewPhoto.Path,Converter={StaticResource CustomerPathImage},ConverterParameter=1280}" Stretch="Uniform"/></Border>
     <Border x:Name="ReviewListPanel" Grid.Column="1" CornerRadius="12" Background="#17171C" Padding="7" ClipToBounds="True">
      <ListBox x:Name="ReviewPhotoList" ItemsSource="{Binding ReviewPhotos}" SelectedItem="{Binding SelectedReviewPhoto}"
               ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
               ScrollViewer.PanningMode="VerticalOnly" HorizontalContentAlignment="Stretch">
       <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListBox.ItemContainerStyle>
-      <ListBox.ItemTemplate><DataTemplate><Grid Margin="4" ClipToBounds="True"><Border Height="135" HorizontalAlignment="Stretch" CornerRadius="10" Background="#24242B" ClipToBounds="True"><Image Source="{Binding Path,Converter={StaticResource CustomerPathImage}}" Stretch="UniformToFill" HorizontalAlignment="Stretch"/></Border><Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="7" Background="#D9141419" CornerRadius="12" Padding="7,3"><TextBlock Text="{Binding Number}" FontWeight="Bold" Foreground="White"/></Border><CheckBox IsChecked="{Binding IsRetakeSelected,Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="9" Width="28" Height="28"><CheckBox.Template><ControlTemplate TargetType="CheckBox"><Grid><Ellipse Fill="#17171C" Stroke="#E85D9E" StrokeThickness="3"/><Ellipse x:Name="Dot" Margin="6" Fill="#E85D9E" Visibility="Collapsed"/></Grid><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></CheckBox.Template></CheckBox></Grid></DataTemplate></ListBox.ItemTemplate>
+      <ListBox.ItemTemplate><DataTemplate><Grid Margin="4" ClipToBounds="True"><Border Height="135" HorizontalAlignment="Stretch" CornerRadius="10" Background="#24242B" ClipToBounds="True"><Image Source="{Binding Path,Converter={StaticResource CustomerPathImage},ConverterParameter=360}" Stretch="UniformToFill" HorizontalAlignment="Stretch"/></Border><Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="7" Background="#D9141419" CornerRadius="12" Padding="7,3"><TextBlock Text="{Binding Number}" FontWeight="Bold" Foreground="White"/></Border><CheckBox IsChecked="{Binding IsRetakeSelected,Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="9" Width="28" Height="28"><CheckBox.Template><ControlTemplate TargetType="CheckBox"><Grid><Ellipse Fill="#17171C" Stroke="#E85D9E" StrokeThickness="3"/><Ellipse x:Name="Dot" Margin="6" Fill="#E85D9E" Visibility="Collapsed"/></Grid><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></CheckBox.Template></CheckBox></Grid></DataTemplate></ListBox.ItemTemplate>
      </ListBox>
     </Border>
    </Grid>

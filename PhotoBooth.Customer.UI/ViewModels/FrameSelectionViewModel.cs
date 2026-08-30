@@ -57,6 +57,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly ISessionService sessions;
         readonly ICaptureService captures;
         readonly IPrintPipeline printPipeline;
+        readonly IVideoService videos;
         readonly ILogger<FrameSelectionViewModel> log;
         readonly IFeatureFlagService features;
         readonly SemaphoreSlim composeGate = new SemaphoreSlim(1, 1);
@@ -76,12 +77,12 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public FrameSelectionViewModel(CustomerWorkflowStateMachine m, CustomerWorkflowContext c, IFrameService f,
             IPresetService p, IPrinterService printer, IImageCompositionService compose, IPresetProcessor processor,
             IStorageManager storageManager, ISessionService session, ICaptureService captureService,
-            IGifAnimationService gifService, IPrintPipeline pipeline, IFeatureFlagService featureFlags, ILogger<FrameSelectionViewModel> logger)
+            IGifAnimationService gifService, IPrintPipeline pipeline, IVideoService videoService, IFeatureFlagService featureFlags, ILogger<FrameSelectionViewModel> logger)
         {
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
-            presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; features = featureFlags; log = logger;
+            presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; videos = videoService; features = featureFlags; log = logger;
             CancelCommand = new RelayCommand(BackToPreview);
-            printCommand = new AsyncCommand(ContinueToVideo, () => CanFinish && !IsPrinting);
+            printCommand = new AsyncCommand(Finish, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
             RetryCommand = new AsyncCommand(UpdatePreview);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
@@ -285,18 +286,40 @@ namespace PhotoBooth.Customer.UI.ViewModels
             IsPinned=SelectedFrame.IsPinned, CreatedAtUtc=SelectedFrame.CreatedAtUtc, EventId=SelectedFrame.EventId,
             Slots=FrameSlots.Select(x=>x.Slot).ToList() };
 
-        async Task ContinueToVideo()
+        async Task Finish()
         {
             try
             {
                 ErrorMessage = null; IsPrinting = true; previewCancellation?.Cancel();
+                var transformedFrame = FrameWithTransforms();
+                var slotShotIds = FrameSlots.ToDictionary(
+                    x => x.Slot.Index,
+                    x => FindShot(x.Photo?.Path)?.Id);
                 await Compose(true, CancellationToken.None);
                 if (await features.IsEnabledAsync("Video", CancellationToken.None))
                 {
-                    machine.MoveTo(CustomerWorkflowState.VideoSelection);
-                    return;
+                    var assignments = new Dictionary<int, string>();
+                    foreach (var slot in slotShotIds)
+                    {
+                        var shot = context.CurrentShots.FirstOrDefault(x => string.Equals(x.Id, slot.Value, StringComparison.Ordinal));
+                        if (shot == null || !shot.HasVideo || !File.Exists(shot.VideoPath))
+                            throw new InvalidOperationException("Video tương ứng với ảnh ở ô " + (slot.Key + 1) + " không còn khả dụng.");
+                        assignments[slot.Key] = shot.VideoPath;
+                    }
+                    var still = context.Session?.FinalImagePath;
+                    if (string.IsNullOrWhiteSpace(still) || !File.Exists(still))
+                        throw new FileNotFoundException("Ảnh ghép cuối không còn khả dụng.", still);
+                    var destination = Path.Combine(Path.GetDirectoryName(still), Path.GetFileNameWithoutExtension(still) + ".mp4");
+                    await videos.ComposeAsync(still, transformedFrame, assignments, destination, CancellationToken.None);
+                    var days = context.Settings?.SessionRetentionDays ?? 30;
+                    var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
+                    var capture = await captures.CreateWithCompositeVideoAsync(
+                        context.Session.Id, SelectedFrame.Id, context.Session.FinalImageId, still,
+                        context.CurrentShots, destination, assignments.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                        expires, CancellationToken.None);
+                    context.CaptureId = capture.Id;
                 }
-                if (string.IsNullOrWhiteSpace(context.CaptureId))
+                else if (string.IsNullOrWhiteSpace(context.CaptureId))
                 {
                     var days = context.Settings?.SessionRetentionDays ?? 30; var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
                     var capture = await captures.CreateAsync(context.Session.Id, SelectedFrame.Id, context.Session.FinalImageId, context.Session.FinalImagePath, context.CurrentShots, expires, CancellationToken.None); context.CaptureId = capture.Id;
@@ -316,6 +339,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 Fail(e, e.Message);
             }
             finally { IsPrinting = false; }
+        }
+
+        CapturedShot FindShot(string picturePath)
+        {
+            if (string.IsNullOrWhiteSpace(picturePath)) return null;
+            return (context.CurrentShots ?? new List<CapturedShot>()).FirstOrDefault(
+                x => string.Equals(Path.GetFullPath(x.PicturePath), Path.GetFullPath(picturePath), StringComparison.OrdinalIgnoreCase));
         }
 
         void Fail(Exception e, string text) { log.LogError(e, text); ErrorMessage = text; }

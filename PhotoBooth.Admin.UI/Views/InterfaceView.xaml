@@ -7,8 +7,7 @@
     <StackPanel DockPanel.Dock="Bottom"><Button Content="Chọn ảnh này làm background" Command="{Binding SelectCommand}" Background="#4CAF50"/>
      <CheckBox Content="Hiển thị Live View ở màn hình chờ" IsChecked="{Binding ShowLiveView}" Margin="4,12,4,4"/>
      <TextBlock Text="Kích thước Live View" Margin="4,12,4,0"/><DockPanel><TextBlock DockPanel.Dock="Right" Text="{Binding LiveViewAreaText}" Width="100" VerticalAlignment="Center" TextAlignment="Right"/><Slider Minimum="5" Maximum="40" Value="{Binding LiveViewAreaPercent,Mode=TwoWay}" TickFrequency="1"/></DockPanel>
-     <TextBlock Text="Vị trí Live View ngang" Margin="4,12,4,0"/><Slider Minimum="0" Maximum="100" Value="{Binding LiveViewX,Mode=TwoWay}"/>
-     <TextBlock Text="Vị trí Live View dọc" Margin="4,8,4,0"/><Slider Minimum="0" Maximum="100" Value="{Binding LiveViewY,Mode=TwoWay}"/>
+     <TextBlock Text="Live View luôn được căn chính giữa · ngang 3:4 · dọc 4:3 (cao:rộng)" Margin="4,12,4,4" Foreground="#B8B4BE" TextWrapping="Wrap"/>
      <TextBlock Text="Background vẫn có thể kéo trực tiếp và dùng con lăn chuột để căn ảnh." Foreground="#9A9AA2" FontSize="12" Margin="4,10,4,2" TextWrapping="Wrap"/>
      <WrapPanel HorizontalAlignment="Center"><Button Content="Lưu bố cục" Command="{Binding SaveLiveViewCommand}" Background="#4CAF50"/><Button Content="Đặt lại mặc định" Command="{Binding ResetLiveViewCommand}"/></WrapPanel><TextBlock Text="{Binding Message}" Foreground="#FFB74D" Margin="6"/>
     </StackPanel>

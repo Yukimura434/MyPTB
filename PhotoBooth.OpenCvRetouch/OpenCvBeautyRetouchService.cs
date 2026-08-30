@@ -86,11 +86,38 @@ namespace PhotoBooth.OpenCvRetouch
 
         static void BlendMasked(Mat destination,Mat effect,Mat mask,double strength)
         {
-            using(var alpha=new Mat())using(var inv=new Mat())using(var left=new Mat())using(var right=new Mat())
+            if(destination==null||effect==null||mask==null||destination.Empty()||effect.Empty()||mask.Empty()||strength<=0)return;
+            if(destination.Size()!=effect.Size()||destination.Size()!=mask.Size())throw new ArgumentException("Blend inputs must have identical dimensions.");
+
+            // Full-resolution CV_32FC3 buffers are prohibitively large for camera images
+            // (4160x2768 needs about 138 MB per buffer). Process small tiles so peak native
+            // memory stays bounded while preserving the same soft-mask blend equation.
+            var boundedStrength=Math.Min(1d,strength);
+            const int tileSize=512;
+            for(var y=0;y<destination.Height;y+=tileSize)
+            for(var x=0;x<destination.Width;x+=tileSize)
             {
-                mask.ConvertTo(alpha,MatType.CV_32FC1,strength/255d);Cv2.Merge(new[]{alpha,alpha,alpha},alpha);
-                using(var one=new Mat(alpha.Size(),alpha.Type(),Scalar.All(1)))Cv2.Subtract(one,alpha,inv);
-                using(var dst32=new Mat())using(var effect32=new Mat()){destination.ConvertTo(dst32,MatType.CV_32FC3);effect.ConvertTo(effect32,MatType.CV_32FC3);Cv2.Multiply(dst32,inv,left);Cv2.Multiply(effect32,alpha,right);Cv2.Add(left,right,left);left.ConvertTo(destination,MatType.CV_8UC3);}
+                var width=Math.Min(tileSize,destination.Width-x);var height=Math.Min(tileSize,destination.Height-y);
+                var roi=new Rect(x,y,width,height);
+                using(var maskTile=new Mat(mask,roi))
+                {
+                    if(Cv2.CountNonZero(maskTile)==0)continue;
+                    using(var alpha=new Mat())using(var alpha3=new Mat())using(var dst32=new Mat())using(var effect32=new Mat())
+                    using(var delta=new Mat())using(var blended=new Mat())
+                    {
+                        maskTile.ConvertTo(alpha,MatType.CV_32FC1,boundedStrength/255d);
+                        Cv2.CvtColor(alpha,alpha3,ColorConversionCodes.GRAY2BGR);
+                        using(var destinationTile=new Mat(destination,roi))using(var effectTile=new Mat(effect,roi))
+                        {
+                            destinationTile.ConvertTo(dst32,MatType.CV_32FC3);
+                            effectTile.ConvertTo(effect32,MatType.CV_32FC3);
+                            Cv2.Subtract(effect32,dst32,delta);
+                            Cv2.Multiply(delta,alpha3,delta);
+                            Cv2.Add(dst32,delta,blended);
+                            blended.ConvertTo(destinationTile,MatType.CV_8UC3);
+                        }
+                    }
+                }
             }
         }
 

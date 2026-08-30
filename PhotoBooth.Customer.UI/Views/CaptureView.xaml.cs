@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using PhotoBooth.Color.D3D11;
@@ -11,13 +10,10 @@ namespace PhotoBooth.Customer.UI.Views
 {
     public partial class CaptureView : UserControl
     {
-        bool? appliedPortrait;
-        bool? appliedQuarterTurn;
-        double? appliedRotation;
         public CaptureView()
         {
             InitializeComponent();
-            Loaded += (s, e) => { BindSize(this); ApplyOrientation(); };
+            Loaded += (s, e) => ApplyOrientation();
             SizeChanged += (s, e) => ApplyOrientation();
             DataContextChanged += OnDataContextChanged;
             ReviewPhotoList.PreviewMouseWheel += ScrollHorizontally;
@@ -29,7 +25,6 @@ namespace PhotoBooth.Customer.UI.Views
             if (previous != null) previous.PropertyChanged -= OnViewModelPropertyChanged;
             var current = e.NewValue as INotifyPropertyChanged;
             if (current != null) current.PropertyChanged += OnViewModelPropertyChanged;
-            appliedRotation = null;
             ApplyOrientation();
         }
 
@@ -37,7 +32,6 @@ namespace PhotoBooth.Customer.UI.Views
         {
             if (e.PropertyName != nameof(CaptureViewModel.LiveViewRotation)) return;
             if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new System.Action(ApplyOrientation)); return; }
-            appliedRotation = null;
             ApplyOrientation();
         }
 
@@ -47,18 +41,19 @@ namespace PhotoBooth.Customer.UI.Views
             var viewModel = DataContext as CaptureViewModel;
             var rotation = NormalizeRotation(viewModel?.LiveViewRotation ?? 0d);
             var quarterTurn = rotation == 90d || rotation == -90d;
-            if (appliedPortrait == portrait && appliedQuarterTurn == quarterTurn && appliedRotation == rotation) return;
-            appliedPortrait = portrait;
-            appliedQuarterTurn = quarterTurn;
-            appliedRotation = rotation;
-            // LayoutTransform rotates the element before WPF arranges it.  A
-            // RenderTransform here would first arrange 1200x900 inside a 900x1200
-            // slot, which silently limits the frame to 900x900 before rotation.
-            LiveViewPanel.Height = portrait ? (quarterTurn ? 960 : 750) : (quarterTurn ? 900 : double.NaN);
-            LiveViewPanel.Width = portrait ? (quarterTurn ? 720 : 1000) : (quarterTurn ? 675 : double.NaN);
-            LiveViewPanel.VerticalAlignment = portrait || quarterTurn ? VerticalAlignment.Top : VerticalAlignment.Stretch;
-            LiveViewPanel.HorizontalAlignment = portrait || quarterTurn ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
-            LiveViewPanel.Margin = portrait ? new Thickness(0, 86, 0, 0) : (quarterTurn ? new Thickness(0, 24, 0, 0) : new Thickness(0));
+            // Fit a fixed 4:3 landscape or 3:4 portrait viewport inside the
+            // screen and keep its centre locked to the screen centre.
+            var aspect = quarterTurn ? 3d / 4d : 4d / 3d;
+            var availableWidth = System.Math.Max(1d, ActualWidth);
+            var availableHeight = System.Math.Max(1d, ActualHeight);
+            var width = availableWidth;
+            var height = width / aspect;
+            if (height > availableHeight) { height = availableHeight; width = height * aspect; }
+            LiveViewPanel.Width = width;
+            LiveViewPanel.Height = height;
+            LiveViewPanel.VerticalAlignment = VerticalAlignment.Center;
+            LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
+            LiveViewPanel.Margin = new Thickness(0);
             RecentCapturesPanel.Margin = portrait ? new Thickness(40, quarterTurn ? 1080 : 870, 40, 0) : new Thickness(40, 870, 40, 0);
             RecentCapturesPanel.Visibility = portrait ? Visibility.Visible : Visibility.Collapsed;
 
@@ -125,24 +120,5 @@ namespace PhotoBooth.Customer.UI.Views
             return null;
         }
 
-        void OnGpuLiveColorFailed(object sender, LiveColorFailedEventArgs e)
-        {
-            (DataContext as CaptureViewModel)?.LiveColor.Disable(e.Error);
-        }
-
-        static void BindSize(DependencyObject root)
-        {
-            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            {
-                var child = VisualTreeHelper.GetChild(root, i);
-                var surface = child as LiveColorSurface;
-                if (surface != null)
-                {
-                    BindingOperations.SetBinding(surface, LiveColorSurface.FrameWidthProperty, new Binding(nameof(CaptureViewModel.LiveFrameWidth)));
-                    BindingOperations.SetBinding(surface, LiveColorSurface.FrameHeightProperty, new Binding(nameof(CaptureViewModel.LiveFrameHeight)));
-                }
-                BindSize(child);
-            }
-        }
     }
 }

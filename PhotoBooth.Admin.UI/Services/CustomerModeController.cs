@@ -16,7 +16,7 @@ namespace PhotoBooth.Admin.UI.Services
    catch(Exception e){log.LogError(e,"Customer mode activation failed");}
    finally{
      try{
-      try{await WithTimeout(TimeSpan.FromSeconds(20),async ct=>{var frame=provider.GetService<FrameSelectionViewModel>();if(frame!=null)await frame.ShutdownAsync();var video=provider.GetService<VideoSelectionViewModel>();if(video!=null)await video.ResetAsync();var capture=provider.GetService<CaptureViewModel>();if(capture!=null)await capture.ShutdownAsync(ct);});}catch(Exception e){log.LogError(e,"Customer workflow shutdown failed during Admin handoff");}
+      try{await WithTimeout(TimeSpan.FromSeconds(20),async ct=>{var frame=provider.GetService<FrameSelectionViewModel>();if(frame!=null)await frame.ShutdownAsync();var capture=provider.GetService<CaptureViewModel>();if(capture!=null)await capture.ShutdownAsync(ct);});}catch(Exception e){log.LogError(e,"Customer workflow shutdown failed during Admin handoff");}
       try{await WithTimeout(TimeSpan.FromSeconds(20),async ct=>await home.ResumeFromCustomerAsync(ct));}catch(Exception e){log.LogError(e,"Admin camera resume failed after Customer handoff");}
      }
      finally{admin.Show();admin.Activate();running=false;}

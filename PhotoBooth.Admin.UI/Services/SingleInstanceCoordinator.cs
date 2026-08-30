@@ -7,26 +7,20 @@ using System.Windows;
 
 namespace PhotoBooth.Admin.UI.Services
 {
-    /// <summary>
-    /// Owns the primary application instance, activates a healthy existing window,
-    /// and reclaims an instance whose UI thread has stopped responding. The PID
-    /// marker prevents an encoder helper (which uses the same executable) from
-    /// being mistaken for the primary UI process.
-    /// </summary>
     internal sealed class SingleInstanceCoordinator : IDisposable
     {
-        const string MutexName = @"Local\MiuCamezaPTB";
-        const string ActivationEventName = @"Local\MiuCamezaPTB.Activate";
-        static readonly TimeSpan StartupGrace = TimeSpan.FromSeconds(30);
-        static readonly TimeSpan RecoveryWait = TimeSpan.FromSeconds(10);
+        private const string MutexName = @"Local\MiuCamezaPTB";
+        private const string ActivationEventName = @"Local\MiuCamezaPTB.Activate";
+        private static readonly TimeSpan StartupGrace = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan RecoveryWait = TimeSpan.FromSeconds(10);
 
-        readonly Mutex mutex = new Mutex(false, MutexName);
-        readonly string markerPath;
-        bool ownsMutex;
-        EventWaitHandle activationEvent;
-        RegisteredWaitHandle activationRegistration;
+        private readonly Mutex mutex = new Mutex(false, MutexName);
+        private readonly string markerPath;
+        private bool ownsMutex;
+        private EventWaitHandle activationEvent;
+        private RegisteredWaitHandle activationRegistration;
 
-        SingleInstanceCoordinator(string dataDirectory)
+        private SingleInstanceCoordinator(string dataDirectory)
         {
             Directory.CreateDirectory(dataDirectory);
             markerPath = Path.Combine(dataDirectory, "photobooth.pid");
@@ -91,7 +85,7 @@ namespace PhotoBooth.Admin.UI.Services
                 false);
         }
 
-        static void ActivateVisibleWindow(Application application)
+        private static void ActivateVisibleWindow(Application application)
         {
             var window = application.Windows.Cast<Window>()
                 .Where(x => x.IsVisible)
@@ -105,24 +99,21 @@ namespace PhotoBooth.Admin.UI.Services
             window.Focus();
         }
 
-        bool TryOwn(TimeSpan timeout)
+        private bool TryOwn(TimeSpan timeout)
         {
             try { ownsMutex = mutex.WaitOne(timeout); }
             catch (AbandonedMutexException) { ownsMutex = true; }
             return ownsMutex;
         }
 
-        void SignalExistingInstance()
+        private void SignalExistingInstance()
         {
-            try
-            {
-                using (var signal = EventWaitHandle.OpenExisting(ActivationEventName)) signal.Set();
-            }
+            try { using (var signal = EventWaitHandle.OpenExisting(ActivationEventName)) signal.Set(); }
             catch (WaitHandleCannotBeOpenedException) { }
             catch (UnauthorizedAccessException) { }
         }
 
-        Process FindMarkedOwner()
+        private Process FindMarkedOwner()
         {
             try
             {
@@ -135,20 +126,20 @@ namespace PhotoBooth.Admin.UI.Services
             catch { return null; }
         }
 
-        Process FindLegacyOwner()
+        private Process FindLegacyOwner()
         {
             try
             {
                 var current = Process.GetCurrentProcess();
                 return Process.GetProcessesByName(current.ProcessName)
                     .Where(x => x.Id != current.Id && IsSameExecutable(x))
-                    .OrderBy(x => SafeStartTime(x))
+                    .OrderBy(SafeStartTime)
                     .FirstOrDefault(x => x.MainWindowHandle != IntPtr.Zero || DateTime.UtcNow - SafeStartTime(x).ToUniversalTime() >= StartupGrace);
             }
             catch { return null; }
         }
 
-        static bool IsStale(Process process)
+        private static bool IsStale(Process process)
         {
             try
             {
@@ -167,7 +158,7 @@ namespace PhotoBooth.Admin.UI.Services
             catch { return true; }
         }
 
-        static bool IsSameExecutable(Process process)
+        private static bool IsSameExecutable(Process process)
         {
             try
             {
@@ -178,19 +169,19 @@ namespace PhotoBooth.Admin.UI.Services
             catch { return false; }
         }
 
-        static DateTime SafeStartTime(Process process)
+        private static DateTime SafeStartTime(Process process)
         {
             try { return process.StartTime; }
             catch { return DateTime.MaxValue; }
         }
 
-        void WriteMarker()
+        private void WriteMarker()
         {
             try { File.WriteAllText(markerPath, Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
             catch { }
         }
 
-        void WriteRecoveryLog(string message)
+        private void WriteRecoveryLog(string message)
         {
             try
             {

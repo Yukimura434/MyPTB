@@ -12,9 +12,7 @@ namespace PhotoBooth.Customer.UI
             services.AddSingleton<CustomerWorkflowContext>();
             services.AddSingleton<PrinterConnectionViewModel>();
             services.AddSingleton<CaptureViewModel>();
-            services.AddSingleton<LiveColorState>();
             services.AddSingleton<FrameSelectionViewModel>();
-            services.AddSingleton<VideoSelectionViewModel>();
             services.AddSingleton<CompleteViewModel>();
             services.AddSingleton<WaitingViewModel>();
             services.AddSingleton<CustomerShellViewModel>();

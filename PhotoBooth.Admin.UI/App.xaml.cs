@@ -1,6 +1,6 @@
 using System;
-using System.IO;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
@@ -39,7 +39,6 @@ namespace PhotoBooth.Admin.UI
                 (string.Equals(args[0], "--video-encode", StringComparison.Ordinal) ||
                  string.Equals(args[0], "--video-compose", StringComparison.Ordinal)))
             {
-                VideoService.StartEncoderParentWatchdog();
                 Environment.ExitCode = VideoService.RunEncoderCommand(args);
                 return;
             }
@@ -47,11 +46,11 @@ namespace PhotoBooth.Admin.UI
             VelopackApp.Build().Run();
 #endif
 
-            var dataDirectory = Path.Combine(
+            var instanceDataDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "PhotoBooth",
                 "Data");
-            using (var instance = SingleInstanceCoordinator.TryAcquire(dataDirectory))
+            using (var instance = SingleInstanceCoordinator.TryAcquire(instanceDataDirectory))
             {
                 if (instance == null) return;
 
@@ -164,10 +163,6 @@ namespace PhotoBooth.Admin.UI
                         "photobooth.db"),
                     RestartLiveViewDuringRecovery = false
                 };
-            applicationOptions.Features["ColorGpuLiveView"] =
-                !string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_COLOR_GPU_LIVEVIEW"), "0", StringComparison.Ordinal);
-            applicationOptions.Features["ColorGpuDiagnosticMonochrome"] =
-                string.Equals(Environment.GetEnvironmentVariable("PHOTOBOOTH_COLOR_GPU_MONOCHROME"), "1", StringComparison.Ordinal);
             // Encoding runs in a child process so native FFmpeg failures cannot
             // corrupt or terminate the main PhotoBooth workflow.
             applicationOptions.Features["VideoNativeEncoder"] =

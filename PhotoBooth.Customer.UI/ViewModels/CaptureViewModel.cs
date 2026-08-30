@@ -29,7 +29,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly ICapturePipeline capturePipeline;
         readonly IVideoService videos;
         readonly ILogger<CaptureViewModel> log;
-        readonly LiveColorState liveColor;
         readonly ILiveBeautyPreviewService liveBeauty;
         readonly IBeautySettingsService beautySettings;
         BeautySettings liveBeautySettings = new BeautySettings();
@@ -56,10 +55,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public CaptureViewModel(CustomerWorkflowStateMachine m, CustomerWorkflowContext ctx, ICameraService c,
             ILiveViewService l, ISettingsService st, ISessionService ss, IPresetService ps,
-            ICapturePipeline pipeline, IVideoService videoService, LiveColorState liveColorState, ILiveBeautyPreviewService liveBeautyPreview, IBeautySettingsService beautySettingsService, ILogger<CaptureViewModel> logger)
+            ICapturePipeline pipeline, IVideoService videoService, ILiveBeautyPreviewService liveBeautyPreview, IBeautySettingsService beautySettingsService, ILogger<CaptureViewModel> logger)
         {
             machine = m; context = ctx; cameras = c; live = l; settings = st; sessions = ss;
-            presets = ps; capturePipeline = pipeline; videos = videoService; liveColor=liveColorState; liveBeauty=liveBeautyPreview; beautySettings=beautySettingsService; log = logger;
+            presets = ps; capturePipeline = pipeline; videos = videoService; liveBeauty=liveBeautyPreview; beautySettings=beautySettingsService; log = logger;
             AutomaticCaptureCommand = new AsyncCommand(() => RunTracked(StartAutomatic), () => IsModeSelection);
             ManualModeCommand = new AsyncCommand(() => RunTracked(PrepareManualMode), () => IsModeSelection);
             ManualShutterCommand = new AsyncCommand(() => RunTracked(CaptureManualShot), () => IsManualReady);
@@ -76,7 +75,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public bool HasLiveImage => LiveImage != null && LiveImage.Length > 0;
         public int LiveFrameWidth { get; private set; }
         public int LiveFrameHeight { get; private set; }
-        public LiveColorState LiveColor => liveColor;
         public ObservableCollection<string> CapturedImages { get; } = new ObservableCollection<string>();
         public ObservableCollection<CapturedPhotoItem> ReviewPhotos { get; } = new ObservableCollection<CapturedPhotoItem>();
         public CapturedPhotoItem SelectedReviewPhoto { get => selectedReviewPhoto; set => Set(ref selectedReviewPhoto, value); }
@@ -335,7 +333,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             StatusMessage=CameraConnected?"Ready":"Waiting for camera…";machine.RecoverToIdle();
             RaiseCaptureMode();
         }
-        public async Task ActivateAsync(){var configured=await settings.GetAsync(CancellationToken.None);liveBeautySettings=await beautySettings.GetAsync(CancellationToken.None)??new BeautySettings();liveBeautyFailed=false;liveBeauty.Reset();LiveViewScaleX=configured?.AutoFlip==true?-1d:1d;LiveViewRotation=configured?.ImageRotationDegrees??0;await liveColor.RefreshAsync(configured,CancellationToken.None);await CheckCamera();}
+        public async Task ActivateAsync(){var configured=await settings.GetAsync(CancellationToken.None);liveBeautySettings=await beautySettings.GetAsync(CancellationToken.None)??new BeautySettings();liveBeautyFailed=false;liveBeauty.Reset();LiveViewScaleX=configured?.AutoFlip==true?-1d:1d;LiveViewRotation=configured?.ImageRotationDegrees??0;await CheckCamera();}
         public Task ShutdownAsync() => ShutdownAsync(CancellationToken.None);
         public async Task ShutdownAsync(CancellationToken token)
         {

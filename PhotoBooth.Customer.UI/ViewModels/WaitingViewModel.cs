@@ -14,20 +14,17 @@ namespace PhotoBooth.Customer.UI.ViewModels
         private readonly IInterfaceAssetService _assets;
         private readonly CaptureViewModel _capture;
         private readonly ISettingsService _settings;
-        private readonly LiveColorState _liveColor;
 
         private string _backgroundPath;
 
         public WaitingViewModel(
             IInterfaceAssetService assetService,
             CaptureViewModel captureViewModel,
-            ISettingsService settingsService,
-            LiveColorState liveColor)
+            ISettingsService settingsService)
         {
             _assets = assetService;
             _capture = captureViewModel;
             _settings = settingsService;
-            _liveColor = liveColor;
 
             EnterCommand = new RelayCommand(OnEnter);
 
@@ -60,7 +57,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         double LiveViewPositionY { get; set; } = 10;
         public double LiveViewDisplayWidth => LiveViewLayout.Width;
         public double LiveViewDisplayHeight => LiveViewLayout.Height;
-        public LiveColorState LiveColor => _liveColor;
 
         public string BackgroundPath
         {
@@ -89,7 +85,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
             BackgroundZoom = Clamp(configured.WaitingBackgroundZoom, 100, 300);
             BackgroundPanX = Clamp(configured.WaitingBackgroundPanX, -100, 100);
             BackgroundPanY = Clamp(configured.WaitingBackgroundPanY, -100, 100);
-            await _liveColor.RefreshAsync(configured,CancellationToken.None);
             Raise(nameof(ShowLiveView));
             Raise(nameof(IsPortraitMode));
             Raise(nameof(CanvasWidth));
@@ -110,11 +105,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
             Raise(nameof(BackgroundCanvasY));
 
             Raise(nameof(LiveImage));
-        }
-
-        public void DisableGpuLiveColor(Exception error)
-        {
-            _liveColor.Disable(error);
         }
 
         private void OnEnter()
