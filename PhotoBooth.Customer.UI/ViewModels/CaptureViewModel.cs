@@ -68,7 +68,26 @@ namespace PhotoBooth.Customer.UI.ViewModels
             RetryCommand = new AsyncCommand(CheckCamera);
             CancelErrorCommand = new RelayCommand(() => { ErrorMessage = null; machine.RecoverToIdle(); });
             machine.StateChanged += (s, e) => OnStateChanged();
-            cameras.CamerasChanged += async (s, e) => await RecoverCamera();
+            cameras.CamerasChanged += OnCamerasChanged;
+        }
+
+        async void OnCamerasChanged(object sender, EventArgs e)
+        {
+            try { await RunOnUiAsync(RecoverCamera); }
+            catch (Exception error) { log.LogError(error, "Camera change recovery failed"); }
+        }
+
+        static Task RunOnUiAsync(Func<Task> action)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess()) return action();
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try { await action(); completion.TrySetResult(true); }
+                catch (Exception error) { completion.TrySetException(error); }
+            }));
+            return completion.Task;
         }
 
         public byte[] LiveImage { get => liveImage; private set { if (Set(ref liveImage, value)) Raise(nameof(HasLiveImage)); } }

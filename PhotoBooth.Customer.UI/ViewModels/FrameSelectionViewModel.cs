@@ -62,11 +62,17 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly IFeatureFlagService features;
         readonly SemaphoreSlim composeGate = new SemaphoreSlim(1, 1);
         readonly AsyncCommand printCommand;
+        readonly object operationSync = new object();
+        readonly object previewCancellationSync = new object();
+        readonly HashSet<Task> previewOperations = new HashSet<Task>();
         Frame selected;
         FrameSlotChoice selectedSlot;
         CapturedPhotoChoice selectedPhoto;
         CancellationTokenSource previewCancellation;
         Task previewTask = Task.CompletedTask;
+        Task loadTask = Task.CompletedTask;
+        Task finishTask = Task.CompletedTask;
+        bool pageStopping;
         string preview;
         string error;
         bool printing;
@@ -82,7 +88,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
             presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; videos = videoService; features = featureFlags; log = logger;
             CancelCommand = new RelayCommand(BackToPreview);
-            printCommand = new AsyncCommand(Finish, () => CanFinish && !IsPrinting);
+            printCommand = new AsyncCommand(RunFinishTracked, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
             RetryCommand = new AsyncCommand(UpdatePreview);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
@@ -94,7 +100,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             ZoomInCommand = new RelayCommand(() => ZoomPercent += 25);
             ZoomOutCommand = new RelayCommand(() => ZoomPercent -= 25);
             ResetZoomCommand = new RelayCommand(() => ZoomPercent = 100);
-            machine.StateChanged += (s, e) => { if (machine.State == CustomerWorkflowState.FrameSelection) _ = Load(); };
+            machine.StateChanged += OnWorkflowStateChanged;
         }
 
         public event EventHandler<string> PrinterConnectionRequired;
@@ -137,6 +143,25 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public ICommand ZoomInCommand { get; }
         public ICommand ZoomOutCommand { get; }
         public ICommand ResetZoomCommand { get; }
+
+        void OnWorkflowStateChanged(object sender, EventArgs e)
+        {
+            if (machine.State == CustomerWorkflowState.Preview)
+            {
+                lock (operationSync) pageStopping = false;
+                return;
+            }
+            if (machine.State == CustomerWorkflowState.FrameSelection) StartLoad();
+        }
+
+        void StartLoad()
+        {
+            lock (operationSync)
+            {
+                if (pageStopping) return;
+                loadTask = Load();
+            }
+        }
 
         async Task Load()
         {
@@ -210,30 +235,62 @@ namespace PhotoBooth.Customer.UI.ViewModels
         async Task UpdatePreview()
         {
             var cancellation = new CancellationTokenSource();
-            var previous = Interlocked.Exchange(ref previewCancellation, cancellation);
-            previous?.Cancel();
+            lock (previewCancellationSync)
+            {
+                previewCancellation?.Cancel();
+                previewCancellation = cancellation;
+            }
             try { ErrorMessage = null; await Compose(false, cancellation.Token); }
             catch (OperationCanceledException) { }
             catch (Exception e) { Fail(e, "Không thể tạo bản xem trước"); }
+            finally
+            {
+                lock (previewCancellationSync)
+                    if (ReferenceEquals(previewCancellation, cancellation)) previewCancellation = null;
+                cancellation.Dispose();
+            }
         }
 
         void QueuePreview()
         {
-            previewTask = UpdatePreview();
+            Task task;
+            lock (operationSync)
+            {
+                if (pageStopping) return;
+                task = UpdatePreview();
+                previewTask = task;
+                previewOperations.Add(task);
+            }
+            _ = ObservePreview(task);
+        }
+
+        async Task ObservePreview(Task task)
+        {
+            try { await task; }
+            finally { lock (operationSync) previewOperations.Remove(task); }
         }
 
         public async Task ShutdownAsync()
         {
-            var cancellation = Interlocked.Exchange(ref previewCancellation, null);
-            cancellation?.Cancel();
-            try { await previewTask; }
+            Task[] previews;
+            Task loading;
+            Task finishing;
+            lock (operationSync)
+            {
+                pageStopping = true;
+                previews = previewOperations.ToArray();
+                loading = loadTask;
+                finishing = finishTask;
+            }
+            lock (previewCancellationSync) previewCancellation?.Cancel();
+            try { await Task.WhenAll(previews.Concat(new[] { previewTask, loading })); }
             catch (OperationCanceledException) { }
-            finally { cancellation?.Dispose(); }
+            await finishing;
         }
 
         async Task Compose(bool final, CancellationToken token)
         {
-            await composeGate.WaitAsync();
+            await composeGate.WaitAsync(token);
             try
             {
                 if (token.IsCancellationRequested) return;
@@ -339,6 +396,18 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 Fail(e, e.Message);
             }
             finally { IsPrinting = false; }
+        }
+
+        async Task RunFinishTracked()
+        {
+            var task = Finish();
+            lock (operationSync) finishTask = task;
+            try { await task; }
+            finally
+            {
+                lock (operationSync)
+                    if (ReferenceEquals(finishTask, task)) finishTask = Task.CompletedTask;
+            }
         }
 
         CapturedShot FindShot(string picturePath)
