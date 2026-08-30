@@ -19,7 +19,7 @@ namespace PhotoBooth.Infrastructure.Services
     public sealed class FeatureFlagService : IFeatureFlagService
     {
         readonly ApplicationOptions options; readonly ISettingsService settings; public FeatureFlagService(ApplicationOptions options,ISettingsService settings){this.options=options;this.settings=settings;}
-        public async Task<bool> IsEnabledAsync(string feature,CancellationToken token){var configured=options.Features.TryGetValue(feature,out var enabled)&&enabled;var s=await settings.GetAsync(token);switch(feature.ToUpperInvariant()){case "QR":return s.EnableQr;case "PLUGINS":return s.EnablePlugins;case "DIAGNOSTICS":return s.EnableDiagnostics;case "TELEMETRY":return s.EnableTelemetry;default:return configured;}}
+        public async Task<bool> IsEnabledAsync(string feature,CancellationToken token){var configured=options.Features.TryGetValue(feature,out var enabled)&&enabled;var s=await settings.GetAsync(token);switch(feature.ToUpperInvariant()){case "QR":return s.EnableQr;case "PLUGINS":return s.EnablePlugins;case "DIAGNOSTICS":return s.EnableDiagnostics;case "TELEMETRY":return s.EnableTelemetry;case "VIDEO":return configured&&options.Features.TryGetValue("VideoNativeEncoder",out var encoder)&&encoder;default:return configured;}}
     }
 
     public sealed class StorageManager : IStorageManager

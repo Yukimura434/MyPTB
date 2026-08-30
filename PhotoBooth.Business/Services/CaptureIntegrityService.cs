@@ -61,10 +61,22 @@ namespace PhotoBooth.Business.Services
         }
         static void ValidateVideo(string path, CancellationToken token)
         {
-            token.ThrowIfCancellationRequested(); var bytes = File.ReadAllBytes(path);
+            token.ThrowIfCancellationRequested();
             if (string.Equals(Path.GetExtension(path), ".mp4", StringComparison.OrdinalIgnoreCase))
             {
-                if (bytes.Length < 12 || bytes[4] != (byte)'f' || bytes[5] != (byte)'t' || bytes[6] != (byte)'y' || bytes[7] != (byte)'p') throw new InvalidDataException("Video is not a valid MP4 file: " + path);
+                var header = new byte[12];
+                var offset = 0;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    while (offset < header.Length)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var read = stream.Read(header, offset, header.Length - offset);
+                        if (read == 0) break;
+                        offset += read;
+                    }
+                }
+                if (offset < header.Length || header[4] != (byte)'f' || header[5] != (byte)'t' || header[6] != (byte)'y' || header[7] != (byte)'p') throw new InvalidDataException("Video is not a valid MP4 file: " + path);
                 return;
             }
             throw new InvalidDataException("Video must use the MP4 format: " + path);

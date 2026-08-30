@@ -10,22 +10,44 @@ namespace PhotoBooth.Customer.UI.Views
 {
     public partial class CaptureView : UserControl
     {
+        INotifyPropertyChanged subscribedViewModel;
+        bool viewLoaded;
+
         public CaptureView()
         {
             InitializeComponent();
-            Loaded += (s, e) => ApplyOrientation();
+            Loaded += OnLoaded;
+            Unloaded += OnUnloaded;
             SizeChanged += (s, e) => ApplyOrientation();
             DataContextChanged += OnDataContextChanged;
             ReviewPhotoList.PreviewMouseWheel += ScrollHorizontally;
         }
 
+        void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            viewLoaded = true;
+            SubscribeToViewModel(DataContext as INotifyPropertyChanged);
+            ApplyOrientation();
+        }
+
+        void OnUnloaded(object sender, RoutedEventArgs e)
+        {
+            viewLoaded = false;
+            SubscribeToViewModel(null);
+        }
+
         void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            var previous = e.OldValue as INotifyPropertyChanged;
-            if (previous != null) previous.PropertyChanged -= OnViewModelPropertyChanged;
-            var current = e.NewValue as INotifyPropertyChanged;
-            if (current != null) current.PropertyChanged += OnViewModelPropertyChanged;
+            SubscribeToViewModel(viewLoaded ? e.NewValue as INotifyPropertyChanged : null);
             ApplyOrientation();
+        }
+
+        void SubscribeToViewModel(INotifyPropertyChanged value)
+        {
+            if (ReferenceEquals(subscribedViewModel, value)) return;
+            if (subscribedViewModel != null) subscribedViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            subscribedViewModel = value;
+            if (subscribedViewModel != null) subscribedViewModel.PropertyChanged += OnViewModelPropertyChanged;
         }
 
         void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)

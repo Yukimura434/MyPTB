@@ -33,6 +33,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
         private bool completing;
         private string gifPath;
         private int remainingSeconds;
+        private long shareGeneration;
+        private Task shareTask = Task.CompletedTask;
 
         public CompleteViewModel(
             CustomerWorkflowStateMachine machine,
@@ -67,9 +69,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if (machine.State == CustomerWorkflowState.Complete)
                 {
                     StartCountdown();
-                    _ = GenerateShare();
+                    StartShareGeneration();
                 }
-                else countdownTimer.Stop();
+                else
+                {
+                    countdownTimer.Stop();
+                    InvalidateShareUi();
+                }
             };
         }
 
@@ -106,21 +112,34 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public ICommand DoneCommand { get; }
 
-        private async Task GenerateShare()
+        private void StartShareGeneration()
         {
-            if (IsGenerating)
-            {
-                return;
-            }
-
+            var generation = Interlocked.Increment(ref shareGeneration);
+            var session = context.Session;
+            var captureId = context.CaptureId;
+            var gifFrameDuration = context.Settings?.GifFrameDurationMilliseconds ?? 1000;
             IsGenerating = true;
             QrSource = null;
             DownloadUrl = null;
+            GifPath = null;
+            StatusText = "Ảnh của bạn đã sẵn sàng!";
+            shareTask = GenerateShare(generation, session, captureId, gifFrameDuration);
+        }
+
+        private void InvalidateShareUi()
+        {
+            Interlocked.Increment(ref shareGeneration);
+            IsGenerating = false;
+        }
+
+        private bool IsCurrentShare(long generation) =>
+            generation == Interlocked.Read(ref shareGeneration) && machine.State == CustomerWorkflowState.Complete;
+
+        private async Task GenerateShare(long generation, Session session, string captureId, int gifFrameDuration)
+        {
 
             try
             {
-                var session = context.Session;
-                var captureId = context.CaptureId;
                 if (session == null || string.IsNullOrWhiteSpace(captureId))
                 {
                     throw new InvalidOperationException("Capture information is incomplete.");
@@ -146,9 +165,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 var gifSources = gifAssets.Select(photo => photo.LocalPath).Where(File.Exists).ToList();
                 if (gifSources.Count > 0)
                 {
-                    await gifAnimation.CreateAsync(gifSources, output, context.Settings?.GifFrameDurationMilliseconds ?? 1000, CancellationToken.None);
+                    await gifAnimation.CreateAsync(gifSources, output, gifFrameDuration, CancellationToken.None);
                     await captures.AddFileAsync(captureId, output, CaptureAssetTypes.Gif, gifAssets.Select(x=>x.Id).ToList(), CancellationToken.None);
-                    GifPath = output;
+                    if (IsCurrentShare(generation)) GifPath = output;
                     log.LogInformation("GIF created with {FrameCount} original frames for capture {CaptureId}", gifSources.Count, captureId);
                 }
 
@@ -177,21 +196,25 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     ticket.DownloadUrl.AbsoluteUri,
                     CancellationToken.None);
 
-                DownloadUrl = ticket.DownloadUrl.AbsoluteUri;
-                QrSource = await qr.GeneratePngAsync(
+                var qrSource = await qr.GeneratePngAsync(
                     ticket.DownloadUrl,
                     360,
                     CancellationToken.None);
-                StatusText = "Quét QR để xem và tải ảnh";
+                if (IsCurrentShare(generation))
+                {
+                    DownloadUrl = ticket.DownloadUrl.AbsoluteUri;
+                    QrSource = qrSource;
+                    StatusText = "Quét QR để xem và tải ảnh";
+                }
             }
             catch (Exception exception)
             {
                 log.LogError(exception, "Local Share QR generation failed");
-                StatusText = "Không thể tạo liên kết tải qua Wi-Fi: " + exception.Message;
+                if (IsCurrentShare(generation)) StatusText = "Không thể tạo liên kết tải qua Wi-Fi: " + exception.Message;
             }
             finally
             {
-                IsGenerating = false;
+                if (IsCurrentShare(generation)) IsGenerating = false;
             }
         }
 
@@ -200,6 +223,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             if (completing) return;
             completing = true;
             countdownTimer.Stop();
+            InvalidateShareUi();
             try
             {
                 var session = context.Session;

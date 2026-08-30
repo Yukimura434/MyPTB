@@ -48,6 +48,21 @@ namespace PhotoBooth.UnitTests
             }
             finally{Directory.Delete(root,true);}
         }
+        [Fact]
+        public async Task Truncated_mp4_header_is_rejected_without_changing_asset_contract()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var picture=Asset(root,"p.jpg",CaptureAssetTypes.Picture,"image-1",Encoding.ASCII.GetBytes("picture"));
+                var video=Asset(root,"p.mp4",CaptureAssetTypes.Video,"image-1",new byte[]{0,0,0,8,(byte)'f',(byte)'t',(byte)'y',(byte)'p'});
+                var composite=Asset(root,"final.png",CaptureAssetTypes.Composite,null,Encoding.ASCII.GetBytes("composite"));composite.SourceAssetIds=new[]{picture.Id};
+                var compositeVideo=Asset(root,"final.mp4",CaptureAssetTypes.CompositeVideo,null,Mp4());compositeVideo.SourceAssetIds=new[]{video.Id};
+                var capture=new PhotoCapture{Id="capture",MediaMode=CaptureMediaModes.PictureAndVideo,Photos=new[]{picture,video,composite,compositeVideo}};foreach(var asset in capture.Photos)asset.CaptureId=capture.Id;
+                await Assert.ThrowsAsync<InvalidDataException>(()=>new CaptureIntegrityService().ValidateAsync(capture,CancellationToken.None));
+            }
+            finally{Directory.Delete(root,true);}
+        }
         static CapturePhoto Asset(string root,string name,string type,string imageId,byte[] bytes){var path=Path.Combine(root,name);File.WriteAllBytes(path,bytes);return new CapturePhoto{Id=Guid.NewGuid().ToString("N"),CapturedImageId=imageId,LocalPath=path,PhotoType=type,FileLength=bytes.Length,ContentHashSha256=Hash(bytes),SourceAssetIds=new string[0]};}
         static byte[] Mp4()=>new byte[]{0,0,0,24,(byte)'f',(byte)'t',(byte)'y',(byte)'p',(byte)'i',(byte)'s',(byte)'o',(byte)'m'};
         static string Hash(byte[] bytes){using(var sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-",string.Empty).ToLowerInvariant();}
