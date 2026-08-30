@@ -90,7 +90,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             CancelCommand = new RelayCommand(BackToPreview);
             printCommand = new AsyncCommand(RunFinishTracked, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
-            RetryCommand = new AsyncCommand(UpdatePreview);
+            RetryCommand = new AsyncCommand(StartPreviewOperation);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
             SelectPhotoCommand = new ParameterCommand(value => SelectPhoto(value as CapturedPhotoChoice));
             SelectSlotCommand = new ParameterCommand(value => SelectSlot(value as FrameSlotChoice));
@@ -216,7 +216,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         void BackToPreview()
         {
             if (IsPrinting) return;
-            previewCancellation?.Cancel();
+            lock (previewCancellationSync) previewCancellation?.Cancel();
             machine.MoveTo(CustomerWorkflowState.Preview);
         }
 
@@ -253,15 +253,20 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         void QueuePreview()
         {
+            _ = StartPreviewOperation();
+        }
+
+        Task StartPreviewOperation()
+        {
             Task task;
             lock (operationSync)
             {
-                if (pageStopping) return;
+                if (pageStopping) return Task.CompletedTask;
                 task = UpdatePreview();
                 previewTask = task;
                 previewOperations.Add(task);
             }
-            _ = ObservePreview(task);
+            return ObservePreview(task);
         }
 
         async Task ObservePreview(Task task)
@@ -347,7 +352,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             try
             {
-                ErrorMessage = null; IsPrinting = true; previewCancellation?.Cancel();
+                ErrorMessage = null; IsPrinting = true;
+                lock (previewCancellationSync) previewCancellation?.Cancel();
                 var transformedFrame = FrameWithTransforms();
                 var slotShotIds = FrameSlots.ToDictionary(
                     x => x.Slot.Index,
