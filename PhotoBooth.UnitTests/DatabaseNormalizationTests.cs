@@ -82,5 +82,15 @@ CREATE TRIGGER TR_CapturePhotos_Validate_Update BEFORE UPDATE ON CapturePhotos B
    var loaded=await repository.GetAsync(sessionId,CancellationToken.None);var shot=Assert.Single(loaded.CapturedShots);Assert.Equal("new",shot.Id);Assert.Equal(replacement.PicturePath,shot.PicturePath);Assert.Equal(replacement.VideoPath,shot.VideoPath);Assert.Equal(1,shot.Sequence);
    using(var c=db.OpenConnection()){using(var q=c.CreateCommand()){q.CommandText="SELECT COUNT(*) FROM CapturedImages WHERE Id='old'";Assert.Equal(0,Convert.ToInt32(q.ExecuteScalar()));}using(var q=c.CreateCommand()){q.CommandText="PRAGMA foreign_key_check";using(var reader=q.ExecuteReader())Assert.False(reader.Read());}}
   }
+
+  [Fact] public async Task Settings_save_rolls_back_workflow_when_production_write_fails()
+  {
+   var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var repository=new SqliteSettingsRepository(db);
+   var original=new Settings{Culture="en",Theme="original"};await repository.SaveAsync(original,CancellationToken.None);
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="CREATE TRIGGER FailProductionSettings BEFORE INSERT ON ProductionSettings WHEN NEW.Theme='force-failure' BEGIN SELECT RAISE(ABORT,'forced settings failure'); END;";q.ExecuteNonQuery();}
+   var changed=await repository.GetAsync(CancellationToken.None);changed.Culture="vi";changed.Theme="force-failure";
+   await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(()=>repository.SaveAsync(changed,CancellationToken.None));
+   var loaded=await repository.GetAsync(CancellationToken.None);Assert.Equal("en",loaded.Culture);Assert.Equal("original",loaded.Theme);
+  }
  }
 }
