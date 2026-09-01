@@ -232,6 +232,7 @@ namespace PhotoBooth.Infrastructure.Services
                 using (var process = Process.Start(start))
                 {
                     if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
+                    TryLowerPriority(process);
                     var stdout = process.StandardOutput.ReadToEndAsync();
                     var stderr = process.StandardError.ReadToEndAsync();
                     var elapsed = Stopwatch.StartNew();
@@ -280,6 +281,7 @@ namespace PhotoBooth.Infrastructure.Services
                 using (var process = Process.Start(start))
                 {
                     if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
+                    TryLowerPriority(process);
                     var stdout = process.StandardOutput.ReadToEndAsync();
                     var stderr = process.StandardError.ReadToEndAsync();
                     var elapsed = Stopwatch.StartNew();
@@ -518,6 +520,12 @@ namespace PhotoBooth.Infrastructure.Services
                         stage, itemCount, bufferedBytes / 1048576d, process.WorkingSet64 / 1048576d, process.PrivateMemorySize64 / 1048576d, GC.GetTotalMemory(false) / 1048576d);
             }
             catch { }
+        }
+
+        void TryLowerPriority(Process process)
+        {
+            try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
+            catch (Exception exception) { log?.LogDebug(exception, "Video encoder priority could not be lowered"); }
         }
 
         void LogChildPeak(string stage, Process process)

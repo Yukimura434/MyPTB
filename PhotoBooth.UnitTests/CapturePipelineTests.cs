@@ -232,7 +232,7 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
-        public async Task CapturePendingAsync_defers_image_processing_and_session_commit_until_finalize()
+        public async Task ProcessPendingAsync_finishes_media_before_atomic_session_commit()
         {
             var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
             try
@@ -248,9 +248,16 @@ namespace PhotoBooth.UnitTests
                 Assert.Empty(events);
                 Assert.Empty(sessions.Session.CapturedShots);
 
-                var finalized=await pipeline.FinalizePendingAsync(sessions.Session.Id,new[]{pending},CancellationToken.None);
+                await pipeline.ProcessPendingAsync(pending,CancellationToken.None);
 
                 Assert.Equal(new[]{"beauty","lut"},events);
+                Assert.True(pending.IsProcessed);
+                Assert.True(File.Exists(pending.RawPicturePath));
+                Assert.True(File.Exists(pending.PicturePath));
+                Assert.Empty(sessions.Session.CapturedShots);
+
+                var finalized=await pipeline.CommitProcessedAsync(sessions.Session.Id,new[]{pending},CancellationToken.None);
+
                 Assert.Single(finalized);
                 Assert.Single(sessions.Session.CapturedShots);
                 Assert.False(File.Exists(pending.RawPicturePath));

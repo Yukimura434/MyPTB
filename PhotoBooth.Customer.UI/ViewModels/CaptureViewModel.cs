@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
@@ -43,6 +44,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
         CancellationTokenSource workflowCts;
         readonly object workflowSync = new object();
         Task activeWorkflowTask = Task.CompletedTask;
+        readonly object processingSync = new object();
+        CancellationTokenSource processingCts;
+        Task processingTail = Task.CompletedTask;
         byte[] liveImage;
         readonly SemaphoreSlim cameraGate = new SemaphoreSlim(1, 1);
         readonly SemaphoreSlim liveGate = new SemaphoreSlim(1, 1);
@@ -248,6 +252,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     var pending = await CapturePendingWithShutterAsync(context.BoothSession.Id, cameraId, null, token);
                     log.LogInformation("Physical capture completed {Current}/{Total}", i, TotalPhotos);
                     context.PendingCaptures.Add(pending);
+                    QueuePendingProcessing(pending);
                     CapturedImages.Clear();
                     foreach (var shot in context.PendingCaptures) CapturedImages.Add(shot.RawPicturePath);
                     log.LogInformation("Capture finished {Current}/{Total}", i, TotalPhotos);
@@ -310,6 +315,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 log.LogInformation("Manual physical capture and shutter effect starting {Current}/{Total}", CurrentPhoto, TotalPhotos);
                 var pending = await CapturePendingWithShutterAsync(context.BoothSession.Id, cameraId, 3, token);
                 context.PendingCaptures.Add(pending);
+                QueuePendingProcessing(pending);
                 CapturedImages.Clear();
                 foreach (var shot in context.PendingCaptures) CapturedImages.Add(shot.RawPicturePath);
 
@@ -350,6 +356,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             await sessions.UpdateAsync(context.BoothSession, token);
             CapturedImages.Clear();
             TotalPhotos = Math.Max(1, Math.Min(8, context.Settings.PhotoCount));
+            StartPendingProcessing(token);
         }
 
         async Task Retake()
@@ -363,6 +370,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try
             {
                 ErrorMessage = null; TotalPhotos = selected.Count;
+                StartPendingProcessing(token);
                 for (var sequence = 0; sequence < selected.Count; sequence++)
                 {
                     var position = selected[sequence]; CurrentPhoto = sequence + 1;
@@ -371,10 +379,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     var pending=await CapturePendingWithShutterAsync(context.BoothSession.Id,cameraId,null,token);
                     log.LogInformation("Physical retake completed {Current}/{Total}", sequence + 1, selected.Count);
                     context.PendingCaptures.Add(pending);
+                    QueuePendingProcessing(pending);
                     if (sequence < selected.Count - 1) machine.MoveTo(CustomerWorkflowState.InterShotDelay);
                 }
                 StatusMessage="Processing retakes…";
-                var replacements=await capturePipeline.FinalizePendingAsync(context.BoothSession.Id,context.PendingCaptures.ToList(),token);
+                var replacements=await CompletePendingProcessingAsync(token);
                 context.PendingCaptures.Clear();
                 context.BoothSession=await sessions.GetAsync(context.BoothSession.Id,token);
                 await ReplaceCapturesAsync(selected,replacements);
@@ -555,12 +564,77 @@ namespace PhotoBooth.Customer.UI.ViewModels
         async Task FinalizePendingCapturesAsync(CancellationToken token)
         {
             StatusMessage="Processing photos…";
-            var finalized=await capturePipeline.FinalizePendingAsync(context.BoothSession.Id,context.PendingCaptures.ToList(),token);
+            var finalized=await CompletePendingProcessingAsync(token);
             context.PendingCaptures.Clear();
             context.BoothSession=await sessions.GetAsync(context.BoothSession.Id,token);
             context.CurrentShots.AddRange(finalized);
             CapturedImages.Clear();
             foreach(var shot in context.CurrentShots)CapturedImages.Add(shot.PicturePath);
+        }
+
+        void StartPendingProcessing(CancellationToken workflowToken)
+        {
+            lock(processingSync)
+            {
+                if(processingTail!=null&&!processingTail.IsCompleted)throw new InvalidOperationException("A previous capture-processing batch is still active.");
+                if(processingTail?.IsFaulted==true)log.LogDebug(processingTail.Exception,"Previous capture-processing batch ended with an observed error");
+                processingCts?.Dispose();
+                processingCts=CancellationTokenSource.CreateLinkedTokenSource(workflowToken);
+                processingTail=Task.CompletedTask;
+            }
+        }
+
+        void QueuePendingProcessing(PendingCapture pending)
+        {
+            if(pending==null)throw new ArgumentNullException(nameof(pending));
+            lock(processingSync)
+            {
+                if(processingCts==null)throw new InvalidOperationException("The capture-processing batch has not been started.");
+                var previous=processingTail;
+                var token=processingCts.Token;
+                processingTail=ProcessPendingAfterAsync(previous,pending,token);
+            }
+        }
+
+        async Task ProcessPendingAfterAsync(Task previous,PendingCapture pending,CancellationToken token)
+        {
+            await previous.ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            log.LogInformation("Deferred image/video processing starting for capture {CaptureId}",pending.Id);
+            await capturePipeline.ProcessPendingAsync(pending,token).ConfigureAwait(false);
+            log.LogInformation("Deferred image/video processing completed for capture {CaptureId}",pending.Id);
+        }
+
+        async Task<IReadOnlyList<CapturedShot>> CompletePendingProcessingAsync(CancellationToken token)
+        {
+            Task tail;
+            CancellationTokenSource cts;
+            lock(processingSync){tail=processingTail??Task.CompletedTask;cts=processingCts;}
+            await tail.ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var result=await capturePipeline.CommitProcessedAsync(context.BoothSession.Id,context.PendingCaptures.ToList(),token).ConfigureAwait(false);
+            lock(processingSync)
+            {
+                if(ReferenceEquals(processingTail,tail)){processingTail=Task.CompletedTask;processingCts=null;}
+            }
+            cts?.Dispose();
+            return result;
+        }
+
+        async Task CancelPendingProcessingAsync()
+        {
+            Task tail;
+            CancellationTokenSource cts;
+            lock(processingSync){tail=processingTail??Task.CompletedTask;cts=processingCts;}
+            try{cts?.Cancel();}catch(ObjectDisposedException){}
+            try{await tail.ConfigureAwait(false);}
+            catch(OperationCanceledException){}
+            catch(Exception exception){log.LogDebug(exception,"Deferred capture processing stopped during cleanup");}
+            lock(processingSync)
+            {
+                if(ReferenceEquals(processingTail,tail)){processingTail=Task.CompletedTask;processingCts=null;}
+            }
+            cts?.Dispose();
         }
         static double AverageMilliseconds(long ticks,int count)=>count<=0?0d:ticks*1000d/Stopwatch.Frequency/count;
         static int FrameSignature(byte[] data){unchecked{var hash=data.Length;var step=Math.Max(1,data.Length/32);for(var i=0;i<data.Length;i+=step)hash=(hash*397)^data[i];return hash;}}
@@ -595,7 +669,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 cts?.Dispose();
             }
         }
-        async Task CleanupTemporary() { var session=context.BoothSession;if(session==null)return;await capturePipeline.DiscardPendingAsync(context.PendingCaptures.ToList(),"Customer flow ended before deferred processing completed.",CancellationToken.None);context.PendingCaptures.Clear();BoothSessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.AbandonAsync(session,"Customer flow ended before a deliverable was committed.",CancellationToken.None);await Task.Run(()=>BoothSessionWorkspace.Cleanup(session));context.CurrentShots.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.BoothSession=null; }
+        async Task CleanupTemporary() { await CancelPendingProcessingAsync();var session=context.BoothSession;if(session==null)return;await capturePipeline.DiscardPendingAsync(context.PendingCaptures.ToList(),"Customer flow ended before deferred processing completed.",CancellationToken.None);context.PendingCaptures.Clear();BoothSessionWorkspace.ReplaceWorkspaceFiles(session,new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase));await sessions.AbandonAsync(session,"Customer flow ended before a deliverable was committed.",CancellationToken.None);await Task.Run(()=>BoothSessionWorkspace.Cleanup(session));context.CurrentShots.Clear();context.WorkingDirectory=null;CapturedImages.Clear();context.BoothSession=null; }
         async Task ReplaceCapturesAsync(System.Collections.Generic.IReadOnlyList<int> positions,System.Collections.Generic.IReadOnlyList<CapturedShot> replacements)
         {
             if(positions==null||replacements==null||positions.Count!=replacements.Count)throw new ArgumentException("Retake positions and captures must have matching counts.");

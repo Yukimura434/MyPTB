@@ -31,6 +31,7 @@ namespace PhotoBooth.Core.Models
         public Guid? ColorPresetId { get; set; }
         public BeautySettings BeautySettings { get; set; }
         public bool IsTracked { get; set; }
+        public bool IsProcessed { get; set; }
         public bool IsFinalized { get; set; }
     }
 

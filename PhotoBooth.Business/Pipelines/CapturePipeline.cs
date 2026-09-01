@@ -123,22 +123,57 @@ namespace PhotoBooth.Business.Pipelines
         {
             if(captures==null)throw new ArgumentNullException(nameof(captures));
             var pendingCaptures=captures.Where(x=>x!=null&&!x.IsFinalized).ToList();
-            var result=new List<CapturedShot>(pendingCaptures.Count);
             try
             {
-                // Complete every CPU/disk-heavy operation before writing the batch
-                // to CapturedImages. A processing failure therefore cannot leave a
-                // partially committed set of booth photos.
                 foreach(var pending in pendingCaptures)
                 {
                     token.ThrowIfCancellationRequested();
-                    result.Add(await ProcessOneAsync(pending,token).ConfigureAwait(false));
+                    await ProcessPendingAsync(pending,token).ConfigureAwait(false);
                 }
+                return await CommitProcessedAsync(sessionId,pendingCaptures,token).ConfigureAwait(false);
+            }
+            catch(Exception exception)
+            {
+                // CommitProcessedAsync owns compensation once every item is ready.
+                // A failure before that point still needs the same batch cleanup.
+                if(pendingCaptures.Any(x=>!x.IsProcessed))await FailBatchAsync(pendingCaptures,exception).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        public async Task ProcessPendingAsync(PendingCapture pending,CancellationToken token)
+        {
+            if(pending==null)throw new ArgumentNullException(nameof(pending));
+            if(pending.IsFinalized||pending.IsProcessed)return;
+            try
+            {
+                await ProcessOneAsync(pending,token).ConfigureAwait(false);
+                pending.IsProcessed=true;
+            }
+            catch
+            {
+                DeleteFile(pending.PicturePath);DeleteFile(pending.VideoPath);
+                throw;
+            }
+            finally{DeleteFile(pending.RawPicturePath+".video-source.jpg");DeleteDirectory(pending.VideoSnapshotPath);}
+        }
+
+        public async Task<IReadOnlyList<CapturedShot>> CommitProcessedAsync(Guid sessionId,IReadOnlyList<PendingCapture> captures,CancellationToken token)
+        {
+            if(captures==null)throw new ArgumentNullException(nameof(captures));
+            var pendingCaptures=captures.Where(x=>x!=null&&!x.IsFinalized).ToList();
+            if(pendingCaptures.Any(x=>!x.IsProcessed))throw new InvalidOperationException("Every pending capture must finish processing before the batch can be committed.");
+            var result=pendingCaptures.Select(CreateCapturedShot).ToList();
+            try
+            {
                 foreach(var pending in pendingCaptures.Where(x=>x.IsTracked))
                 {
                     await SaveAsset(sessionId,pending.Id,pending.PictureAssetId,MediaAssetKinds.OriginalPicture,pending.PicturePath,"image/jpeg",token).ConfigureAwait(false);
                     if(!string.IsNullOrWhiteSpace(pending.VideoPath))await SaveAsset(sessionId,pending.Id,pending.VideoAssetId,MediaAssetKinds.OriginalVideo,pending.VideoPath,"video/mp4",token).ConfigureAwait(false);
                 }
+                // CapturedImages remains all-or-nothing: processing may overlap the
+                // next countdown, but the database is written only after the full
+                // batch has completed successfully.
                 await sessions.AddCapturedShotsAsync(sessionId,result,token).ConfigureAwait(false);
                 foreach(var pending in pendingCaptures)pending.IsFinalized=true;
                 foreach(var pending in pendingCaptures.Where(x=>x.IsTracked))
@@ -148,13 +183,7 @@ namespace PhotoBooth.Business.Pipelines
             }
             catch(Exception exception)
             {
-                foreach(var pending in pendingCaptures.Where(x=>x.IsTracked))
-                {
-                    try{await captureAttempts.MarkFailedAsync(pending.Id,exception.Message,false,CancellationToken.None).ConfigureAwait(false);}catch(Exception recordError){log?.LogError(recordError,"Capture attempt {AttemptId} failure could not be checkpointed",pending.Id);}
-                    try{await mediaAssets.MarkDeletedAsync(pending.PictureAssetId,CancellationToken.None).ConfigureAwait(false);}catch{}
-                    try{await mediaAssets.MarkDeletedAsync(pending.VideoAssetId,CancellationToken.None).ConfigureAwait(false);}catch{}
-                }
-                foreach(var pending in pendingCaptures)DeletePendingFiles(pending);
+                await FailBatchAsync(pendingCaptures,exception).ConfigureAwait(false);
                 throw;
             }
             finally
@@ -167,7 +196,7 @@ namespace PhotoBooth.Business.Pipelines
             }
         }
 
-        async Task<CapturedShot> ProcessOneAsync(PendingCapture pending,CancellationToken token)
+        async Task ProcessOneAsync(PendingCapture pending,CancellationToken token)
         {
             if(!File.Exists(pending.RawPicturePath))throw new FileNotFoundException("The pending camera image is unavailable.",pending.RawPicturePath);
             var videoEnabled=!string.IsNullOrWhiteSpace(pending.VideoPath);
@@ -189,7 +218,19 @@ namespace PhotoBooth.Business.Pipelines
                 else
                     await videos.CreateAsync(videoSource,pending.VideoPath,pending.CapturedAtUtc,pending.VideoDurationSeconds,pending.FlipHorizontally,pending.RotationDegrees,token).ConfigureAwait(false);
             }
-            return new CapturedShot{Id=pending.Id,Sequence=pending.Sequence,PicturePath=pending.PicturePath,VideoPath=videoEnabled?pending.VideoPath:null,PictureAssetId=pending.PictureAssetId,VideoAssetId=pending.VideoAssetId,CapturedAtUtc=pending.CapturedAtUtc};
+        }
+
+        static CapturedShot CreateCapturedShot(PendingCapture pending)=>new CapturedShot{Id=pending.Id,Sequence=pending.Sequence,PicturePath=pending.PicturePath,VideoPath=string.IsNullOrWhiteSpace(pending.VideoPath)?null:pending.VideoPath,PictureAssetId=pending.PictureAssetId,VideoAssetId=pending.VideoAssetId,CapturedAtUtc=pending.CapturedAtUtc};
+
+        async Task FailBatchAsync(IReadOnlyList<PendingCapture> captures,Exception exception)
+        {
+            foreach(var pending in captures.Where(x=>x.IsTracked))
+            {
+                try{await captureAttempts.MarkFailedAsync(pending.Id,exception.Message,false,CancellationToken.None).ConfigureAwait(false);}catch(Exception recordError){log?.LogError(recordError,"Capture attempt {AttemptId} failure could not be checkpointed",pending.Id);}
+                try{await mediaAssets.MarkDeletedAsync(pending.PictureAssetId,CancellationToken.None).ConfigureAwait(false);}catch{}
+                try{await mediaAssets.MarkDeletedAsync(pending.VideoAssetId,CancellationToken.None).ConfigureAwait(false);}catch{}
+            }
+            foreach(var pending in captures)DeletePendingFiles(pending);
         }
 
         public async Task DiscardPendingAsync(IReadOnlyList<PendingCapture> captures,string reason,CancellationToken token)
@@ -222,8 +263,7 @@ namespace PhotoBooth.Business.Pipelines
         {
             if (!autoFlip && rotationDegrees == 0)
             {
-                if (File.Exists(destination)) File.Delete(destination);
-                File.Move(staging, destination);
+                File.Copy(staging, destination, true);
                 return;
             }
             using (var image = System.Drawing.Bitmap.FromFile(staging))
