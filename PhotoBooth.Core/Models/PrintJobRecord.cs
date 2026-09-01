@@ -7,6 +7,8 @@ namespace PhotoBooth.Core.Models
         public Guid Id { get; set; }
         public Guid? SessionId { get; set; }
         public string CaptureId { get; set; }
+        public Guid? BoothSessionId { get => SessionId; set => SessionId=value; }
+        public string DeliverableId { get => CaptureId; set => CaptureId=value; }
         public Guid? PrinterProfileId { get; set; }
         public string PrinterName { get; set; }
         public int Copies { get; set; } = 1;

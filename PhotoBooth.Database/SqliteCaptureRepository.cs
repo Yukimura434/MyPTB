@@ -8,11 +8,11 @@ using PhotoBooth.Core.Persistence;
 
 namespace PhotoBooth.Database
 {
-    public sealed class SqliteCaptureRepository : ICaptureRepository
+    public class SqliteDeliverableRepository : ICaptureRepository, IDeliverableRepository
     {
         private readonly SqliteDatabase database;
 
-        public SqliteCaptureRepository(SqliteDatabase database) { this.database = database; }
+        public SqliteDeliverableRepository(SqliteDatabase database) { this.database = database; }
 
         public Task<PhotoCapture> GetAsync(string captureId, CancellationToken token)
         {
@@ -161,5 +161,24 @@ ON CONFLICT(Id) DO UPDATE SET CapturedImageId=excluded.CapturedImageId,LocalPath
         static string Text(SqliteDataReader reader, int index) => reader.IsDBNull(index) ? null : reader.GetString(index);
         static DateTime Parse(string value) => DateTime.Parse(value).ToUniversalTime();
         static DateTime? NullableDate(SqliteDataReader reader, int index) => reader.IsDBNull(index) ? (DateTime?)null : Parse(reader.GetString(index));
+        async Task<Deliverable> IDeliverableRepository.GetAsync(string deliverableId,CancellationToken token)=>ToDeliverable(await GetAsync(deliverableId,token).ConfigureAwait(false));
+        async Task<Deliverable> IDeliverableRepository.GetAsync(Guid boothSessionId,string deliverableId,CancellationToken token)=>ToDeliverable(await GetAsync(boothSessionId,deliverableId,token).ConfigureAwait(false));
+        async Task<IReadOnlyList<Deliverable>> IDeliverableRepository.GetByBoothSessionAsync(Guid boothSessionId,CancellationToken token)
+        {
+            var values=await GetBySessionAsync(boothSessionId,token).ConfigureAwait(false);var result=new List<Deliverable>();foreach(var value in values)result.Add(ToDeliverable(value));return result;
+        }
+        Task IDeliverableRepository.SaveAsync(Deliverable deliverable,CancellationToken token)=>SaveAsync(deliverable,token);
+        static Deliverable ToDeliverable(PhotoCapture value)
+        {
+            if(value==null)return null;
+            var assets=new List<DeliverableAsset>();
+            foreach(var photo in value.Photos??new CapturePhoto[0])assets.Add(new DeliverableAsset{Id=photo.Id,DeliverableId=photo.CaptureId,CapturedShotId=photo.CapturedImageId,LocalPath=photo.LocalPath,Role=photo.PhotoType,Position=photo.Position,MimeType=photo.MimeType,FileLength=photo.FileLength,ContentHashSha256=photo.ContentHashSha256,CreatedAtUtc=photo.CreatedAtUtc,AssetStatus=photo.AssetStatus,SourceAssetIds=photo.SourceAssetIds,CloudinaryPublicId=photo.CloudinaryPublicId,IsUploaded=photo.IsUploaded,UploadAttempts=photo.UploadAttempts,UploadedAtUtc=photo.UploadedAtUtc,LastError=photo.LastError});
+            return new Deliverable{Id=value.Id,BoothSessionId=value.SessionId,FrameId=value.FrameId,CompositeImageId=value.CompositeImageId,CompositePath=value.CompositePath,SharePath=value.SharePath,Status=value.Status,MediaMode=value.MediaMode,UploadAttempts=value.UploadAttempts,CreatedAtUtc=value.CreatedAtUtc,UploadedAtUtc=value.UploadedAtUtc,ExpiresAtUtc=value.ExpiresAtUtc,LastError=value.LastError,Assets=assets};
+        }
+    }
+
+    public sealed class SqliteCaptureRepository : SqliteDeliverableRepository
+    {
+        public SqliteCaptureRepository(SqliteDatabase database):base(database){}
     }
 }

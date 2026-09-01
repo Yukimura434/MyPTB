@@ -60,6 +60,34 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
+        public async Task Deferred_snapshot_can_encode_after_live_view_buffer_is_cleared()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var still=Path.Combine(root,"still.jpg");var destination=Path.Combine(root,"deferred.mp4");var snapshot=Path.Combine(root,"frames");
+                byte[] frame;
+                using(var bitmap=new Bitmap(64,64))
+                {
+                    using(var graphics=Graphics.FromImage(bitmap))graphics.Clear(Color.CornflowerBlue);
+                    using(var stream=new MemoryStream()){bitmap.Save(stream,ImageFormat.Jpeg);frame=stream.ToArray();}
+                    bitmap.Save(still,ImageFormat.Jpeg);
+                }
+                var service=new VideoService();var shutter=DateTime.UtcNow;
+                for(var i=0;i<=54;i++)service.AddLiveViewFrame(frame,shutter.AddSeconds(-3).AddTicks(TimeSpan.TicksPerSecond*i/18));
+
+                await service.SnapshotAsync(snapshot,shutter,3,CancellationToken.None);
+                service.ClearLiveViewFrames();
+                await service.CreateFromSnapshotAsync(still,destination,snapshot,false,0,CancellationToken.None);
+
+                Assert.True(File.Exists(destination));
+                Assert.True(new FileInfo(destination).Length>12);
+                Assert.Equal(4,Find(File.ReadAllBytes(destination),Encoding.ASCII.GetBytes("ftyp")));
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
+        [Fact]
         public void Live_view_buffer_is_bounded_and_can_be_released()
         {
             var service = new VideoService();

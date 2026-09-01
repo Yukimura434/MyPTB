@@ -10,8 +10,14 @@ namespace PhotoBooth.Business.Services
     {
         readonly IBeautySettingsRepository repository;
         public BeautySettingsService(IBeautySettingsRepository value) { repository = value; }
+        public event EventHandler<BeautySettingsChangedEventArgs> SettingsChanged;
         public async Task<BeautySettings> GetAsync(CancellationToken token) => Normalize(await repository.GetAsync(token).ConfigureAwait(false));
-        public Task SaveAsync(BeautySettings value, CancellationToken token) => repository.SaveAsync(Normalize(value), token);
+        public async Task SaveAsync(BeautySettings value, CancellationToken token)
+        {
+            var normalized = Normalize(value);
+            await repository.SaveAsync(normalized, token).ConfigureAwait(false);
+            SettingsChanged?.Invoke(this, new BeautySettingsChangedEventArgs(normalized));
+        }
         static BeautySettings Normalize(BeautySettings value)
         {
             value = value?.Clone() ?? new BeautySettings();

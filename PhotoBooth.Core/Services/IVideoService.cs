@@ -14,4 +14,10 @@ namespace PhotoBooth.Core.Services
         Task ComposeAsync(string stillCompositePath, Frame frame, IReadOnlyDictionary<int, string> slotAssignments, string destinationPath, CancellationToken token);
         Task<string> CreatePreviewVideoAsync(string videoPath, string previewDirectory, CancellationToken token);
     }
+
+    public interface IDeferredVideoService
+    {
+        Task<string> SnapshotAsync(string destinationDirectory, DateTime shutterTimestampUtc, int durationSeconds, CancellationToken token);
+        Task CreateFromSnapshotAsync(string stillImagePath, string destinationPath, string snapshotDirectory, bool flipHorizontally, int rotationDegrees, CancellationToken token);
+    }
 }

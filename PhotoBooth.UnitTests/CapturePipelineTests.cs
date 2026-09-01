@@ -231,6 +231,74 @@ namespace PhotoBooth.UnitTests
             finally{Directory.Delete(root,true);}
         }
 
+        [Fact]
+        public async Task CapturePendingAsync_defers_image_processing_and_session_commit_until_finalize()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var events=new List<string>();
+                var sessions=new FakeSessionRepository(new Session{Id=Guid.NewGuid(),PresetId=Guid.NewGuid(),SessionNumber=11,OutputDirectory=root,StartedAtUtc=DateTime.UtcNow});
+                var pipeline=new CapturePipeline(new CapturingCamera(),sessions,new FakeSettingsService(new Settings()),new FakeVideoService(),new OrderedLutService(events),null,new FakeBeautySettingsService(true),new OrderedBeautyService(events));
+
+                var pending=await pipeline.CapturePendingAsync(sessions.Session.Id,"cam",root,false,3,CancellationToken.None);
+
+                Assert.True(File.Exists(pending.RawPicturePath));
+                Assert.False(File.Exists(pending.PicturePath));
+                Assert.Empty(events);
+                Assert.Empty(sessions.Session.CapturedShots);
+
+                var finalized=await pipeline.FinalizePendingAsync(sessions.Session.Id,new[]{pending},CancellationToken.None);
+
+                Assert.Equal(new[]{"beauty","lut"},events);
+                Assert.Single(finalized);
+                Assert.Single(sessions.Session.CapturedShots);
+                Assert.False(File.Exists(pending.RawPicturePath));
+                Assert.True(File.Exists(pending.PicturePath));
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
+        [Fact]
+        public async Task DiscardPendingAsync_removes_unprocessed_capture_without_committing_session()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var sessions=new FakeSessionRepository(new Session{Id=Guid.NewGuid(),SessionNumber=12,OutputDirectory=root,StartedAtUtc=DateTime.UtcNow});
+                var pipeline=new CapturePipeline(new CapturingCamera(),sessions,new FakeSettingsService(new Settings()),new FakeVideoService());
+                var pending=await pipeline.CapturePendingAsync(sessions.Session.Id,"cam",root,false,3,CancellationToken.None);
+
+                await pipeline.DiscardPendingAsync(new[]{pending},"test cleanup",CancellationToken.None);
+
+                Assert.False(File.Exists(pending.RawPicturePath));
+                Assert.Empty(sessions.Session.CapturedShots);
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
+        [Fact]
+        public async Task FinalizePendingAsync_processing_failure_does_not_commit_partial_batch()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var sessions=new FakeSessionRepository(new Session{Id=Guid.NewGuid(),PresetId=Guid.NewGuid(),SessionNumber=13,OutputDirectory=root,StartedAtUtc=DateTime.UtcNow});
+                var pipeline=new CapturePipeline(new CapturingCamera(),sessions,new FakeSettingsService(new Settings()),new FakeVideoService(),new FailingSecondLutService());
+                var first=await pipeline.CapturePendingAsync(sessions.Session.Id,"cam",root,false,3,CancellationToken.None);
+                var second=await pipeline.CapturePendingAsync(sessions.Session.Id,"cam",root,false,3,CancellationToken.None);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>pipeline.FinalizePendingAsync(sessions.Session.Id,new[]{first,second},CancellationToken.None));
+
+                Assert.Empty(sessions.Session.CapturedShots);
+                Assert.False(File.Exists(first.PicturePath));
+                Assert.False(File.Exists(second.PicturePath));
+                Assert.False(File.Exists(first.RawPicturePath));
+                Assert.False(File.Exists(second.RawPicturePath));
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
         static void AssertNear(Color expected, Color actual, int tolerance = 30)
         {
             Assert.InRange(Math.Abs(actual.R - expected.R), 0, tolerance);
@@ -275,17 +343,19 @@ namespace PhotoBooth.UnitTests
             public Task SaveAsync(Session s, CancellationToken t) { Session = s; return Task.CompletedTask; }
             public Task SetDefaultAsync(Guid id, CancellationToken t) => Task.CompletedTask;
             public Task<int> GetNextCaptureSequenceAsync(Guid id, CancellationToken t) => Task.FromResult(1);
-            public Task AddCapturedShotAsync(Guid sessionId, CapturedShot shot, CancellationToken t)
+            public Task AddCapturedShotAsync(Guid sessionId, CapturedShot shot, CancellationToken t) => AddCapturedShotsAsync(sessionId,new[]{shot},t);
+            public Task AddCapturedShotsAsync(Guid sessionId, IReadOnlyList<CapturedShot> added, CancellationToken t)
             {
-                Session.CapturedShots = (Session.CapturedShots ?? Array.Empty<CapturedShot>()).Concat(new[] { shot }).OrderBy(x => x.Sequence).ToArray();
+                Session.CapturedShots = (Session.CapturedShots ?? Array.Empty<CapturedShot>()).Concat(added ?? Array.Empty<CapturedShot>()).OrderBy(x => x.Sequence).ToArray();
                 Project();
                 return Task.CompletedTask;
             }
-            public Task ReplaceCapturedShotAsync(Guid sessionId, string previousShotId, CapturedShot replacement, CancellationToken t)
+            public Task ReplaceCapturedShotAsync(Guid sessionId,string previousShotId,CapturedShot replacement,CancellationToken t)=>ReplaceCapturedShotsAsync(sessionId,new Dictionary<string,CapturedShot>{{previousShotId,replacement}},t);
+            public Task ReplaceCapturedShotsAsync(Guid sessionId,IReadOnlyDictionary<string,CapturedShot> replacements,CancellationToken t)
             {
-                var shots = (Session.CapturedShots ?? Array.Empty<CapturedShot>()).Where(x => x.Id == previousShotId || x.Id != replacement.Id).ToList();
-                var index = shots.FindIndex(x => x.Id == previousShotId); if (index < 0) throw new InvalidOperationException("Captured shot not found.");
-                shots[index] = replacement; Session.CapturedShots = shots.OrderBy(x => x.Sequence).ToArray(); Project(); return Task.CompletedTask;
+                var shots=(Session.CapturedShots??Array.Empty<CapturedShot>()).ToList();
+                foreach(var replacement in replacements){shots.RemoveAll(x=>x.Id==replacement.Value.Id&&x.Id!=replacement.Key);var index=shots.FindIndex(x=>x.Id==replacement.Key);if(index<0)throw new InvalidOperationException("Captured shot not found.");shots[index]=replacement.Value;}
+                Session.CapturedShots=shots.OrderBy(x=>x.Sequence).ToArray();Project();return Task.CompletedTask;
             }
             void Project() { var shots = Session.CapturedShots ?? Array.Empty<CapturedShot>(); Session.CapturedFiles = shots.Select(x => x.PicturePath).ToArray(); Session.CapturedVideoFiles = shots.Where(x => x.HasVideo).Select(x => x.VideoPath).ToArray(); Session.CapturedImageIds = shots.Select(x => x.Id).ToArray(); }
         }
@@ -307,8 +377,9 @@ namespace PhotoBooth.UnitTests
         sealed class FakeBeautySettingsService:IBeautySettingsService
         {
             readonly bool enabled;public FakeBeautySettingsService(bool value){enabled=value;}
+            public event EventHandler<BeautySettingsChangedEventArgs> SettingsChanged;
             public Task<BeautySettings> GetAsync(CancellationToken t)=>Task.FromResult(new BeautySettings{Enabled=enabled,SmoothSkin=30});
-            public Task SaveAsync(BeautySettings value,CancellationToken t)=>Task.CompletedTask;
+            public Task SaveAsync(BeautySettings value,CancellationToken t){SettingsChanged?.Invoke(this,new BeautySettingsChangedEventArgs(value));return Task.CompletedTask;}
         }
         sealed class OrderedBeautyService:IBeautyRetouchService
         {
@@ -339,6 +410,19 @@ namespace PhotoBooth.UnitTests
             public Task DetachAsync(Guid presetId, CancellationToken token) => Task.CompletedTask;
             public Task DeleteAsync(Guid assetId, long expectedRowVersion, CancellationToken token) => Task.CompletedTask;
             public Task ReconcileAsync(CancellationToken token) => Task.CompletedTask;
+        }
+
+        sealed class FailingSecondLutService:IColorLutService
+        {
+            int calls;
+            public Task ApplyCaptureAsync(Guid presetId,string imagePath,CancellationToken token){if(++calls==2)throw new InvalidOperationException("expected second-image failure");return Task.CompletedTask;}
+            public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token)=>Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
+            public Task<ColorLutData> GetLiveAsync(Guid presetId,CancellationToken token)=>Task.FromResult<ColorLutData>(null);
+            public Task<ColorLutImportResult> ImportAsync(string sourcePath,string displayName,CancellationToken token)=>Task.FromResult<ColorLutImportResult>(null);
+            public Task AttachAsync(Guid presetId,Guid assetId,float strength,CancellationToken token)=>Task.CompletedTask;
+            public Task DetachAsync(Guid presetId,CancellationToken token)=>Task.CompletedTask;
+            public Task DeleteAsync(Guid assetId,long expectedRowVersion,CancellationToken token)=>Task.CompletedTask;
+            public Task ReconcileAsync(CancellationToken token)=>Task.CompletedTask;
         }
 
         sealed class FakeVideoService : IVideoService

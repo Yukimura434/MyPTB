@@ -17,12 +17,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
     {
         private readonly CustomerWorkflowStateMachine machine;
         private readonly CustomerWorkflowContext context;
-        private readonly ISessionService sessions;
-        private readonly ICaptureService captures;
+        private readonly IBoothSessionService sessions;
+        private readonly IEventService events;
+        private readonly IDeliverableService deliverables;
         private readonly ILocalShareService localShare;
         private readonly IQrCodeService qr;
         private readonly IGifAnimationService gifAnimation;
-        private readonly ICaptureIntegrityService integrity;
+        private readonly IDeliverableIntegrityService integrity;
         private readonly ILogger<CompleteViewModel> log;
         private readonly DispatcherTimer countdownTimer;
 
@@ -39,18 +40,20 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public CompleteViewModel(
             CustomerWorkflowStateMachine machine,
             CustomerWorkflowContext context,
-            ISessionService sessions,
-            ICaptureService captures,
+            IBoothSessionService sessions,
+            IEventService events,
+            IDeliverableService deliverables,
             ILocalShareService localShare,
             IQrCodeService qr,
             IGifAnimationService gifAnimation,
-            ICaptureIntegrityService integrity,
+            IDeliverableIntegrityService integrity,
             ILogger<CompleteViewModel> log)
         {
             this.machine = machine;
             this.context = context;
             this.sessions = sessions;
-            this.captures = captures;
+            this.events = events;
+            this.deliverables = deliverables;
             this.localShare = localShare;
             this.qr = qr;
             this.gifAnimation = gifAnimation;
@@ -87,7 +90,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             private set => Set(ref status, value);
         }
 
-        public string FinalImagePath => context.Session?.FinalImagePath;
+        public string FinalImagePath => context.BoothSession?.FinalImagePath;
 
         public string DownloadUrl
         {
@@ -115,15 +118,15 @@ namespace PhotoBooth.Customer.UI.ViewModels
         private void StartShareGeneration()
         {
             var generation = Interlocked.Increment(ref shareGeneration);
-            var session = context.Session;
-            var captureId = context.CaptureId;
+            var session = context.BoothSession;
+            var deliverableId = context.DeliverableId;
             var gifFrameDuration = context.Settings?.GifFrameDurationMilliseconds ?? 1000;
             IsGenerating = true;
             QrSource = null;
             DownloadUrl = null;
             GifPath = null;
             StatusText = "Ảnh của bạn đã sẵn sàng!";
-            shareTask = GenerateShare(generation, session, captureId, gifFrameDuration);
+            shareTask = GenerateShare(generation, session, deliverableId, gifFrameDuration);
         }
 
         private void InvalidateShareUi()
@@ -135,64 +138,74 @@ namespace PhotoBooth.Customer.UI.ViewModels
         private bool IsCurrentShare(long generation) =>
             generation == Interlocked.Read(ref shareGeneration) && machine.State == CustomerWorkflowState.Complete;
 
-        private async Task GenerateShare(long generation, Session session, string captureId, int gifFrameDuration)
+        private async Task GenerateShare(long generation, BoothSession session, string deliverableId, int gifFrameDuration)
         {
-
+            Exception exportError = null;
             try
             {
-                if (session == null || string.IsNullOrWhiteSpace(captureId))
+                if (session == null || string.IsNullOrWhiteSpace(deliverableId))
                 {
-                    throw new InvalidOperationException("Capture information is incomplete.");
+                    throw new InvalidOperationException("Booth session or deliverable information is incomplete.");
                 }
 
-                var name = session.Id.ToString("N") + "." + captureId;
-                var output = Path.Combine(session.OutputDirectory, name + ".gif");
-                var capture = await captures.GetAsync(session.Id, captureId, CancellationToken.None);
-                if (capture == null)
+                var output = Path.Combine(session.OutputDirectory, "Final", Guid.NewGuid().ToString("N") + ".gif");
+                Directory.CreateDirectory(Path.GetDirectoryName(output));
+                var deliverable = await deliverables.GetAsync(session.Id, deliverableId, CancellationToken.None);
+                if (deliverable == null)
                 {
-                    throw new InvalidOperationException("Capture was not found in SQLite.");
+                    throw new InvalidOperationException("Deliverable was not found in SQLite.");
                 }
 
-                // The capture record is the source of truth for one booth turn.
+                // The deliverable record is the source of truth for one booth turn.
                 // Frame composition may use fewer slots, but the GIF must retain
                 // every final per-shot Picture captured in that turn, in position
                 // order. PicturePath already contains full Beauty followed by LUT,
                 // so GIF generation must not retouch these frames a second time.
-                var gifAssets = (capture.Photos ?? new CapturePhoto[0])
-                    .Where(photo => string.Equals(photo.PhotoType, CaptureAssetTypes.Picture, StringComparison.OrdinalIgnoreCase))
+                var gifAssets = (deliverable.Assets ?? new DeliverableAsset[0])
+                    .Where(asset => string.Equals(asset.Role, DeliverableAssetRoles.OriginalPicture, StringComparison.OrdinalIgnoreCase))
                     .OrderBy(photo => photo.Position)
                     .ToList();
                 var gifSources = gifAssets.Select(photo => photo.LocalPath).Where(File.Exists).ToList();
                 if (gifSources.Count > 0)
                 {
                     await gifAnimation.CreateAsync(gifSources, output, gifFrameDuration, CancellationToken.None);
-                    await captures.AddFileAsync(captureId, output, CaptureAssetTypes.Gif, gifAssets.Select(x=>x.Id).ToList(), CancellationToken.None);
+                    await deliverables.AddAssetAsync(deliverableId, output, DeliverableAssetRoles.Gif, gifAssets.Select(x=>x.Id).ToList(), CancellationToken.None);
                     if (IsCurrentShare(generation)) GifPath = output;
-                    log.LogInformation("GIF created with {FrameCount} original frames for capture {CaptureId}", gifSources.Count, captureId);
+                    log.LogInformation("GIF created with {FrameCount} original frames for deliverable {DeliverableId}", gifSources.Count, deliverableId);
                 }
 
-                capture = await captures.GetAsync(session.Id, captureId, CancellationToken.None);
-                if (capture == null)
+                deliverable = await deliverables.GetAsync(session.Id, deliverableId, CancellationToken.None);
+                if (deliverable == null)
                 {
-                    throw new InvalidOperationException("Capture was not found in SQLite.");
+                    throw new InvalidOperationException("Deliverable was not found in SQLite.");
                 }
 
-                await integrity.ValidateAsync(capture, CancellationToken.None);
+                await integrity.ValidateAsync(deliverable, CancellationToken.None);
 
-                var files = (capture.Photos ?? new CapturePhoto[0])
-                    .Where(photo => !string.Equals(photo.PhotoType, CaptureAssetTypes.ShareArchive, StringComparison.OrdinalIgnoreCase))
+                try
+                {
+                    await ExportEventMedia(session, deliverable);
+                }
+                catch (Exception exception)
+                {
+                    exportError = exception;
+                    log.LogError(exception, "Event media export failed for booth session {SessionId}", session.Id);
+                }
+
+                var files = (deliverable.Assets ?? new DeliverableAsset[0])
+                    .Where(asset => !string.Equals(asset.Role, DeliverableAssetRoles.ShareArchive, StringComparison.OrdinalIgnoreCase))
                     .Select(photo => photo.LocalPath)
                     .Where(File.Exists)
                     .ToList();
 
                 var ticket = await localShare.CreateAsync(
                     session.Id,
-                    captureId,
+                    deliverableId,
                     files,
                     CancellationToken.None);
 
-                await captures.UpdateSharePathAsync(
-                    captureId,
+                await deliverables.UpdateSharePathAsync(
+                    deliverableId,
                     ticket.DownloadUrl.AbsoluteUri,
                     CancellationToken.None);
 
@@ -204,7 +217,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 {
                     DownloadUrl = ticket.DownloadUrl.AbsoluteUri;
                     QrSource = qrSource;
-                    StatusText = "Quét QR để xem và tải ảnh";
+                    StatusText = exportError == null
+                        ? "Quét QR để xem và tải ảnh"
+                        : "Quét QR để tải ảnh · Không thể sao chép vào thư mục Event";
                 }
             }
             catch (Exception exception)
@@ -218,6 +233,52 @@ namespace PhotoBooth.Customer.UI.ViewModels
             }
         }
 
+        private async Task ExportEventMedia(BoothSession session, Deliverable deliverable)
+        {
+            if (session?.EventId == null || deliverable == null) return;
+            var photoEvent = (await events.GetAllAsync(CancellationToken.None))
+                .FirstOrDefault(value => value.Id == session.EventId.Value);
+            if (photoEvent == null || string.IsNullOrWhiteSpace(photoEvent.OutputDirectory)) return;
+
+            await Task.Run(() =>
+            {
+                var turnFolderName = string.IsNullOrWhiteSpace(session.DisplayCode)
+                    ? session.Id.ToString("N")
+                    : SanitizeFolderName(session.DisplayCode);
+                var turnFolder = Path.Combine(Path.GetFullPath(photoEvent.OutputDirectory), turnFolderName);
+                Directory.CreateDirectory(turnFolder);
+                foreach (var asset in (deliverable.Assets ?? new DeliverableAsset[0])
+                    .Where(value => !string.Equals(value.Role, DeliverableAssetRoles.ShareArchive, StringComparison.OrdinalIgnoreCase))
+                    .Where(value => !string.IsNullOrWhiteSpace(value.LocalPath) && File.Exists(value.LocalPath)))
+                {
+                    var destination = Path.Combine(turnFolder, Path.GetFileName(asset.LocalPath));
+                    CopyAtomically(asset.LocalPath, destination);
+                }
+                log.LogInformation("Exported event media for booth session {SessionId} to {OutputDirectory}", session.Id, turnFolder);
+            });
+        }
+
+        private static string SanitizeFolderName(string value)
+        {
+            foreach (var character in Path.GetInvalidFileNameChars()) value = value.Replace(character, '-');
+            return string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString("N") : value;
+        }
+
+        private static void CopyAtomically(string source, string destination)
+        {
+            var temporary = destination + ".partial-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                File.Copy(source, temporary, true);
+                if (File.Exists(destination)) File.Delete(destination);
+                File.Move(temporary, destination);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+        }
+
         private async Task Done()
         {
             if (completing) return;
@@ -226,20 +287,20 @@ namespace PhotoBooth.Customer.UI.ViewModels
             InvalidateShareUi();
             try
             {
-                var session = context.Session;
+                var session = context.BoothSession;
                 if (session != null)
                 {
                     await sessions.CompleteAsync(session, CancellationToken.None);
-                    await Task.Run(() => SessionWorkspace.Cleanup(session));
+                    await Task.Run(() => BoothSessionWorkspace.Cleanup(session));
                 }
             }
             catch (Exception exception)
             {
-                log.LogError(exception, "Session completion failed");
+                log.LogError(exception, "Booth-session completion failed");
             }
 
-            context.Session = null;
-            context.CaptureId = null;
+            context.BoothSession = null;
+            context.DeliverableId = null;
             context.WorkingDirectory = null;
             context.CurrentShots.Clear();
             context.SelectedFrame = null;

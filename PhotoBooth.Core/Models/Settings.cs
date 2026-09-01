@@ -36,6 +36,7 @@ namespace PhotoBooth.Core.Models
         public bool KioskMode { get; set; } = true;
         public bool KeepFinalPrintedImage { get; set; } = true;
         public int SessionRetentionDays { get; set; } = 30;
+        public int BoothSessionRetentionDays { get => SessionRetentionDays; set => SessionRetentionDays=value; }
         public int TemporaryFileRetentionHours { get; set; } = 24;
         public int PrintRetryCount { get; set; } = 3;
         public int CameraReconnectSeconds { get; set; } = 5;

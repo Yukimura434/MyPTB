@@ -17,6 +17,7 @@ namespace PhotoBooth.Color.D3D11
     /// </summary>
     public sealed class LatestJpegImage : Image
     {
+        public event EventHandler FramePresented;
         public static readonly DependencyProperty FrameDataProperty = DependencyProperty.Register(
             nameof(FrameData), typeof(object), typeof(LatestJpegImage), new PropertyMetadata(null, OnFrame));
 
@@ -131,6 +132,7 @@ namespace PhotoBooth.Color.D3D11
                         Source = bitmap;
                     }
                     bitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Stride, 0);
+                    FramePresented?.Invoke(this, EventArgs.Empty);
                 }
                 finally { Return(frame.Pixels); }
             }

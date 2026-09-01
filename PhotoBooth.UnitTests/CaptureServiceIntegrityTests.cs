@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using PhotoBooth.Business.Services;
 using PhotoBooth.Core.Models;
+using PhotoBooth.Core.Persistence;
+using PhotoBooth.Core.Services;
 using PhotoBooth.Database;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -23,13 +25,15 @@ namespace PhotoBooth.UnitTests
                 var shots=new[]{Shot(root,"one"),Shot(root,"two")};
                 await sessionRepository.SaveAsync(new Session{Id=sessionId,SessionName="Event",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedShots=shots},CancellationToken.None);
                 var composite=Write(root,"final.png","static");var videoComposite=Write(root,"final.mp4","video video");
-                var capture=await new CaptureService(new SqliteCaptureRepository(db),sessionRepository).CreateWithCompositeVideoAsync(sessionId,null,"composite-id",composite,shots,videoComposite,shots.Select(x=>x.VideoPath).ToList(),null,CancellationToken.None);
-                var loaded=await new SqliteCaptureRepository(db).GetAsync(capture.Id,CancellationToken.None);
+                var deliverableService=(IDeliverableService)new DeliverableService(new SqliteDeliverableRepository(db),sessionRepository);
+                var deliverable=await deliverableService.CreateWithCompositeVideoAsync(sessionId,null,"composite-id",composite,shots,videoComposite,shots.Select(x=>x.VideoPath).ToList(),null,CancellationToken.None);
+                var loaded=await ((IDeliverableRepository)new SqliteDeliverableRepository(db)).GetAsync(deliverable.Id,CancellationToken.None);
                 Assert.Equal(CaptureMediaModes.PictureAndVideo,loaded.MediaMode);
-                Assert.Equal(2,loaded.Photos.Count(x=>x.PhotoType==CaptureAssetTypes.Picture));Assert.Equal(2,loaded.Photos.Count(x=>x.PhotoType==CaptureAssetTypes.Video));
-                Assert.Single(loaded.Photos,x=>x.PhotoType==CaptureAssetTypes.Composite);Assert.Single(loaded.Photos,x=>x.PhotoType==CaptureAssetTypes.CompositeVideo);
-                Assert.All(loaded.Photos.Where(x=>x.PhotoType==CaptureAssetTypes.Video||x.PhotoType==CaptureAssetTypes.CompositeVideo),x=>Assert.Equal("video/mp4",x.MimeType));
-                foreach(var shot in shots){Assert.Contains(loaded.Photos,x=>x.PhotoType==CaptureAssetTypes.Picture&&x.CapturedImageId==shot.Id);Assert.Contains(loaded.Photos,x=>x.PhotoType==CaptureAssetTypes.Video&&x.CapturedImageId==shot.Id);}
+                Assert.All(loaded.Assets,asset=>Assert.IsType<DeliverableAsset>(asset));
+                Assert.Equal(2,loaded.Assets.Count(x=>x.Role==DeliverableAssetRoles.OriginalPicture));Assert.Equal(2,loaded.Assets.Count(x=>x.Role==DeliverableAssetRoles.OriginalVideo));
+                Assert.Single(loaded.Assets,x=>x.Role==DeliverableAssetRoles.FinalComposite);Assert.Single(loaded.Assets,x=>x.Role==DeliverableAssetRoles.CompositeVideo);
+                Assert.All(loaded.Assets.Where(x=>x.Role==DeliverableAssetRoles.OriginalVideo||x.Role==DeliverableAssetRoles.CompositeVideo),x=>Assert.Equal("video/mp4",x.MimeType));
+                foreach(var shot in shots){Assert.Contains(loaded.Assets,x=>x.Role==DeliverableAssetRoles.OriginalPicture&&x.CapturedShotId==shot.Id);Assert.Contains(loaded.Assets,x=>x.Role==DeliverableAssetRoles.OriginalVideo&&x.CapturedShotId==shot.Id);}
             }
             finally{SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
         }

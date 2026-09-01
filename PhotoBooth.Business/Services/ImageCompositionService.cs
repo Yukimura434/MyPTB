@@ -25,8 +25,9 @@ namespace PhotoBooth.Business.Services
 
                 Directory.CreateDirectory(session.OutputDirectory);
                 var next = session.FrameIndex + 1;
+                var finalAssetId = final ? Guid.NewGuid().ToString("N") : null;
                 var output = final
-                    ? Path.Combine(session.OutputDirectory, "frm" + next.ToString("D3") + ".png")
+                    ? Path.Combine(session.OutputDirectory, finalAssetId + ".png")
                     : Path.Combine(session.OutputDirectory, "preview-" + Guid.NewGuid().ToString("N") + ".png");
 
                 using (var canvas = new Bitmap(frame.PixelWidth, frame.PixelHeight, PixelFormat.Format32bppArgb))
@@ -58,8 +59,7 @@ namespace PhotoBooth.Business.Services
                 if (final)
                 {
                     session.FrameIndex = next;
-                    session.FinalImageId = "00" + session.StartedAtUtc.ToLocalTime().ToString("MMdd") +
-                                           session.SessionNumber.ToString("D2") + next.ToString("D4");
+                    session.FinalImageId = finalAssetId;
                 }
                 return output;
             });

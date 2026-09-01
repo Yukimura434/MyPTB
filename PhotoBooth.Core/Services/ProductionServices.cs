@@ -15,7 +15,7 @@ namespace PhotoBooth.Core.Services
     public interface ILocalShareService
     {
         Task StartAsync(CancellationToken token);
-        Task<LocalShareTicket> CreateAsync(Guid sessionId, string captureId, IReadOnlyList<string> files, CancellationToken token);
+        Task<LocalShareTicket> CreateAsync(Guid boothSessionId, string deliverableId, IReadOnlyList<string> files, CancellationToken token);
         bool IsRunning { get; }
         string BaseUrl { get; }
     }
@@ -27,7 +27,18 @@ namespace PhotoBooth.Core.Services
         Task RetryAsync(Guid jobId, CancellationToken token);
         IReadOnlyList<PrintQueueItem> Snapshot();
     }
-    public interface IStorageManager { string GetPath(string area); Task CleanupAsync(CancellationToken token); }
+    public interface IStorageManager
+    {
+        string GetPath(string area);
+        SessionStoragePaths CreateSessionStorage(Guid sessionId, DateTime startedAtUtc);
+        string GetRelativePath(string fullPath);
+        string GetFullPath(string relativePath);
+        Task CleanupAsync(CancellationToken token);
+    }
+    public interface IMediaThumbnailService
+    {
+        Task<byte[]> CreateAsync(string filePath, int maximumPixels, CancellationToken token);
+    }
     public interface IBackupService { Task<string> ExportAsync(string destinationZip, CancellationToken token); Task ImportAsync(string backupZip, CancellationToken token); }
     public interface IHealthStatusService { Task<HealthSnapshot> GetSnapshotAsync(CancellationToken token); }
     public interface IRecoveryService { Task StartAsync(CancellationToken token); Task StopAsync(CancellationToken token); }

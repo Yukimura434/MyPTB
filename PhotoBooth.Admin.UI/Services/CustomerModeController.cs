@@ -8,7 +8,7 @@ namespace PhotoBooth.Admin.UI.Services
   public async Task StartAsync(){if(running)return;var admin=Application.Current.MainWindow;if(string.IsNullOrEmpty(temporaryPin)){var created=TemporaryPinDialog.Create(admin);if(string.IsNullOrEmpty(created))return;temporaryPin=created;}running=true;var home=provider.GetRequiredService<HomeViewModel>();
    try{
      await home.PersistSettingsAsync();
-     var customer=provider.GetRequiredService<PhotoBooth.Customer.UI.MainWindow>();var shell=provider.GetRequiredService<CustomerShellViewModel>();shell.ResetForNewSession();customer.DataContext=shell;customer.Owner=admin;customer.RequestAdminAccess=()=>TemporaryPinDialog.Verify(customer,temporaryPin);
+     var customer=provider.GetRequiredService<PhotoBooth.Customer.UI.MainWindow>();var shell=provider.GetRequiredService<CustomerShellViewModel>();shell.ResetForNewBoothSession();customer.DataContext=shell;customer.Owner=admin;customer.RequestAdminAccess=()=>TemporaryPinDialog.Verify(customer,temporaryPin);
      using(var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30))){await handoff.TransferAsync(home.SuspendForCustomerAsync,async _=>await shell.ActivateAsync(),timeout.Token);}
      admin.Hide();
      customer.ShowDialog();

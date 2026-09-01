@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using PhotoBooth.Business.Repositories;
 using PhotoBooth.Business.Services;
 using PhotoBooth.Shared;
+using PhotoBooth.Core.Services;
 using Xunit;
 
 namespace PhotoBooth.UnitTests
@@ -30,15 +31,53 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
-        public async Task Base_session_is_stable_and_defaultable()
+        public async Task Default_event_is_stable_while_its_legacy_folder_remains_compatible()
         {
             var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));
             var service=new SessionService(new InMemorySessionRepository(),new ApplicationOptions{DataDirectory=root});
             var first=await service.GetBaseAsync(CancellationToken.None);
             var second=await service.GetBaseAsync(CancellationToken.None);
             Assert.Equal(first.Id,second.Id);
-            Assert.Equal("Base_session",first.SessionName);
+            Assert.Equal("Sự kiện mặc định",first.SessionName);
             Assert.Equal(Path.Combine(root,"Captures","Base_session"),first.OutputDirectory);
+        }
+
+        [Fact]
+        public async Task Events_may_share_a_display_name_because_identity_is_their_id()
+        {
+            var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));
+            IEventService events=new SessionService(new InMemorySessionRepository(),new ApplicationOptions{DataDirectory=root});
+            var firstDraft=await events.CreateDraftAsync(null,CancellationToken.None);firstDraft.Name="Đám cưới";
+            var first=await events.CreateAsync(firstDraft,CancellationToken.None);
+            var secondDraft=await events.CreateDraftAsync(null,CancellationToken.None);secondDraft.Name="Đám cưới";
+            var second=await events.CreateAsync(secondDraft,CancellationToken.None);
+            Assert.NotEqual(first.Id,second.Id);
+            Assert.Equal(first.Name,second.Name);
+            Assert.Equal(2,(await events.GetAllAsync(CancellationToken.None)).Count);
+        }
+
+        [Fact]
+        public async Task Event_output_directory_is_fixed_when_the_event_is_created()
+        {
+            var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));
+            try
+            {
+                IEventService events=new SessionService(new InMemorySessionRepository(),new ApplicationOptions{DataDirectory=root});
+                var selected=Path.Combine(root,"Selected");
+                var draft=await events.CreateDraftAsync(null,CancellationToken.None);
+                draft.Name="Wedding";
+                draft.OutputDirectory=selected;
+                var created=await events.CreateAsync(draft,CancellationToken.None);
+                Assert.Equal(Path.GetFullPath(selected),created.OutputDirectory);
+                Assert.True(Directory.Exists(selected));
+                var stored=Assert.Single(await events.GetAllAsync(CancellationToken.None));
+                Assert.Equal(created.Id,stored.Id);
+                Assert.Equal(Path.GetFullPath(selected),stored.OutputDirectory);
+            }
+            finally
+            {
+                if(Directory.Exists(root))Directory.Delete(root,true);
+            }
         }
     }
 }

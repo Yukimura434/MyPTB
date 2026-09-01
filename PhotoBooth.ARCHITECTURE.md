@@ -42,6 +42,12 @@ normalized property API covers ISO, shutter speed, aperture, white balance, focu
 metering, compression and exposure compensation. Vendor numeric codes remain inside
 `CameraControl.Devices`; clients use stable display values and allowed-value lists.
 
+Live Beauty preview is intentionally decoupled from camera acquisition. Business owns the
+capacity-one `ILiveBeautyPreviewPipeline`, which processes only the newest pending frame and
+publishes raw frames immediately while Beauty is disabled. Saved Beauty settings notify the
+active preview pipeline in-process; still-image retouching remains in `CapturePipeline` and is
+not changed by preview frame dropping.
+
 Run the hardware-independent integration smoke test with:
 
 ```powershell

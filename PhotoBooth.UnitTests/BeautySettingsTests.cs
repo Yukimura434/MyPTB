@@ -19,10 +19,12 @@ namespace PhotoBooth.UnitTests
             {
                 var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();db.Initialize();
                 var service=new BeautySettingsService(new SqliteBeautySettingsRepository(db));
+                BeautySettings changed=null;service.SettingsChanged+=(s,e)=>changed=e.Settings;
                 Assert.False((await service.GetAsync(CancellationToken.None)).Enabled);
                 await service.SaveAsync(new BeautySettings{Enabled=true,SmoothSkin=-3,BrightenSkin=32,SkinTone=101,Sharpen=77,EyeSize=45,SlimFace=120},CancellationToken.None);
                 var saved=await service.GetAsync(CancellationToken.None);
                 Assert.True(saved.Enabled);Assert.Equal(0,saved.SmoothSkin);Assert.Equal(32,saved.BrightenSkin);Assert.Equal(100,saved.SkinTone);Assert.Equal(77,saved.Sharpen);Assert.Equal(45,saved.EyeSize);Assert.Equal(100,saved.SlimFace);
+                Assert.NotNull(changed);Assert.True(changed.Enabled);Assert.Equal(0,changed.SmoothSkin);Assert.Equal(100,changed.SkinTone);
             }
             finally { SqliteConnection.ClearAllPools();Directory.Delete(root,true); }
         }

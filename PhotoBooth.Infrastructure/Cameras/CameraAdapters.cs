@@ -112,7 +112,6 @@ namespace PhotoBooth.Infrastructure.Cameras
     internal sealed class NikonMtpCameraAdapter : CameraAdapterBase
     {
         readonly ConcurrentDictionary<ICameraDevice, DateTime> nextFrame = new ConcurrentDictionary<ICameraDevice, DateTime>();
-        readonly ConcurrentDictionary<ICameraDevice, LiveViewData> lastFrame = new ConcurrentDictionary<ICameraDevice, LiveViewData>();
         public NikonMtpCameraAdapter(CameraOperationGate operations, ILogger<NikonMtpCameraAdapter> logger) : base(operations, logger) { }
         public override string Brand => "Nikon MTP";
         public override bool CanHandle(ICameraDevice camera) => camera is NikonBase;
@@ -121,12 +120,15 @@ namespace PhotoBooth.Infrastructure.Cameras
         public override async Task<LiveViewData> GetLiveViewFrameAsync(ICameraDevice camera, CancellationToken token)
         {
             var now = DateTime.UtcNow;
-            if (nextFrame.TryGetValue(camera, out var due) && now < due) return lastFrame.TryGetValue(camera, out var cached) ? cached : null;
+            // Do not return the cached LiveViewData while waiting for the next MTP
+            // slot. LiveViewService would defensively copy that same JPEG on every
+            // 1 ms poll, only for the UI loop to discard it as a duplicate.
+            if (nextFrame.TryGetValue(camera, out var due) && now < due) return null;
             nextFrame[camera] = now.AddTicks(TimeSpan.TicksPerSecond / 30); // At most 30 MTP preview commands/sec.
-            var frame = await base.GetLiveViewFrameAsync(camera, token).ConfigureAwait(false); if (frame != null) lastFrame[camera] = frame; return frame;
+            return await base.GetLiveViewFrameAsync(camera, token).ConfigureAwait(false);
         }
         public override async Task RecoverCaptureAsync(ICameraDevice camera, CancellationToken token) { await Operations.RunMtpAsync(() => ((NikonBase)camera).ResetTimer(), token).ConfigureAwait(false); await base.RecoverCaptureAsync(camera, token).ConfigureAwait(false); }
-        protected override void Forget(ICameraDevice camera) { nextFrame.TryRemove(camera, out _); lastFrame.TryRemove(camera, out _); base.Forget(camera); }
+        protected override void Forget(ICameraDevice camera) { nextFrame.TryRemove(camera, out _); base.Forget(camera); }
     }
 
     internal sealed class SonyRemoteCameraAdapter : CameraAdapterBase

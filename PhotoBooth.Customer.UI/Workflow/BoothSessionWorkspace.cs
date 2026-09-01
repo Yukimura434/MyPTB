@@ -6,25 +6,25 @@ using PhotoBooth.Core.Models;
 
 namespace PhotoBooth.Customer.UI.Workflow
 {
-    internal static class SessionWorkspace
+    internal static class BoothSessionWorkspace
     {
-        internal const string DirectoryName = "Session";
-
-        internal static string GetPath(Session session)
+        internal static string GetPath(BoothSession session)
         {
             if (session == null || string.IsNullOrWhiteSpace(session.OutputDirectory))
-                throw new InvalidOperationException("Session output directory is unavailable.");
-            return Path.Combine(Path.GetFullPath(session.OutputDirectory), DirectoryName);
+                throw new InvalidOperationException("Booth-session output directory is unavailable.");
+            if (!session.IsBoothSession)
+                throw new InvalidOperationException("A customer workspace requires a BoothSession, not an Event.");
+            return Path.Combine(Path.GetFullPath(session.OutputDirectory), "Work");
         }
 
-        internal static void Prepare(Session session)
+        internal static void Prepare(BoothSession session)
         {
             var path = GetPath(session);
             TryDelete(path);
             Directory.CreateDirectory(path);
         }
 
-        internal static void Cleanup(Session session)
+        internal static void Cleanup(BoothSession session)
         {
             if (session == null) return;
             var path = GetPath(session);
@@ -39,7 +39,7 @@ namespace PhotoBooth.Customer.UI.Workflow
             catch (UnauthorizedAccessException) { }
         }
 
-        internal static bool Contains(Session session, string file)
+        internal static bool Contains(BoothSession session, string file)
         {
             if (session == null || string.IsNullOrWhiteSpace(file)) return false;
             var root = EnsureTrailingSeparator(Path.GetFullPath(GetPath(session)));
@@ -47,16 +47,27 @@ namespace PhotoBooth.Customer.UI.Workflow
             return path.StartsWith(root, StringComparison.OrdinalIgnoreCase);
         }
 
-        internal static string Promote(Session session, string file)
+        internal static string Promote(BoothSession session, string file)
+        {
+            return Promote(session,file,"Originals");
+        }
+
+        internal static string PromoteOriginal(BoothSession session,string file) => Promote(session,file,"Originals");
+        internal static string PromoteFinal(BoothSession session,string file) => Promote(session,file,"Final");
+
+        static string Promote(BoothSession session, string file,string area)
         {
             if (!Contains(session, file)) return file;
-            var destination = Path.Combine(Path.GetFullPath(session.OutputDirectory), Path.GetFileName(file));
+            var destinationDirectory=Path.Combine(Path.GetFullPath(session.OutputDirectory),area);
+            Directory.CreateDirectory(destinationDirectory);
+            var destination = Path.Combine(destinationDirectory, Path.GetFileName(file));
+            if(string.Equals(Path.GetFullPath(file),Path.GetFullPath(destination),StringComparison.OrdinalIgnoreCase))return destination;
             if (File.Exists(destination)) File.Delete(destination);
             File.Move(Path.GetFullPath(file), destination);
             return destination;
         }
 
-        internal static void ReplaceWorkspaceFiles(Session session, IReadOnlyDictionary<string, string> promoted)
+        internal static void ReplaceWorkspaceFiles(BoothSession session, IReadOnlyDictionary<string, string> promoted)
         {
             var kept = new List<CapturedShot>();
             foreach (var shot in session.CapturedShots ?? new CapturedShot[0])
@@ -69,7 +80,7 @@ namespace PhotoBooth.Customer.UI.Workflow
                 string videoReplacement;
                 if (!string.IsNullOrWhiteSpace(video) && promoted.TryGetValue(video, out videoReplacement)) video = videoReplacement;
                 else if (!string.IsNullOrWhiteSpace(video) && Contains(session, video)) video = null;
-                kept.Add(new CapturedShot { Id=shot.Id, Sequence=shot.Sequence, PicturePath=picture, VideoPath=video, CapturedAtUtc=shot.CapturedAtUtc });
+                kept.Add(new CapturedShot { Id=shot.Id, Sequence=shot.Sequence, PicturePath=picture, VideoPath=video, PictureAssetId=shot.PictureAssetId, VideoAssetId=shot.VideoAssetId, CapturedAtUtc=shot.CapturedAtUtc });
             }
             session.CapturedShots = kept;
             session.CapturedFiles = kept.Select(x=>x.PicturePath).ToList();

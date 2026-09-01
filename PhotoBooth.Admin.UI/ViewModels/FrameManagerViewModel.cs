@@ -74,6 +74,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public ICommand ImportCommand { get; } public ICommand DeleteCommand { get; } public ICommand PinCommand { get; } public ICommand RefreshCommand { get; }
         public ICommand CreateEventCommand { get; } public ICommand RenameEventCommand { get; } public ICommand DeleteEventCommand { get; } public ICommand AssignEventCommand { get; }
 
+        public Task RefreshAsync() => Load();
+
         async Task Load(Guid? selectFrameId = null, Guid? selectEventId = null)
         {
             try

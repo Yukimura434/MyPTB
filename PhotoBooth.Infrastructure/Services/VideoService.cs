@@ -15,7 +15,7 @@ using PhotoBooth.Shared;
 
 namespace PhotoBooth.Infrastructure.Services
 {
-    public sealed class VideoService : IVideoService
+    public sealed class VideoService : IVideoService, IDeferredVideoService
     {
         internal const int FramesPerSecond = 18;
         internal const int MaximumDurationSeconds = 8;
@@ -65,6 +65,59 @@ namespace PhotoBooth.Infrastructure.Services
 
         internal int BufferedFrameCount { get { lock (sync) return frames.Count; } }
         internal long BufferedBytes { get { lock (sync) return frames.Sum(x => (long)x.ImageData.Length); } }
+
+        public Task<string> SnapshotAsync(string destinationDirectory, DateTime shutterTimestampUtc, int durationSeconds, CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(destinationDirectory)) throw new ArgumentException("Video snapshot directory is required.", nameof(destinationDirectory));
+            if (!nativeEncoderEnabled) throw new InvalidOperationException("MP4 video encoding is disabled.");
+            durationSeconds = NormalizeDuration(durationSeconds);
+            shutterTimestampUtc = shutterTimestampUtc.Kind == DateTimeKind.Utc ? shutterTimestampUtc : shutterTimestampUtc.ToUniversalTime();
+            var preroll = TimeSpan.FromSeconds(durationSeconds);
+            BufferedFrame[] source;
+            lock (sync)
+                source = frames.Where(x => x.TimestampUtc > shutterTimestampUtc - preroll - FrameInterval && x.TimestampUtc <= shutterTimestampUtc).ToArray();
+            if (source.Length < FramesPerSecond || source[0].TimestampUtc > shutterTimestampUtc - preroll + TimeSpan.FromMilliseconds(250))
+                throw new InvalidOperationException("MP4 video requires a complete " + durationSeconds + "-second live-view buffer.");
+            var selected = Resample(source, shutterTimestampUtc, durationSeconds);
+            LogMemory("Video capture snapshot starting", selected.Count, selected.Sum(x => (long)x.ImageData.Length));
+            return Task.Run(() =>
+            {
+                token.ThrowIfCancellationRequested();
+                var destination = Path.GetFullPath(destinationDirectory);
+                var staging = destination + ".partial-" + Guid.NewGuid().ToString("N");
+                Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                Directory.CreateDirectory(staging);
+                try
+                {
+                    for (var i = 0; i < selected.Count; i++)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        File.WriteAllBytes(Path.Combine(staging, i.ToString("D3") + ".jpg"), selected[i].ImageData);
+                    }
+                    if (Directory.Exists(destination)) Directory.Delete(destination, true);
+                    Directory.Move(staging, destination);
+                    return destination;
+                }
+                finally { try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch { } }
+            }, token);
+        }
+
+        public Task CreateFromSnapshotAsync(string stillImagePath, string destinationPath, string snapshotDirectory, bool flipHorizontally, int rotationDegrees, CancellationToken token)
+        {
+            if (string.IsNullOrWhiteSpace(stillImagePath) || !File.Exists(stillImagePath)) throw new FileNotFoundException("The captured still image is unavailable.", stillImagePath);
+            if (string.IsNullOrWhiteSpace(destinationPath)) throw new ArgumentException("Destination path is required.", nameof(destinationPath));
+            if (string.IsNullOrWhiteSpace(snapshotDirectory) || !Directory.Exists(snapshotDirectory)) throw new DirectoryNotFoundException("The deferred video snapshot is unavailable: " + snapshotDirectory);
+            if (!nativeEncoderEnabled) throw new InvalidOperationException("MP4 video encoding is disabled.");
+            rotationDegrees = NormalizeRotation(rotationDegrees);
+            var files = Directory.GetFiles(snapshotDirectory, "*.jpg").OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (files.Length < FramesPerSecond || files.Length > FramesPerSecond * MaximumDurationSeconds) throw new InvalidDataException("The deferred MP4 snapshot has an unsupported frame count.");
+            LogMemory("Deferred video encode starting", files.Length, files.Sum(x => new FileInfo(x).Length));
+            return Task.Run(() =>
+            {
+                if (isolateNativeEncoder) CreateExternalFromSnapshot(stillImagePath, destinationPath, snapshotDirectory, flipHorizontally, rotationDegrees, token);
+                else CreateFromSnapshot(stillImagePath, destinationPath, files, flipHorizontally, rotationDegrees, token);
+            }, token);
+        }
 
         public Task CreateAsync(string stillImagePath, string destinationPath, DateTime shutterTimestampUtc, int durationSeconds, bool flipHorizontally, int rotationDegrees, CancellationToken token)
         {
@@ -202,6 +255,73 @@ namespace PhotoBooth.Infrastructure.Services
             {
                 try { if (Directory.Exists(attemptDirectory)) Directory.Delete(attemptDirectory, true); } catch { }
             }
+        }
+
+        void CreateExternalFromSnapshot(string stillImagePath, string destinationPath, string frameDirectory, bool flipHorizontally, int rotationDegrees, CancellationToken token)
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
+            Directory.CreateDirectory(directory);
+            var outputPath = Path.Combine(directory, ".video-result-" + Guid.NewGuid().ToString("N") + ".mp4");
+            try
+            {
+                var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
+                if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
+                var start = new ProcessStartInfo
+                {
+                    FileName = helper,
+                    Arguments = "--video-encode " + Quote(stillImagePath) + " " + Quote(frameDirectory) + " " + Quote(outputPath) + (flipHorizontally ? " 1 " : " 0 ") + rotationDegrees,
+                    WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                start.EnvironmentVariables["PHOTOBOOTH_ENCODER_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                using (var process = Process.Start(start))
+                {
+                    if (process == null) throw new InvalidOperationException("The isolated Video encoder could not start.");
+                    var stdout = process.StandardOutput.ReadToEndAsync();
+                    var stderr = process.StandardError.ReadToEndAsync();
+                    var elapsed = Stopwatch.StartNew();
+                    while (!process.WaitForExit(100))
+                    {
+                        if (token.IsCancellationRequested || elapsed.Elapsed > TimeSpan.FromMinutes(2))
+                        {
+                            try { process.Kill(); } catch { }
+                            token.ThrowIfCancellationRequested();
+                            throw new TimeoutException("Video encoding exceeded two minutes.");
+                        }
+                    }
+                    LogChildPeak("Deferred video encoder", process);
+                    if (process.ExitCode != 0) throw new InvalidOperationException("Video encoder failed (" + process.ExitCode + "): " + stderr.GetAwaiter().GetResult() + stdout.GetAwaiter().GetResult());
+                }
+                if (!IsValidMp4(outputPath)) throw new InvalidDataException("The encoder output is not a valid MP4 video.");
+                if (File.Exists(destinationPath)) File.Delete(destinationPath);
+                File.Move(outputPath, destinationPath);
+            }
+            finally { try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { } }
+        }
+
+        static void CreateFromSnapshot(string stillImagePath, string destinationPath, IReadOnlyList<string> files, bool flipHorizontally, int rotationDegrees, CancellationToken token)
+        {
+            if (!File.Exists(stillImagePath)) throw new FileNotFoundException("The captured still image is unavailable.", stillImagePath);
+            var selected = new List<BufferedFrame>(files.Count);
+            for (var i = 0; i < files.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                selected.Add(new BufferedFrame(DateTime.UtcNow.AddTicks(i), File.ReadAllBytes(files[i])));
+            }
+            var directory = Path.GetDirectoryName(Path.GetFullPath(destinationPath));
+            Directory.CreateDirectory(directory);
+            var temporary = Path.Combine(directory, ".video-result-" + Guid.NewGuid().ToString("N") + ".mp4");
+            try
+            {
+                EncodeVideo(temporary, selected, flipHorizontally, rotationDegrees, token);
+                if (!IsValidMp4(temporary)) throw new InvalidDataException("The deferred MP4 video is invalid.");
+                if (File.Exists(destinationPath)) File.Delete(destinationPath);
+                File.Move(temporary, destinationPath);
+            }
+            finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch { } }
         }
 
         public static int RunEncoderCommand(string[] args)

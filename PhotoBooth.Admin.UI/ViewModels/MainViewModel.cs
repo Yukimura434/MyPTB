@@ -19,6 +19,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public MainViewModel(
             INavigationService navigation,
             HomeViewModel home,
+            EventManagerViewModel eventManager,
+            EventFramePickerViewModel eventFramePicker,
             FrameManagerViewModel frames,
             PresetManagerViewModel presets,
             BeautyViewModel beauty,
@@ -35,6 +37,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 StringComparer.OrdinalIgnoreCase)
             {
                 { "home", home },
+                { "events", eventManager },
+                { "event-frame-picker", eventFramePicker },
                 { "frames", frames },
                 { "presets", presets },
                 { "beauty", beauty },
@@ -46,6 +50,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
             };
 
             NavigateCommand = new RelayCommand(Navigate);
+            navigation.CurrentRouteChanged += (_, __) => ApplyRoute(navigation.CurrentRoute);
 
             ToggleMenuCommand = new RelayCommand(
                 _ => IsMenuExpanded = !IsMenuExpanded);
@@ -53,7 +58,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
             StartCustomerCommand = new AsyncCommand(
                 _ => customerMode.StartAsync());
 
-            Navigate("home");
+            navigation.Navigate("home");
         }
 
         public PageViewModel CurrentPage
@@ -102,15 +107,17 @@ namespace PhotoBooth.Admin.UI.ViewModels
         private void Navigate(object parameter)
         {
             var route = parameter?.ToString();
+            if (route != null && pages.ContainsKey(route)) navigation.Navigate(route);
+        }
 
-            if (route != null &&
-                pages.TryGetValue(route, out var page))
-            {
-                navigation.Navigate(route);
-                CurrentPage = page;
-                if (page is InterfaceViewModel interfacePage)
-                    _ = interfacePage.RefreshAsync();
-            }
+        private void ApplyRoute(string route)
+        {
+            if (route == null || !pages.TryGetValue(route, out var page)) return;
+            CurrentPage = page;
+            if (page is InterfaceViewModel interfacePage) _ = interfacePage.RefreshAsync();
+            if (page is EventManagerViewModel eventPage && !eventPage.Dirty) _ = eventPage.RefreshAsync();
+            if (page is BeautyViewModel beautyPage) _ = beautyPage.RefreshAsync();
+            if (page is FrameManagerViewModel framePage) _ = framePage.RefreshAsync();
         }
     }
 }

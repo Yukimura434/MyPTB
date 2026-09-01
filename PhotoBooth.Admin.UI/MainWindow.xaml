@@ -126,6 +126,15 @@
 
                     <Button Style="{StaticResource MenuButton}"
                             Command="{Binding NavigateCommand}"
+                            CommandParameter="events">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE787;" Style="{StaticResource IconText}" />
+                            <TextBlock Text="Events" Visibility="{Binding MenuTextVisibility}" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button Style="{StaticResource MenuButton}"
+                            Command="{Binding NavigateCommand}"
                             CommandParameter="about">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&lt;!&gt;"

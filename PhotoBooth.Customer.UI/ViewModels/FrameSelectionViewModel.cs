@@ -54,8 +54,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly IPrinterService printers;
         readonly IImageCompositionService composer;
         readonly IPresetProcessor presetProcessor;
-        readonly ISessionService sessions;
-        readonly ICaptureService captures;
+        readonly IBoothSessionService sessions;
+        readonly IDeliverableService deliverables;
         readonly IPrintPipeline printPipeline;
         readonly IVideoService videos;
         readonly ILogger<FrameSelectionViewModel> log;
@@ -82,11 +82,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public FrameSelectionViewModel(CustomerWorkflowStateMachine m, CustomerWorkflowContext c, IFrameService f,
             IPresetService p, IPrinterService printer, IImageCompositionService compose, IPresetProcessor processor,
-            IStorageManager storageManager, ISessionService session, ICaptureService captureService,
+            IStorageManager storageManager, IBoothSessionService session, IDeliverableService deliverableService,
             IGifAnimationService gifService, IPrintPipeline pipeline, IVideoService videoService, IFeatureFlagService featureFlags, ILogger<FrameSelectionViewModel> logger)
         {
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
-            presetProcessor = processor; sessions = session; captures = captureService; printPipeline = pipeline; videos = videoService; features = featureFlags; log = logger;
+            presetProcessor = processor; sessions = session; deliverables = deliverableService; printPipeline = pipeline; videos = videoService; features = featureFlags; log = logger;
             CancelCommand = new RelayCommand(BackToPreview);
             printCommand = new AsyncCommand(RunFinishTracked, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
@@ -299,14 +299,14 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try
             {
                 if (token.IsCancellationRequested) return;
-                if (context.Session == null || SelectedFrame == null) return;
+                if (context.BoothSession == null || SelectedFrame == null) return;
                 if (final && !CanFinish) throw new InvalidOperationException("Hãy đặt ảnh vào tất cả các ô trước khi tiếp tục.");
                 var all = await presets.GetAllAsync(token);
                 context.DefaultPreset = context.Settings?.DefaultPresetId.HasValue == true ? all.FirstOrDefault(x => x.Id == context.Settings.DefaultPresetId.Value) : all.FirstOrDefault(x => x.IsDefault);
                 var sourceFiles = GetSourceFiles();
-                var workingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory) ? SessionWorkspace.GetPath(context.Session) : context.WorkingDirectory;
+                var workingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory) ? BoothSessionWorkspace.GetPath(context.BoothSession) : context.WorkingDirectory;
                 Directory.CreateDirectory(workingDirectory);
-                var working = new Session { Id = context.Session.Id, StartedAtUtc = context.Session.StartedAtUtc, OutputDirectory = workingDirectory, SessionNumber = context.Session.SessionNumber, FrameIndex = context.Session.FrameIndex, CapturedFiles = sourceFiles };
+                var working = new Session { Id = context.BoothSession.Id, StartedAtUtc = context.BoothSession.StartedAtUtc, OutputDirectory = workingDirectory, SessionNumber = context.BoothSession.SessionNumber, FrameIndex = context.BoothSession.FrameIndex, CapturedFiles = sourceFiles };
                 var assignments = FrameSlots.Where(x => x.Photo != null).ToDictionary(x => x.Slot.Index, x => x.Photo.Path);
                 var composed = await composer.ComposeAsync(working, FrameWithTransforms(), context.DefaultPreset, final, assignments, token);
                 if (token.IsCancellationRequested || string.IsNullOrWhiteSpace(composed)) return;
@@ -319,19 +319,19 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if (!final)
                 {
                     var oldPreview = PreviewPath; PreviewPath = composed;
-                    if (!string.IsNullOrWhiteSpace(oldPreview) && oldPreview != composed && SessionWorkspace.Contains(context.Session, oldPreview) && File.Exists(oldPreview)) File.Delete(oldPreview);
+                    if (!string.IsNullOrWhiteSpace(oldPreview) && oldPreview != composed && BoothSessionWorkspace.Contains(context.BoothSession, oldPreview) && File.Exists(oldPreview)) File.Delete(oldPreview);
                     return;
                 }
-                context.Session.FrameIndex = working.FrameIndex; context.Session.FinalImageId = working.FinalImageId;
+                context.BoothSession.FrameIndex = working.FrameIndex; context.BoothSession.FinalImageId = working.FinalImageId;
                 var currentShots = (context.CurrentShots??new List<CapturedShot>()).ToList();
                 var promoted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var source in sourceFiles) promoted[source] = SessionWorkspace.Promote(context.Session, source);
-                foreach (var source in context.CurrentShots.Where(x=>x.HasVideo).Select(x=>x.VideoPath).Where(File.Exists)) promoted[source] = SessionWorkspace.Promote(context.Session, source);
-                var finalComposite = SessionWorkspace.Promote(context.Session, composed);
-                SessionWorkspace.ReplaceWorkspaceFiles(context.Session, promoted);
-                context.CurrentShots = currentShots.Select(x=>new CapturedShot{Id=x.Id,Sequence=x.Sequence,PicturePath=promoted.TryGetValue(x.PicturePath,out var picture)?picture:x.PicturePath,VideoPath=x.HasVideo&&promoted.TryGetValue(x.VideoPath,out var video)?video:x.VideoPath,CapturedAtUtc=x.CapturedAtUtc}).ToList(); sourceFiles = context.CurrentShots.Select(x=>x.PicturePath).ToList();
-                PreviewPath = finalComposite; context.Session.FinalImagePath = finalComposite; await sessions.UpdateAsync(context.Session, token);
-                log.LogInformation("Frame selected {Frame} ({ImageId}, originals {OriginalCount})", SelectedFrame.Name, context.Session.FinalImageId, sourceFiles.Count);
+                foreach (var source in sourceFiles) promoted[source] = BoothSessionWorkspace.PromoteOriginal(context.BoothSession, source);
+                foreach (var source in context.CurrentShots.Where(x=>x.HasVideo).Select(x=>x.VideoPath).Where(File.Exists)) promoted[source] = BoothSessionWorkspace.PromoteOriginal(context.BoothSession, source);
+                var finalComposite = BoothSessionWorkspace.PromoteFinal(context.BoothSession, composed);
+                BoothSessionWorkspace.ReplaceWorkspaceFiles(context.BoothSession, promoted);
+                context.CurrentShots = currentShots.Select(x=>new CapturedShot{Id=x.Id,Sequence=x.Sequence,PicturePath=promoted.TryGetValue(x.PicturePath,out var picture)?picture:x.PicturePath,VideoPath=x.HasVideo&&promoted.TryGetValue(x.VideoPath,out var video)?video:x.VideoPath,PictureAssetId=x.PictureAssetId,VideoAssetId=x.VideoAssetId,CapturedAtUtc=x.CapturedAtUtc}).ToList(); sourceFiles = context.CurrentShots.Select(x=>x.PicturePath).ToList();
+                PreviewPath = finalComposite; context.BoothSession.FinalImagePath = finalComposite; await sessions.UpdateAsync(context.BoothSession, token);
+                log.LogInformation("Frame selected {Frame} ({ImageId}, originals {OriginalCount})", SelectedFrame.Name, context.BoothSession.FinalImageId, sourceFiles.Count);
             }
             finally { composeGate.Release(); }
         }
@@ -339,7 +339,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         List<string> GetSourceFiles()
         {
             var current = context.CurrentShots ?? new List<CapturedShot>();
-            var sessionShots = context.Session?.CapturedShots ?? new CapturedShot[0];
+            var sessionShots = context.BoothSession?.CapturedShots ?? new CapturedShot[0];
             return (current.Count > 0 ? current : sessionShots.ToList()).Select(x=>x.PicturePath).Where(File.Exists).ToList();
         }
 
@@ -354,6 +354,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
             {
                 ErrorMessage = null; IsPrinting = true;
                 lock (previewCancellationSync) previewCancellation?.Cancel();
+                if (context.BoothSession != null && context.BoothSession.IsBoothSession && context.BoothSession.Status != BoothSessionStates.Finalizing)
+                {
+                    context.BoothSession.Status = BoothSessionStates.Finalizing;
+                    await sessions.UpdateAsync(context.BoothSession, CancellationToken.None);
+                }
                 var transformedFrame = FrameWithTransforms();
                 var slotShotIds = FrameSlots.ToDictionary(
                     x => x.Slot.Index,
@@ -369,30 +374,30 @@ namespace PhotoBooth.Customer.UI.ViewModels
                             throw new InvalidOperationException("Video tương ứng với ảnh ở ô " + (slot.Key + 1) + " không còn khả dụng.");
                         assignments[slot.Key] = shot.VideoPath;
                     }
-                    var still = context.Session?.FinalImagePath;
+                    var still = context.BoothSession?.FinalImagePath;
                     if (string.IsNullOrWhiteSpace(still) || !File.Exists(still))
                         throw new FileNotFoundException("Ảnh ghép cuối không còn khả dụng.", still);
-                    var destination = Path.Combine(Path.GetDirectoryName(still), Path.GetFileNameWithoutExtension(still) + ".mp4");
+                    var destination = Path.Combine(Path.GetDirectoryName(still), Guid.NewGuid().ToString("N") + ".mp4");
                     await videos.ComposeAsync(still, transformedFrame, assignments, destination, CancellationToken.None);
-                    var days = context.Settings?.SessionRetentionDays ?? 30;
+                    var days = context.Settings?.BoothSessionRetentionDays ?? 30;
                     var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
-                    var capture = await captures.CreateWithCompositeVideoAsync(
-                        context.Session.Id, SelectedFrame.Id, context.Session.FinalImageId, still,
+                    var deliverable = await deliverables.CreateWithCompositeVideoAsync(
+                        context.BoothSession.Id, SelectedFrame.Id, context.BoothSession.FinalImageId, still,
                         context.CurrentShots, destination, assignments.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
                         expires, CancellationToken.None);
-                    context.CaptureId = capture.Id;
+                    context.DeliverableId = deliverable.Id;
                 }
-                else if (string.IsNullOrWhiteSpace(context.CaptureId))
+                else if (string.IsNullOrWhiteSpace(context.DeliverableId))
                 {
-                    var days = context.Settings?.SessionRetentionDays ?? 30; var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
-                    var capture = await captures.CreateAsync(context.Session.Id, SelectedFrame.Id, context.Session.FinalImageId, context.Session.FinalImagePath, context.CurrentShots, expires, CancellationToken.None); context.CaptureId = capture.Id;
+                    var days = context.Settings?.BoothSessionRetentionDays ?? 30; var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
+                    var deliverable = await deliverables.CreateAsync(context.BoothSession.Id, SelectedFrame.Id, context.BoothSession.FinalImageId, context.BoothSession.FinalImagePath, context.CurrentShots, expires, CancellationToken.None); context.DeliverableId = deliverable.Id;
                 }
                 machine.MoveTo(CustomerWorkflowState.Printing);
                 if (context.PrintingEnabled)
                 {
                     var profiles = await printers.GetProfilesAsync(CancellationToken.None); var profile = profiles.SingleOrDefault(x => x.IsDefault);
                     if (profile == null || !string.Equals(profile.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Default printer changed. Reconnect the printer.");
-                    await printPipeline.ExecuteAsync(context.Session.Id, profile.Id, Math.Max(1, PrintCopies), CancellationToken.None);
+                    await printPipeline.ExecuteAsync(context.BoothSession.Id, profile.Id, Math.Max(1, PrintCopies), CancellationToken.None);
                 }
                 machine.MoveTo(CustomerWorkflowState.Complete);
             }
