@@ -15,6 +15,7 @@ namespace PhotoBooth.Customer.UI.Views
             Loaded += (s, e) => ApplyOrientation();
             SizeChanged += (s, e) => ApplyOrientation();
             FrameList.PreviewMouseWheel += ScrollHorizontally;
+            PresetList.PreviewMouseWheel += ScrollHorizontally;
             CapturedPhotoScroll.PreviewMouseWheel += ScrollHorizontally;
         }
 
@@ -26,9 +27,12 @@ namespace PhotoBooth.Customer.UI.Views
             appliedPortrait = portrait;
             if (portrait)
             {
-                WorkspaceTopRow.Height = new GridLength(320);
+                PageHeader.Margin = new Thickness(0, 0, 0, 18);
+                HeaderStatus.HorizontalAlignment = HorizontalAlignment.Center;
+                HeaderStatus.Margin = new Thickness(0, 50, 0, 0);
+                WorkspaceTopRow.Height = new GridLength(350);
                 WorkspaceBottomRow.Height = new GridLength(1, GridUnitType.Star);
-                WorkspacePhotoRow.Height = new GridLength(300);
+                WorkspacePhotoRow.Height = new GridLength(250);
                 WorkspaceGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
                 WorkspaceGrid.ColumnDefinitions[1].Width = new GridLength(0);
                 WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(0);
@@ -37,17 +41,22 @@ namespace PhotoBooth.Customer.UI.Views
                 Grid.SetRow(FramesPanel, 0); Grid.SetColumn(FramesPanel, 0); Grid.SetColumnSpan(FramesPanel, 5);
                 Grid.SetRow(PreviewPanel, 1); Grid.SetColumn(PreviewPanel, 0); Grid.SetColumnSpan(PreviewPanel, 5);
                 Grid.SetRow(PhotosPanel, 2); Grid.SetColumn(PhotosPanel, 0); Grid.SetColumnSpan(PhotosPanel, 5);
-                FramesPanel.Margin = new Thickness(0, 0, 0, 12);
-                PreviewPanel.Margin = new Thickness(0, 0, 0, 12);
+                FramesPanel.Margin = new Thickness(0, 0, 0, 14);
+                PreviewPanel.Margin = new Thickness(0, 0, 0, 14);
                 SetItemsOrientation(FrameList, Orientation.Horizontal);
+                SetItemsOrientation(PresetList, Orientation.Horizontal);
                 SetItemsOrientation(CapturedPhotoList, Orientation.Horizontal);
                 SetHorizontalScrolling(FrameList, true);
+                SetHorizontalScrolling(PresetList, true);
                 CapturedPhotoScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
                 CapturedPhotoScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
                 CapturedPhotoScroll.PanningMode = PanningMode.HorizontalOnly;
             }
             else
             {
+                PageHeader.Margin = new Thickness(0, 0, 0, 14);
+                HeaderStatus.HorizontalAlignment = HorizontalAlignment.Right;
+                HeaderStatus.Margin = new Thickness(0);
                 WorkspaceTopRow.Height = new GridLength(1, GridUnitType.Star);
                 WorkspaceBottomRow.Height = new GridLength(0);
                 WorkspacePhotoRow.Height = new GridLength(0);
@@ -62,8 +71,10 @@ namespace PhotoBooth.Customer.UI.Views
                 FramesPanel.Margin = new Thickness(0);
                 PreviewPanel.Margin = new Thickness(0);
                 SetItemsOrientation(FrameList, Orientation.Vertical);
+                SetItemsOrientation(PresetList, Orientation.Vertical);
                 SetItemsOrientation(CapturedPhotoList, Orientation.Vertical);
                 SetHorizontalScrolling(FrameList, false);
+                SetHorizontalScrolling(PresetList, false);
                 CapturedPhotoScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
                 CapturedPhotoScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                 CapturedPhotoScroll.PanningMode = PanningMode.VerticalOnly;

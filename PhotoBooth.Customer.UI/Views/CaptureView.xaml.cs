@@ -71,23 +71,55 @@ namespace PhotoBooth.Customer.UI.Views
             var width = availableWidth;
             var height = width / aspect;
             if (height > availableHeight) { height = availableHeight; width = height * aspect; }
-            LiveViewPanel.Width = width;
-            LiveViewPanel.Height = height;
-            LiveViewPanel.VerticalAlignment = VerticalAlignment.Center;
-            LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
-            LiveViewPanel.Margin = new Thickness(0);
-            RecentCapturesPanel.Margin = portrait ? new Thickness(40, quarterTurn ? 1080 : 870, 40, 0) : new Thickness(40, 870, 40, 0);
+
+            if (portrait)
+            {
+                const double sideInset = 40d;
+                const double minimumTop = 82d;
+                const double liveToRecentGap = 20d;
+                const double bottomActionReserve = 112d;
+                var recentHeight = quarterTurn ? 356d : 220d;
+                var contentBottom = System.Math.Max(minimumTop + 1d, availableHeight - bottomActionReserve);
+                var maximumWidth = System.Math.Max(1d, availableWidth - sideInset * 2d);
+                width = maximumWidth;
+                height = width / aspect;
+                var maximumLiveHeight = System.Math.Max(1d, contentBottom - minimumTop - liveToRecentGap - recentHeight);
+                if (height > maximumLiveHeight) { height = maximumLiveHeight; width = height * aspect; }
+                var groupHeight = height + liveToRecentGap + recentHeight;
+                var top = System.Math.Max(minimumTop, (contentBottom - groupHeight) / 2d);
+
+                LiveViewPanel.Width = width;
+                LiveViewPanel.Height = height;
+                LiveViewPanel.VerticalAlignment = VerticalAlignment.Top;
+                LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
+                LiveViewPanel.Margin = new Thickness(0, top, 0, 0);
+                RecentCapturesPanel.Width = maximumWidth;
+                RecentCapturesPanel.Height = recentHeight;
+                RecentCapturesPanel.Margin = new Thickness(0, top + height + liveToRecentGap, 0, 0);
+            }
+            else
+            {
+                LiveViewPanel.Width = width;
+                LiveViewPanel.Height = height;
+                LiveViewPanel.VerticalAlignment = VerticalAlignment.Center;
+                LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
+                LiveViewPanel.Margin = new Thickness(0);
+                RecentCapturesPanel.ClearValue(FrameworkElement.HeightProperty);
+                RecentCapturesPanel.Width = 1000d;
+                RecentCapturesPanel.Margin = new Thickness(0, 870, 0, 0);
+            }
             RecentCapturesPanel.Visibility = portrait ? Visibility.Visible : Visibility.Collapsed;
 
             if (portrait)
             {
                 ReviewImageColumn.Width = new GridLength(1, GridUnitType.Star);
                 ReviewListColumn.Width = new GridLength(0);
-                ReviewImageRow.Height = new GridLength(810);
-                ReviewListRow.Height = new GridLength(280);
+                ReviewImageRow.Height = new GridLength(1, GridUnitType.Star);
+                ReviewListRow.Height = new GridLength(300);
                 Grid.SetRow(ReviewImagePanel, 0); Grid.SetColumn(ReviewImagePanel, 0); Grid.SetColumnSpan(ReviewImagePanel, 2);
-                ReviewImagePanel.Margin = new Thickness(0, 0, 0, 12);
+                ReviewImagePanel.Margin = new Thickness(0, 0, 0, 14);
                 Grid.SetRow(ReviewListPanel, 1); Grid.SetColumn(ReviewListPanel, 0); Grid.SetColumnSpan(ReviewListPanel, 2);
+                ReviewOverlay.Margin = new Thickness(32, 84, 32, 112);
                 SetItemsOrientation(ReviewPhotoList, Orientation.Horizontal);
                 ScrollViewer.SetVerticalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Disabled);
                 ScrollViewer.SetHorizontalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Auto);
@@ -102,6 +134,7 @@ namespace PhotoBooth.Customer.UI.Views
                 Grid.SetRow(ReviewImagePanel, 0); Grid.SetColumn(ReviewImagePanel, 0); Grid.SetColumnSpan(ReviewImagePanel, 1);
                 ReviewImagePanel.Margin = new Thickness(0, 0, 12, 0);
                 Grid.SetRow(ReviewListPanel, 0); Grid.SetColumn(ReviewListPanel, 1); Grid.SetColumnSpan(ReviewListPanel, 1);
+                ReviewOverlay.Margin = new Thickness(28, 28, 28, 104);
                 SetItemsOrientation(ReviewPhotoList, Orientation.Vertical);
                 ScrollViewer.SetVerticalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Auto);
                 ScrollViewer.SetHorizontalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Disabled);

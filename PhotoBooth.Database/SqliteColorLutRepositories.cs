@@ -151,10 +151,10 @@ LastValidatedAtUtc,CreatedAtUtc,ModifiedAtUtc,RowVersion FROM ColorLutAssets";
             token.ThrowIfCancellationRequested();
             using (var connection = database.OpenConnection()) using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT PresetId,LutAssetId,Strength,Enabled,ModifiedAtUtc,RowVersion FROM PresetColorSettings WHERE PresetId=$id";
+                command.CommandText = "SELECT PresetId,LutAssetId,ModifiedAtUtc,RowVersion FROM PresetColorSettings WHERE PresetId=$id";
                 command.Parameters.AddWithValue("$id", presetId.ToString());
                 using (var reader = command.ExecuteReader())
-                    if (reader.Read()) return Task.FromResult(new PresetColorSettings { PresetId=Guid.Parse(reader.GetString(0)), LutAssetId=reader.IsDBNull(1)?(Guid?)null:Guid.Parse(reader.GetString(1)), Strength=(float)reader.GetDouble(2), Enabled=reader.GetInt32(3)!=0, ModifiedAtUtc=DateTime.Parse(reader.GetString(4),CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind).ToUniversalTime(), RowVersion=reader.GetInt64(5) });
+                    if (reader.Read()) return Task.FromResult(new PresetColorSettings { PresetId=Guid.Parse(reader.GetString(0)), LutAssetId=Guid.Parse(reader.GetString(1)), ModifiedAtUtc=DateTime.Parse(reader.GetString(2),CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind).ToUniversalTime(), RowVersion=reader.GetInt64(3) });
             }
             return Task.FromResult<PresetColorSettings>(null);
         }
@@ -166,14 +166,12 @@ LastValidatedAtUtc,CreatedAtUtc,ModifiedAtUtc,RowVersion FROM ColorLutAssets";
             {
                 if (expectedRowVersion.HasValue)
                 {
-                    command.CommandText = @"UPDATE PresetColorSettings SET LutAssetId=$asset,Strength=$strength,Enabled=$enabled,ModifiedAtUtc=$modified,RowVersion=RowVersion+1 WHERE PresetId=$preset AND RowVersion=$expected";
+                    command.CommandText = @"UPDATE PresetColorSettings SET LutAssetId=$asset,ModifiedAtUtc=$modified,RowVersion=RowVersion+1 WHERE PresetId=$preset AND RowVersion=$expected";
                     command.Parameters.AddWithValue("$expected",expectedRowVersion.Value);
                 }
-                else command.CommandText = @"INSERT INTO PresetColorSettings(PresetId,LutAssetId,Strength,Enabled,ModifiedAtUtc,RowVersion) VALUES($preset,$asset,$strength,$enabled,$modified,1)";
+                else command.CommandText = @"INSERT INTO PresetColorSettings(PresetId,LutAssetId,ModifiedAtUtc,RowVersion) VALUES($preset,$asset,$modified,1)";
                 command.Parameters.AddWithValue("$preset",value.PresetId.ToString());
-                command.Parameters.AddWithValue("$asset",value.LutAssetId.HasValue?(object)value.LutAssetId.Value.ToString():DBNull.Value);
-                command.Parameters.AddWithValue("$strength",value.Strength);
-                command.Parameters.AddWithValue("$enabled",value.Enabled?1:0);
+                command.Parameters.AddWithValue("$asset",value.LutAssetId.ToString());
                 command.Parameters.AddWithValue("$modified",value.ModifiedAtUtc.ToString("O"));
                 if (command.ExecuteNonQuery()!=1) throw new InvalidOperationException("Preset color settings were modified by another operation.");
                 value.RowVersion=expectedRowVersion.GetValueOrDefault(0)+1;

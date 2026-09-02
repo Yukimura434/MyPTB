@@ -33,10 +33,13 @@ namespace PhotoBooth.Core.Models
             width *= fitScale;
             height *= fitScale;
 
-            // Live View is intentionally fixed at the exact canvas centre.
-            // Position arguments remain in the contract for settings compatibility.
-            var left = (canvasWidth - width) / 2d;
-            var top = (canvasHeight - height) / 2d;
+            // Position percentages describe where the Live View sits inside the
+            // remaining free space. This keeps the full view inside the canvas:
+            // 0 is the leading edge, 50 is centred and 100 is the trailing edge.
+            var horizontalPosition = Clamp(horizontalPositionPercent, 0d, 100d);
+            var verticalPosition = Clamp(verticalPositionPercent, 0d, 100d);
+            var left = (canvasWidth - width) * horizontalPosition / 100d;
+            var top = (canvasHeight - height) * verticalPosition / 100d;
             return new LiveViewLayout(width, height, left, top);
         }
 

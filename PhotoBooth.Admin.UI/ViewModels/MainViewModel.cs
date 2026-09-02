@@ -21,7 +21,9 @@ namespace PhotoBooth.Admin.UI.ViewModels
             HomeViewModel home,
             EventManagerViewModel eventManager,
             EventFramePickerViewModel eventFramePicker,
+            EventPresetPickerViewModel eventPresetPicker,
             FrameManagerViewModel frames,
+            FrameSlotOrderViewModel frameSlotOrder,
             PresetManagerViewModel presets,
             BeautyViewModel beauty,
             PrinterManagerViewModel printers,
@@ -39,7 +41,9 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 { "home", home },
                 { "events", eventManager },
                 { "event-frame-picker", eventFramePicker },
+                { "event-preset-picker", eventPresetPicker },
                 { "frames", frames },
+                { "frame-slot-order", frameSlotOrder },
                 { "presets", presets },
                 { "beauty", beauty },
                 { "printers", printers },
@@ -66,6 +70,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
             get => current;
             private set => Set(ref current, value);
         }
+
+        public string CurrentRoute => navigation.CurrentRoute;
 
         public bool IsMenuExpanded
         {
@@ -114,6 +120,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         {
             if (route == null || !pages.TryGetValue(route, out var page)) return;
             CurrentPage = page;
+            Raise(nameof(CurrentRoute));
             if (page is InterfaceViewModel interfacePage) _ = interfacePage.RefreshAsync();
             if (page is EventManagerViewModel eventPage && !eventPage.Dirty) _ = eventPage.RefreshAsync();
             if (page is BeautyViewModel beautyPage) _ = beautyPage.RefreshAsync();

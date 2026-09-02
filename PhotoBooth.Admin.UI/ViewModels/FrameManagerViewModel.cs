@@ -28,17 +28,22 @@ namespace PhotoBooth.Admin.UI.ViewModels
         readonly IFrameEventService eventService;
         readonly ISettingsService settings;
         readonly IFileDialogService dialog;
+        readonly INavigationService navigation;
+        readonly FrameSlotOrderViewModel slotOrder;
         readonly ILogger<FrameManagerViewModel> log;
         string search = string.Empty, sort = "Ghim trước", message, newEventName = "Sự kiện mới", editEventName = string.Empty;
         Frame selected;
         FrameEventItem selectedEvent, assignmentEvent;
         int pinnedCount;
+        Guid? pendingSelectedFrameId;
 
-        public FrameManagerViewModel(IFrameService frames, IFrameEventService events, ISettingsService st, IFileDialogService d, ILogger<FrameManagerViewModel> l)
+        public FrameManagerViewModel(IFrameService frames, IFrameEventService events, ISettingsService st, IFileDialogService d,
+            INavigationService navigationService, FrameSlotOrderViewModel slotOrderViewModel, ILogger<FrameManagerViewModel> l)
         {
-            service = frames; eventService = events; settings = st; dialog = d; log = l;
+            service = frames; eventService = events; settings = st; dialog = d; navigation = navigationService; slotOrder = slotOrderViewModel; log = l;
             ImportCommand = new AsyncCommand(_ => Import()); DeleteCommand = new AsyncCommand(_ => Delete(), _ => SelectedFrame != null);
             PinCommand = new AsyncCommand(_ => Pin(), _ => SelectedFrame != null); RefreshCommand = new AsyncCommand(_ => Load());
+            EditSlotOrderCommand = new RelayCommand(_ => EditSlotOrder(), _ => SelectedFrame != null);
             CreateEventCommand = new AsyncCommand(_ => CreateEvent(), _ => !string.IsNullOrWhiteSpace(NewEventName));
             RenameEventCommand = new AsyncCommand(_ => RenameEvent(), _ => CanManageSelectedEvent && !string.IsNullOrWhiteSpace(EditEventName));
             DeleteEventCommand = new AsyncCommand(_ => DeleteEvent(), _ => CanManageSelectedEvent);
@@ -49,6 +54,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public override string Title => "Quản lý frame";
         public ObservableCollection<Frame> Frames { get; } = new ObservableCollection<Frame>();
         public ObservableCollection<Frame> VisibleFrames { get; } = new ObservableCollection<Frame>();
+        public ObservableCollection<NumberedFrameSlot> DetailSlots { get; } = new ObservableCollection<NumberedFrameSlot>();
         public ObservableCollection<FrameEventItem> EventItems { get; } = new ObservableCollection<FrameEventItem>();
         public ObservableCollection<FrameEventItem> AssignmentEvents { get; } = new ObservableCollection<FrameEventItem>();
         public string[] SortOptions { get; }
@@ -63,7 +69,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public string FrameSummary => VisibleFrames.Count + " / " + Frames.Count + " frame";
         public bool CanManageSelectedEvent => SelectedEvent != null && !SelectedEvent.IsAll && !SelectedEvent.IsUncategorized;
 
-        public Frame SelectedFrame { get => selected; set { if (Set(ref selected, value)) { AssignmentEvent = FindAssignment(value?.EventId); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } } }
+        public Frame SelectedFrame { get => selected; set { if (Set(ref selected, value)) { AssignmentEvent = FindAssignment(value?.EventId); BuildDetailSlots(); Raise(nameof(HasSelectedFrame)); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } } }
+        public bool HasSelectedFrame => SelectedFrame != null;
         public FrameEventItem SelectedEvent
         {
             get => selectedEvent;
@@ -72,9 +79,34 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public FrameEventItem AssignmentEvent { get => assignmentEvent; set => Set(ref assignmentEvent, value); }
 
         public ICommand ImportCommand { get; } public ICommand DeleteCommand { get; } public ICommand PinCommand { get; } public ICommand RefreshCommand { get; }
+        public ICommand EditSlotOrderCommand { get; }
         public ICommand CreateEventCommand { get; } public ICommand RenameEventCommand { get; } public ICommand DeleteEventCommand { get; } public ICommand AssignEventCommand { get; }
 
-        public Task RefreshAsync() => Load();
+        public Task RefreshAsync()
+        {
+            var frameId = pendingSelectedFrameId;
+            pendingSelectedFrameId = null;
+            return Load(frameId);
+        }
+
+        void BuildDetailSlots()
+        {
+            DetailSlots.Clear();
+            foreach (var slot in (SelectedFrame?.Slots ?? new FrameSlot[0]).OrderBy(x => x.Index))
+                DetailSlots.Add(new NumberedFrameSlot(slot, slot.Index + 1));
+        }
+
+        void EditSlotOrder()
+        {
+            var target = SelectedFrame;
+            if (target == null) return;
+            slotOrder.Open(target, (id, saved) =>
+            {
+                pendingSelectedFrameId = id;
+                if (saved) Message = "Đã lưu thứ tự ô ảnh.";
+            });
+            navigation.Navigate("frame-slot-order");
+        }
 
         async Task Load(Guid? selectFrameId = null, Guid? selectEventId = null)
         {

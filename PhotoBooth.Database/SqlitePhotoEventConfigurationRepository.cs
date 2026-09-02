@@ -65,6 +65,18 @@ namespace PhotoBooth.Database
                     }
                 }
                 value.FrameIds = frames;
+                var presets = new List<Guid>();
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT PresetId FROM EventPresets WHERE EventId=$event ORDER BY SortOrder";
+                    command.Parameters.AddWithValue("$event", eventId.ToString());
+                    using (var reader = command.ExecuteReader()) while (reader.Read())
+                    {
+                        token.ThrowIfCancellationRequested();
+                        presets.Add(Guid.Parse(reader.GetString(0)));
+                    }
+                }
+                value.PresetIds = presets;
                 return Task.FromResult(value);
             }
         }
@@ -74,12 +86,14 @@ namespace PhotoBooth.Database
             token.ThrowIfCancellationRequested();
             if (value == null) throw new ArgumentNullException(nameof(value));
             var frameIds = (value.FrameIds ?? new Guid[0]).Distinct().ToList();
+            var presetIds = (value.PresetIds ?? new Guid[0]).Distinct().ToList();
             if (frameIds.Count == 0 || frameIds.Count > 10) throw new InvalidOperationException("Event phải có từ 1 đến 10 frame.");
             using (var connection = db.OpenConnection())
             using (var transaction = connection.BeginTransaction())
             {
                 EnsureEvent(connection, transaction, value.EventId);
                 foreach (var frameId in frameIds) EnsureFrame(connection, transaction, frameId);
+                foreach (var presetId in presetIds) EnsurePreset(connection, transaction, presetId);
                 var now = DateTime.UtcNow;
                 if (value.RowVersion == 0)
                 {
@@ -142,8 +156,28 @@ VALUES($event,$photos,$countdown,$gif,$waiting,$layout,$rotation,$enabled,$smoot
                         command.ExecuteNonQuery();
                     }
                 }
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = "DELETE FROM EventPresets WHERE EventId=$event";
+                    command.Parameters.AddWithValue("$event", value.EventId.ToString());
+                    command.ExecuteNonQuery();
+                }
+                for (var index = 0; index < presetIds.Count; index++)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "INSERT INTO EventPresets(EventId,PresetId,SortOrder) VALUES($event,$preset,$sort)";
+                        command.Parameters.AddWithValue("$event", value.EventId.ToString());
+                        command.Parameters.AddWithValue("$preset", presetIds[index].ToString());
+                        command.Parameters.AddWithValue("$sort", index);
+                        command.ExecuteNonQuery();
+                    }
+                }
                 transaction.Commit();
                 value.FrameIds = frameIds;
+                value.PresetIds = presetIds;
                 value.ModifiedAtUtc = now;
                 return Task.FromResult(value);
             }
@@ -158,13 +192,22 @@ VALUES($event,$photos,$countdown,$gif,$waiting,$layout,$rotation,$enabled,$smoot
                 EnsureEvent(connection, transaction, eventId);
                 var configuration = ReadConfiguration(connection, transaction, eventId);
                 var frameIds = ReadFrameIds(connection, transaction, eventId);
+                var presetIds = ReadPresetIds(connection, transaction, eventId);
                 if (configuration == null) throw new InvalidOperationException("Hãy lưu cấu hình event trước khi sử dụng.");
                 if (frameIds.Count == 0 || frameIds.Count > 10) throw new InvalidOperationException("Event phải có từ 1 đến 10 frame hợp lệ.");
                 foreach (var frameId in frameIds) EnsureFrame(connection, transaction, frameId);
+                foreach (var presetId in presetIds) EnsurePreset(connection, transaction, presetId);
                 using (var command = connection.CreateCommand())
                 {
                     command.Transaction = transaction;
                     command.CommandText = "UPDATE CustomerSessions SET IsDefault=CASE WHEN Id=$event THEN 1 ELSE 0 END WHERE Kind='Event'";
+                    command.Parameters.AddWithValue("$event", eventId.ToString());
+                    command.ExecuteNonQuery();
+                }
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = "UPDATE AdminPresets SET IsPinned=CASE WHEN Id IN (SELECT PresetId FROM EventPresets WHERE EventId=$event) THEN 1 ELSE 0 END";
                     command.Parameters.AddWithValue("$event", eventId.ToString());
                     command.ExecuteNonQuery();
                 }
@@ -185,7 +228,7 @@ VALUES($event,$photos,$countdown,$gif,$waiting,$layout,$rotation,$enabled,$smoot
  RotateLiveView180,CustomerLayoutMode,ImageRotationDegrees,WaitingBackgroundZoom,WaitingBackgroundPanX,WaitingBackgroundPanY,WaitingLiveViewAreaPercent)
 VALUES(1,NULL,NULL,8,10000,40,40,1,8,$photos,$countdown,$frame,NULL,NULL,1,1,1,0,0,$gif,$waiting,1,10,10,0,$layout,$rotation,100,0,0,5);
 UPDATE WorkflowSettings SET PhotoCount=$photos,CountdownSeconds=$countdown,GifFrameDurationMs=$gif,
- WaitingTimeoutSeconds=$waiting,CustomerLayoutMode=$layout,ImageRotationDegrees=$rotation,DefaultFrameId=$frame WHERE Id=1";
+ WaitingTimeoutSeconds=$waiting,CustomerLayoutMode=$layout,ImageRotationDegrees=$rotation,DefaultFrameId=$frame,DefaultPresetId=$preset WHERE Id=1";
                     command.Parameters.AddWithValue("$photos", configuration.PhotoCount);
                     command.Parameters.AddWithValue("$countdown", configuration.CountdownSeconds);
                     command.Parameters.AddWithValue("$gif", configuration.GifFrameDurationMilliseconds);
@@ -193,6 +236,7 @@ UPDATE WorkflowSettings SET PhotoCount=$photos,CountdownSeconds=$countdown,GifFr
                     command.Parameters.AddWithValue("$layout", (int)configuration.CustomerLayoutMode);
                     command.Parameters.AddWithValue("$rotation", configuration.ImageRotationDegrees);
                     command.Parameters.AddWithValue("$frame", frameIds[0].ToString());
+                    command.Parameters.AddWithValue("$preset", presetIds.Count == 0 ? (object)DBNull.Value : presetIds[0].ToString());
                     command.ExecuteNonQuery();
                 }
                 using (var command = connection.CreateCommand())
@@ -267,6 +311,18 @@ VALUES(1,$enabled,$smooth,$brighten,$tone,$sharpen,$eye,$slim,$modified)";
             }
         }
 
+        static void EnsurePreset(SqliteConnection connection, SqliteTransaction transaction, Guid presetId)
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = @"SELECT COUNT(*) FROM AdminPresets preset
+INNER JOIN PresetColorSettings color ON color.PresetId=preset.Id WHERE preset.Id=$preset";
+                command.Parameters.AddWithValue("$preset", presetId.ToString());
+                if (Convert.ToInt32(command.ExecuteScalar()) != 1) throw new InvalidOperationException("Một preset đã chọn không còn tồn tại hoặc không có LUT.");
+            }
+        }
+
         static PhotoEventConfiguration ReadConfiguration(SqliteConnection connection, SqliteTransaction transaction, Guid eventId)
         {
             using (var command = connection.CreateCommand())
@@ -297,6 +353,19 @@ VALUES(1,$enabled,$smooth,$brighten,$tone,$sharpen,$eye,$slim,$modified)";
             {
                 command.Transaction = transaction;
                 command.CommandText = "SELECT FrameId FROM EventFrames WHERE EventId=$event ORDER BY SortOrder";
+                command.Parameters.AddWithValue("$event", eventId.ToString());
+                using (var reader = command.ExecuteReader()) while (reader.Read()) values.Add(Guid.Parse(reader.GetString(0)));
+            }
+            return values;
+        }
+
+        static List<Guid> ReadPresetIds(SqliteConnection connection, SqliteTransaction transaction, Guid eventId)
+        {
+            var values = new List<Guid>();
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = "SELECT PresetId FROM EventPresets WHERE EventId=$event ORDER BY SortOrder";
                 command.Parameters.AddWithValue("$event", eventId.ToString());
                 using (var reader = command.ExecuteReader()) while (reader.Read()) values.Add(Guid.Parse(reader.GetString(0)));
             }

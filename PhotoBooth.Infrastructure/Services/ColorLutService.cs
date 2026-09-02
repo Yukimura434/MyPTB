@@ -17,33 +17,75 @@ namespace PhotoBooth.Infrastructure.Services
 {
     internal sealed class ColorLutService : IColorLutService
     {
-        readonly IColorLutAssetRepository assets;readonly IPresetColorRepository colors;readonly IPresetRepository presets;readonly IColorLutParser parser;readonly IColorLutPathResolver paths;readonly ILogger<ColorLutService> log;
-        public ColorLutService(IColorLutAssetRepository assets,IPresetColorRepository colors,IPresetRepository presets,IColorLutParser parser,IColorLutPathResolver paths,ILogger<ColorLutService> log){this.assets=assets;this.colors=colors;this.presets=presets;this.parser=parser;this.paths=paths;this.log=log;}
+        readonly IColorLutAssetRepository assets;readonly IPresetColorRepository colors;readonly IColorLutParser parser;readonly IColorLutPathResolver paths;readonly ILogger<ColorLutService> log;
+        public ColorLutService(IColorLutAssetRepository assets,IPresetColorRepository colors,IColorLutParser parser,IColorLutPathResolver paths,ILogger<ColorLutService> log){this.assets=assets;this.colors=colors;this.parser=parser;this.paths=paths;this.log=log;}
         public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token)=>assets.GetAllAsync(token);
-        public async Task<ColorLutData> GetLiveAsync(Guid presetId,CancellationToken token)
-        {
-            var setting=await colors.GetAsync(presetId,token).ConfigureAwait(false);
-            if(setting==null||!setting.Enabled||!setting.LutAssetId.HasValue)return null;
-            var asset=await assets.GetAsync(setting.LutAssetId.Value,token).ConfigureAwait(false);
-            if(asset==null||asset.Status!=ColorLutAssetStatus.Ready||!asset.SupportsLiveView)return null;
-            var full=paths.GetFullPath(asset.RelativePath);
-            var data=await Task.Run(()=>parser.Parse(full,token),token).ConfigureAwait(false);
-            if(data.Metadata.DomainMinR!=0||data.Metadata.DomainMinG!=0||data.Metadata.DomainMinB!=0||data.Metadata.DomainMaxR!=1||data.Metadata.DomainMaxG!=1||data.Metadata.DomainMaxB!=1){data.Dispose();return null;}
-            data.Strength=Math.Max(0,Math.Min(1,setting.Strength));
-            return data;
-        }
+        public Task<ColorLutData> GetLiveAsync(Guid presetId,CancellationToken token)=>Task.FromResult<ColorLutData>(null);
 
         public async Task ApplyCaptureAsync(Guid presetId,string imagePath,CancellationToken token)
         {
             if(string.IsNullOrWhiteSpace(imagePath))throw new ArgumentException("Capture image path is required.",nameof(imagePath));
             var setting=await colors.GetAsync(presetId,token).ConfigureAwait(false);
-            if(setting==null||!setting.Enabled||!setting.LutAssetId.HasValue||setting.Strength<=0)return;
-            var asset=await assets.GetAsync(setting.LutAssetId.Value,token).ConfigureAwait(false);
+            if(setting==null)return;
+            var asset=await assets.GetAsync(setting.LutAssetId,token).ConfigureAwait(false);
             if(asset==null||asset.Status!=ColorLutAssetStatus.Ready)return;
             using(var data=await Task.Run(()=>parser.Parse(paths.GetFullPath(asset.RelativePath),token),token).ConfigureAwait(false))
             {
-                data.Strength=Math.Max(0,Math.Min(1,setting.Strength));
+                data.Strength=ColorLutData.DefaultStrength;
                 await Task.Run(()=>ApplyTetrahedral(imagePath,data,token),token).ConfigureAwait(false);
+            }
+        }
+
+        public async Task ApplyToFileAsync(Guid presetId,string sourcePath,string destinationPath,float strength,CancellationToken token)
+        {
+            if(string.IsNullOrWhiteSpace(sourcePath)||!File.Exists(sourcePath))throw new FileNotFoundException("Preset source image was not found.",sourcePath);
+            if(string.IsNullOrWhiteSpace(destinationPath))throw new ArgumentException("Preset destination image path is required.",nameof(destinationPath));
+            if(!IsRasterImage(sourcePath)||!IsRasterImage(destinationPath))throw new InvalidDataException("Presets can only be applied to still raster images.");
+            if(string.Equals(Path.GetFullPath(sourcePath),Path.GetFullPath(destinationPath),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Preset output must be a new image file.");
+            var setting=await colors.GetAsync(presetId,token).ConfigureAwait(false);
+            if(setting==null)throw new InvalidOperationException("Preset does not have a LUT.");
+            var asset=await assets.GetAsync(setting.LutAssetId,token).ConfigureAwait(false);
+            if(asset==null||asset.Status!=ColorLutAssetStatus.Ready)throw new InvalidOperationException("LUT asset is not ready.");
+            using(var data=await Task.Run(()=>parser.Parse(paths.GetFullPath(asset.RelativePath),token),token).ConfigureAwait(false))
+            {
+                data.Strength=Math.Max(0,Math.Min(1,strength));
+                await Task.Run(()=>ApplyTetrahedralToFile(sourcePath,destinationPath,data,token),token).ConfigureAwait(false);
+            }
+        }
+
+        public async Task<byte[]> RenderPreviewAsync(Guid assetId,string imagePath,float strength,CancellationToken token)
+        {
+            if(string.IsNullOrWhiteSpace(imagePath)||!File.Exists(imagePath))throw new FileNotFoundException("Preset preview image was not found.",imagePath);
+            // Preview work is disposable. A cancelled request represents a stale
+            // thumbnail/frame, so return quietly instead of surfacing an expected
+            // OperationCanceledException across the Infrastructure DLL boundary.
+            if(token.IsCancellationRequested)return null;
+            var asset=await assets.GetAsync(assetId,CancellationToken.None).ConfigureAwait(false);
+            if(asset==null||asset.Status!=ColorLutAssetStatus.Ready)throw new InvalidOperationException("LUT asset is not ready.");
+            if(token.IsCancellationRequested)return null;
+            using(var data=await Task.Run(()=>parser.Parse(paths.GetFullPath(asset.RelativePath),CancellationToken.None)).ConfigureAwait(false))
+            using(var source=Image.FromFile(imagePath))
+            {
+                if(token.IsCancellationRequested)return null;
+                data.Strength=Math.Max(0,Math.Min(1,strength));
+                var scale=Math.Min(1d,720d/Math.Max(source.Width,source.Height));
+                var width=Math.Max(1,(int)Math.Round(source.Width*scale));var height=Math.Max(1,(int)Math.Round(source.Height*scale));
+                using(var bitmap=new Bitmap(width,height,PixelFormat.Format32bppArgb))
+                {
+                    using(var graphics=Graphics.FromImage(bitmap))
+                    {
+                        graphics.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        graphics.DrawImage(source,new Rectangle(0,0,width,height));
+                    }
+                    await Task.Run(()=>TransformBitmap(bitmap,data,CancellationToken.None)).ConfigureAwait(false);
+                    if(token.IsCancellationRequested)return null;
+                    using(var output=new MemoryStream())
+                    {
+                        var codec=ImageCodecInfo.GetImageEncoders().First(x=>x.FormatID==ImageFormat.Jpeg.Guid);
+                        using(var parameters=new EncoderParameters(1)){parameters.Param[0]=new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,92L);bitmap.Save(output,codec,parameters);}
+                        return output.ToArray();
+                    }
+                }
             }
         }
 
@@ -59,31 +101,75 @@ namespace PhotoBooth.Infrastructure.Services
                     bitmap.SetResolution(source.HorizontalResolution>0?source.HorizontalResolution:96,source.VerticalResolution>0?source.VerticalResolution:96);
                     using(var graphics=Graphics.FromImage(bitmap))graphics.DrawImageUnscaled(source,0,0);
                     foreach(var property in source.PropertyItems)try{bitmap.SetPropertyItem(property);}catch(ArgumentException){}
-                    var rect=new Rectangle(0,0,bitmap.Width,bitmap.Height);var bits=bitmap.LockBits(rect,ImageLockMode.ReadWrite,PixelFormat.Format32bppArgb);
-                    try
-                    {
-                        unsafe
-                        {
-                            var row=(byte*)bits.Scan0;
-                            for(var y=0;y<bitmap.Height;y++,row+=bits.Stride)
-                            {
-                                token.ThrowIfCancellationRequested();
-                                for(var x=0;x<bitmap.Width;x++)
-                                {
-                                    var pixel=row+x*4;float rr,gg,bb;var r=pixel[2]/255f;var g=pixel[1]/255f;var b=pixel[0]/255f;
-                                    Sample(lut,r,g,b,out rr,out gg,out bb);var strength=lut.Strength;
-                                    pixel[2]=ToByte(r+(rr-r)*strength);pixel[1]=ToByte(g+(gg-g)*strength);pixel[0]=ToByte(b+(bb-b)*strength);
-                                }
-                            }
-                        }
-                    }
-                    finally{bitmap.UnlockBits(bits);}
+                    TransformBitmap(bitmap,lut,token);
                     var codec=ImageCodecInfo.GetImageEncoders().First(x=>x.FormatID==ImageFormat.Jpeg.Guid);
                     using(var parameters=new EncoderParameters(1)){parameters.Param[0]=new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,100L);bitmap.Save(temporary,codec,parameters);}
                 }
                 File.Replace(temporary,imagePath,null);
             }
             finally{try{if(File.Exists(temporary))File.Delete(temporary);}catch{}}
+        }
+
+        static void ApplyTetrahedralToFile(string sourcePath,string destinationPath,ColorLutData lut,CancellationToken token)
+        {
+            if(lut?.Metadata==null||lut.Values==null)throw new InvalidDataException("LUT data is unavailable.");
+            var destination=Path.GetFullPath(destinationPath);var directory=Path.GetDirectoryName(destination);Directory.CreateDirectory(directory);
+            var temporary=Path.Combine(directory,"."+Path.GetFileName(destination)+"."+Guid.NewGuid().ToString("N")+".tmp");
+            try
+            {
+                using(var source=Image.FromFile(sourcePath))
+                using(var bitmap=new Bitmap(source.Width,source.Height,PixelFormat.Format32bppArgb))
+                {
+                    bitmap.SetResolution(source.HorizontalResolution>0?source.HorizontalResolution:96,source.VerticalResolution>0?source.VerticalResolution:96);
+                    using(var graphics=Graphics.FromImage(bitmap))graphics.DrawImageUnscaled(source,0,0);
+                    foreach(var property in source.PropertyItems)try{bitmap.SetPropertyItem(property);}catch(ArgumentException){}
+                    TransformBitmap(bitmap,lut,token);SaveImage(bitmap,temporary,destination);
+                }
+                token.ThrowIfCancellationRequested();
+                if(File.Exists(destination))File.Replace(temporary,destination,null);else File.Move(temporary,destination);
+            }
+            finally{try{if(File.Exists(temporary))File.Delete(temporary);}catch{}}
+        }
+
+        static void SaveImage(Bitmap bitmap,string temporaryPath,string destinationPath)
+        {
+            var extension=(Path.GetExtension(destinationPath)??string.Empty).ToLowerInvariant();
+            if(extension==".png"){bitmap.Save(temporaryPath,ImageFormat.Png);return;}
+            if(extension==".bmp"){bitmap.Save(temporaryPath,ImageFormat.Bmp);return;}
+            var codec=ImageCodecInfo.GetImageEncoders().First(x=>x.FormatID==ImageFormat.Jpeg.Guid);
+            using(var parameters=new EncoderParameters(1)){parameters.Param[0]=new EncoderParameter(System.Drawing.Imaging.Encoder.Quality,100L);bitmap.Save(temporaryPath,codec,parameters);}
+        }
+
+        static bool IsRasterImage(string path)
+        {
+            switch((Path.GetExtension(path)??string.Empty).ToLowerInvariant())
+            {
+                case ".jpg":case ".jpeg":case ".png":case ".bmp":case ".gif":return true;
+                default:return false;
+            }
+        }
+
+        static void TransformBitmap(Bitmap bitmap,ColorLutData lut,CancellationToken token)
+        {
+            var rect=new Rectangle(0,0,bitmap.Width,bitmap.Height);var bits=bitmap.LockBits(rect,ImageLockMode.ReadWrite,PixelFormat.Format32bppArgb);
+            try
+            {
+                unsafe
+                {
+                    var row=(byte*)bits.Scan0;
+                    for(var y=0;y<bitmap.Height;y++,row+=bits.Stride)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        for(var x=0;x<bitmap.Width;x++)
+                        {
+                            var pixel=row+x*4;float rr,gg,bb;var r=pixel[2]/255f;var g=pixel[1]/255f;var b=pixel[0]/255f;
+                            Sample(lut,r,g,b,out rr,out gg,out bb);var strength=lut.Strength;
+                            pixel[2]=ToByte(r+(rr-r)*strength);pixel[1]=ToByte(g+(gg-g)*strength);pixel[0]=ToByte(b+(bb-b)*strength);
+                        }
+                    }
+                }
+            }
+            finally{bitmap.UnlockBits(bits);}
         }
 
         internal static void Sample(ColorLutData lut,float r,float g,float b,out float or,out float og,out float ob)
@@ -116,7 +202,7 @@ namespace PhotoBooth.Infrastructure.Services
                 var duplicate=await assets.GetByHashAsync(hash,token).ConfigureAwait(false);
                 if(duplicate!=null){return new ColorLutImportResult{Asset=duplicate,WasDuplicate=true};}
                 ColorLutMetadata metadata;IReadOnlyList<string> warnings;
-                using(var data=await Task.Run(()=>parser.Parse(staging,token),token).ConfigureAwait(false)){metadata=data.Metadata;warnings=metadata.CubeSize>65?new[]{"LUT is capture-only because live view supports up to 65³."}:new string[0];}
+                using(var data=await Task.Run(()=>parser.Parse(staging,token),token).ConfigureAwait(false)){metadata=data.Metadata;warnings=new string[0];}
                 var now=DateTime.UtcNow;var id=Guid.NewGuid();var relative=paths.CreateRelativeAssetPath(id,hash);var destination=paths.GetFullPath(relative);
                 var asset=new ColorLutAsset{Id=id,DisplayName=string.IsNullOrWhiteSpace(displayName)?Path.GetFileNameWithoutExtension(sourcePath):displayName.Trim(),RelativePath=relative,ContentHashSha256=hash,FileLength=new FileInfo(staging).Length,CubeSize=metadata.CubeSize,DomainMinR=metadata.DomainMinR,DomainMinG=metadata.DomainMinG,DomainMinB=metadata.DomainMinB,DomainMaxR=metadata.DomainMaxR,DomainMaxG=metadata.DomainMaxG,DomainMaxB=metadata.DomainMaxB,Status=ColorLutAssetStatus.Staging,LastValidatedAtUtc=now,CreatedAtUtc=now,ModifiedAtUtc=now,RowVersion=1};
                 try{await assets.InsertAsync(asset,token).ConfigureAwait(false);}catch(SqliteException){duplicate=await assets.GetByHashAsync(hash,token).ConfigureAwait(false);if(duplicate!=null)return new ColorLutImportResult{Asset=duplicate,WasDuplicate=true};throw;}
@@ -137,12 +223,12 @@ namespace PhotoBooth.Infrastructure.Services
             finally{try{if(File.Exists(staging))File.Delete(staging);}catch(Exception e){log.LogWarning(e,"Unable to clean LUT staging file {Path}",staging);}}
         }
 
-        public async Task AttachAsync(Guid presetId,Guid assetId,float strength,CancellationToken token)
+        public async Task AttachAsync(Guid presetId,Guid assetId,CancellationToken token)
         {
-            if(strength<0||strength>1)throw new ArgumentOutOfRangeException(nameof(strength));
-            if(await presets.GetAsync(presetId,token).ConfigureAwait(false)==null)throw new InvalidOperationException("Preset does not exist.");
             var asset=await assets.GetAsync(assetId,token).ConfigureAwait(false);if(asset==null||asset.Status!=ColorLutAssetStatus.Ready)throw new InvalidOperationException("LUT asset is not ready.");
-            var existing=await colors.GetAsync(presetId,token).ConfigureAwait(false);var value=existing??new PresetColorSettings{PresetId=presetId};value.LutAssetId=assetId;value.Strength=strength;value.Enabled=true;value.ModifiedAtUtc=DateTime.UtcNow;await colors.SaveAsync(value,existing?.RowVersion,token).ConfigureAwait(false);
+            var existing=await colors.GetAsync(presetId,token).ConfigureAwait(false);var value=existing??new PresetColorSettings{PresetId=presetId};
+            if(existing!=null&&existing.LutAssetId!=assetId)throw new InvalidOperationException("LUT của preset không thể thay đổi sau khi tạo.");
+            value.LutAssetId=assetId;value.ModifiedAtUtc=DateTime.UtcNow;await colors.SaveAsync(value,existing?.RowVersion,token).ConfigureAwait(false);
         }
         public Task DetachAsync(Guid presetId,CancellationToken token)=>colors.RemoveAsync(presetId,token);
 

@@ -31,9 +31,7 @@ namespace PhotoBooth.Core.Models
     public sealed class PresetColorSettings
     {
         public Guid PresetId { get; set; }
-        public Guid? LutAssetId { get; set; }
-        public float Strength { get; set; } = 1f;
-        public bool Enabled { get; set; } = true;
+        public Guid LutAssetId { get; set; }
         public DateTime ModifiedAtUtc { get; set; }
         public long RowVersion { get; set; } = 1;
     }

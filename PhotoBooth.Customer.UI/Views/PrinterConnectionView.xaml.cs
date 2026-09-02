@@ -12,8 +12,8 @@ namespace PhotoBooth.Customer.UI.Views
    var portrait=shell!=null&&shell.IsPortraitMode;
    if(portrait)
    {
-    PrinterListColumn.Width=new GridLength(1,GridUnitType.Star);PrinterSettingsColumn.Width=new GridLength(0);PrinterListRow.Height=new GridLength(1,GridUnitType.Star);PrinterSettingsRow.Height=new GridLength(1,GridUnitType.Star);
-    Grid.SetRow(PrinterListPanel,0);Grid.SetColumn(PrinterListPanel,0);Grid.SetColumnSpan(PrinterListPanel,2);PrinterListPanel.Margin=new Thickness(0,0,0,10);
+    PrinterListColumn.Width=new GridLength(1,GridUnitType.Star);PrinterSettingsColumn.Width=new GridLength(0);PrinterListRow.Height=new GridLength(5,GridUnitType.Star);PrinterSettingsRow.Height=new GridLength(4,GridUnitType.Star);
+    Grid.SetRow(PrinterListPanel,0);Grid.SetColumn(PrinterListPanel,0);Grid.SetColumnSpan(PrinterListPanel,2);PrinterListPanel.Margin=new Thickness(0,0,0,14);
     Grid.SetRow(PrinterSettingsPanel,1);Grid.SetColumn(PrinterSettingsPanel,0);Grid.SetColumnSpan(PrinterSettingsPanel,2);
    }
    else

@@ -5,7 +5,9 @@
       <DataTemplate DataType="{x:Type vm:HomeViewModel}"><views:HomeView/></DataTemplate>
       <DataTemplate DataType="{x:Type vm:EventManagerViewModel}"><views:EventManagerView/></DataTemplate>
       <DataTemplate DataType="{x:Type vm:EventFramePickerViewModel}"><views:EventFramePickerView/></DataTemplate>
+      <DataTemplate DataType="{x:Type vm:EventPresetPickerViewModel}"><views:EventPresetPickerView/></DataTemplate>
       <DataTemplate DataType="{x:Type vm:FrameManagerViewModel}"><views:FrameManagerView/></DataTemplate>
+      <DataTemplate DataType="{x:Type vm:FrameSlotOrderViewModel}"><views:FrameSlotOrderView/></DataTemplate>
       <DataTemplate DataType="{x:Type vm:PresetManagerViewModel}"><views:PresetManagerView/></DataTemplate>
       <DataTemplate DataType="{x:Type vm:BeautyViewModel}"><views:BeautyView/></DataTemplate>
       <DataTemplate DataType="{x:Type vm:PrinterManagerViewModel}"><views:PrinterManagerView/></DataTemplate>

@@ -19,20 +19,32 @@ namespace PhotoBooth.OpenCvRetouch
         public async Task<byte[]> ProcessAsync(byte[] jpegData,BeautySettings settings,CancellationToken token)
         {
             if(jpegData==null||jpegData.Length==0||settings==null||!settings.HasEffect)return jpegData;
-            if(!await gate.WaitAsync(0,token).ConfigureAwait(false))return jpegData;
-            try{return await Task.Run(()=>ProcessCore(jpegData,settings,token),token).ConfigureAwait(false);}finally{gate.Release();}
+            // Live preview is best-effort. Cancellation means the frame is stale,
+            // so quietly return it and let the pipeline discard it. Throwing here
+            // crosses the OpenCvRetouch assembly boundary and makes Visual Studio
+            // report an expected camera-stop cancellation as user-unhandled.
+            if(token.IsCancellationRequested)return jpegData;
+            if(!await gate.WaitAsync(0).ConfigureAwait(false))return jpegData;
+            try
+            {
+                if(token.IsCancellationRequested)return jpegData;
+                return await Task.Run(()=>ProcessCore(jpegData,settings,token)).ConfigureAwait(false);
+            }
+            finally{gate.Release();}
         }
         byte[] ProcessCore(byte[] jpeg,BeautySettings settings,CancellationToken token)
         {
-            EnsureLoaded();token.ThrowIfCancellationRequested();var settingsKey=SettingsKey(settings);if(settingsKey==lastSettingsKey&&SameBytes(jpeg,lastInput)&&lastOutput!=null)return lastOutput;
+            if(token.IsCancellationRequested)return jpeg;EnsureLoaded();if(token.IsCancellationRequested)return jpeg;var settingsKey=SettingsKey(settings);if(settingsKey==lastSettingsKey&&SameBytes(jpeg,lastInput)&&lastOutput!=null)return lastOutput;
             using(var original=Cv2.ImDecode(jpeg,ImreadModes.Color)){if(original.Empty())return jpeg;
                 if(original.Width!=width||original.Height!=height){width=original.Width;height=original.Height;frameCounter=0;landmarks=new Point2f[0][];ClearMasks();}
                 if(frameCounter++%AnalysisInterval==0||landmarks.Length==0){Analyze(original);ClearMasks();}
-                if(landmarks.Length==0){Remember(jpeg,jpeg,settingsKey);return jpeg;}var light=Light(settings);EnsureMasks(original.Size(),light);
+                if(token.IsCancellationRequested)return jpeg;if(landmarks.Length==0){Remember(jpeg,jpeg,settingsKey);return jpeg;}var light=Light(settings);EnsureMasks(original.Size(),light);
                 using(var result=original.Clone())
                 {
-                    OpenCvBeautyRetouchService.ApplyEffects(original,result,cachedSkinMask,cachedFeatureMask,light,token);
+                    if(token.IsCancellationRequested)return jpeg;
+                    OpenCvBeautyRetouchService.ApplyEffects(original,result,cachedSkinMask,cachedFeatureMask,light,CancellationToken.None);
                     if(light.EyeSize>0||light.SlimFace>0)foreach(var face in landmarks)OpenCvBeautyRetouchService.ApplyGeometry(result,face,landmarkScale,light);
+                    if(token.IsCancellationRequested)return jpeg;
                     var encoded=result.ImEncode(".jpg",new[]{(int)ImwriteFlags.JpegQuality,88});Remember(jpeg,encoded,settingsKey);return encoded;
                 }}
         }

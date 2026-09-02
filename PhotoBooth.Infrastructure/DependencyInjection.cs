@@ -65,6 +65,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IDurableOutputJobRepository, SqliteDurableOutputJobRepository>();
             services.AddSingleton<IFrameRepository, SqliteFrameRepository>();
             services.AddSingleton<IFrameEventRepository, SqliteFrameEventRepository>();
+            services.AddSingleton<IPresetEventRepository, SqlitePresetEventRepository>();
             services.AddSingleton<IPhotoEventConfigurationRepository, SqlitePhotoEventConfigurationRepository>();
             services.AddSingleton<IPrinterProfileRepository, SqlitePrinterProfileRepository>();
             services.AddSingleton<ISettingsRepository, SqliteSettingsRepository>();
@@ -78,6 +79,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IVideoService, VideoService>();
             services.AddSingleton<IFrameService, FrameService>();
             services.AddSingleton<IFrameEventService, FrameEventService>();
+            services.AddSingleton<IPresetEventService, PresetEventService>();
             services.AddSingleton<IPresetService, PresetService>();
             services.AddSingleton<IPrinterService, PrinterService>();
             services.AddSingleton<BusinessWorkflowService>();

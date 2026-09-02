@@ -16,15 +16,17 @@ namespace PhotoBooth.Business.Services
         readonly ISettingsService settings;
         readonly IBeautySettingsService beauty;
         readonly IFrameService frames;
+        readonly IPresetService presets;
 
         public PhotoEventManagementService(IEventService eventService, IPhotoEventConfigurationRepository repository,
-            ISettingsService settingsService, IBeautySettingsService beautySettings, IFrameService frameService)
+            ISettingsService settingsService, IBeautySettingsService beautySettings, IFrameService frameService, IPresetService presetService)
         {
             events = eventService;
             configurations = repository;
             settings = settingsService;
             beauty = beautySettings;
             frames = frameService;
+            presets = presetService;
         }
 
         public event EventHandler EventsChanged;
@@ -48,6 +50,10 @@ namespace PhotoBooth.Business.Services
             var workflow = await settings.GetAsync(token).ConfigureAwait(false) ?? new Settings();
             var beautySettings = await beauty.GetAsync(token).ConfigureAwait(false) ?? new BeautySettings();
             var availableFrames = await frames.GetAllAsync(token).ConfigureAwait(false);
+            var availablePresets = await presets.GetAllAsync(token).ConfigureAwait(false);
+            var selectedPresets = availablePresets.Where(x => x.IsPinned).Select(x => x.Id).ToList();
+            if (selectedPresets.Count == 0 && workflow.DefaultPresetId.HasValue && availablePresets.Any(x => x.Id == workflow.DefaultPresetId.Value))
+                selectedPresets.Add(workflow.DefaultPresetId.Value);
             return new PhotoEventConfiguration
             {
                 EventId = eventId,
@@ -59,6 +65,7 @@ namespace PhotoBooth.Business.Services
                 ImageRotationDegrees = workflow.ImageRotationDegrees,
                 Beauty = beautySettings.Clone(),
                 FrameIds = availableFrames.Where(x => x.IsPinned).Take(10).Select(x => x.Id).ToList(),
+                PresetIds = selectedPresets,
                 RowVersion = 0
             };
         }
@@ -92,6 +99,7 @@ namespace PhotoBooth.Business.Services
         static PhotoEventConfiguration Normalize(PhotoEventConfiguration value)
         {
             var ids = (value.FrameIds ?? new Guid[0]).Where(x => x != Guid.Empty).Distinct().ToList();
+            var presetIds = (value.PresetIds ?? new Guid[0]).Where(x => x != Guid.Empty).Distinct().ToList();
             if (ids.Count == 0) throw new InvalidOperationException("Event phải có ít nhất một frame.");
             if (ids.Count > 10) throw new InvalidOperationException("Mỗi event chỉ được chọn tối đa 10 frame.");
             value.PhotoCount = Math.Max(1, Math.Min(8, value.PhotoCount));
@@ -107,6 +115,7 @@ namespace PhotoBooth.Business.Services
             value.Beauty.EyeSize = Clamp(value.Beauty.EyeSize);
             value.Beauty.SlimFace = Clamp(value.Beauty.SlimFace);
             value.FrameIds = ids;
+            value.PresetIds = presetIds;
             return value;
         }
 

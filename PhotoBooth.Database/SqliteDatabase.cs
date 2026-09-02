@@ -391,6 +391,73 @@ CREATE TRIGGER IF NOT EXISTS TR_EventConfigurations_EventOnly_Update BEFORE UPDA
 WHEN NEW.EventId<>OLD.EventId OR NOT EXISTS(SELECT 1 FROM CustomerSessions WHERE Id=NEW.EventId AND Kind='Event')
 BEGIN SELECT RAISE(ABORT,'Event configuration owner cannot change'); END;
 ");
+            EnsureColumn("AdminPresets", "IsPinned", "INTEGER NOT NULL DEFAULT 0");
+            EnsureColumn("AdminPresets", "EventId", "TEXT");
+            ApplyMigration(14, "single_lut_preset_library_and_events", @"
+CREATE TABLE IF NOT EXISTS PresetEvents (
+ Id TEXT PRIMARY KEY NOT NULL,
+ Name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+ CreatedAtUtc TEXT NOT NULL
+);
+DROP INDEX IF EXISTS IX_PresetColorSettings_LutAssetId;
+ALTER TABLE PresetColorSettings RENAME TO PresetColorSettings_Legacy14;
+CREATE TABLE PresetColorSettings (
+ PresetId TEXT PRIMARY KEY NOT NULL,
+ LutAssetId TEXT NOT NULL,
+ ModifiedAtUtc TEXT NOT NULL,
+ RowVersion INTEGER NOT NULL DEFAULT 1 CHECK(RowVersion>=1),
+ FOREIGN KEY(PresetId) REFERENCES AdminPresets(Id) ON DELETE CASCADE,
+ FOREIGN KEY(LutAssetId) REFERENCES ColorLutAssets(Id) ON DELETE RESTRICT
+);
+INSERT INTO PresetColorSettings(PresetId,LutAssetId,ModifiedAtUtc,RowVersion)
+SELECT legacy.PresetId,legacy.LutAssetId,legacy.ModifiedAtUtc,legacy.RowVersion
+FROM PresetColorSettings_Legacy14 legacy
+WHERE legacy.LutAssetId IS NOT NULL
+  AND EXISTS(SELECT 1 FROM AdminPresets preset WHERE preset.Id=legacy.PresetId)
+  AND EXISTS(SELECT 1 FROM ColorLutAssets asset WHERE asset.Id=legacy.LutAssetId);
+DROP TABLE PresetColorSettings_Legacy14;
+CREATE TEMP TABLE PresetLutMigrationMap(PresetId TEXT PRIMARY KEY,LutAssetId TEXT NOT NULL UNIQUE);
+INSERT INTO PresetLutMigrationMap(PresetId,LutAssetId)
+SELECT lower(hex(randomblob(16))),asset.Id FROM ColorLutAssets asset
+WHERE NOT EXISTS(SELECT 1 FROM PresetColorSettings color WHERE color.LutAssetId=asset.Id);
+INSERT INTO AdminPresets(Id,Name,SettingsJson,Countdown,CreatedAtUtc,ModifiedAtUtc,IsDefault,IsPinned,EventId)
+SELECT map.PresetId,asset.DisplayName,NULL,3,asset.CreatedAtUtc,asset.ModifiedAtUtc,0,0,NULL
+FROM PresetLutMigrationMap map INNER JOIN ColorLutAssets asset ON asset.Id=map.LutAssetId;
+INSERT INTO PresetColorSettings(PresetId,LutAssetId,ModifiedAtUtc,RowVersion)
+SELECT map.PresetId,map.LutAssetId,asset.ModifiedAtUtc,1
+FROM PresetLutMigrationMap map INNER JOIN ColorLutAssets asset ON asset.Id=map.LutAssetId;
+DROP TABLE PresetLutMigrationMap;
+CREATE INDEX IX_PresetColorSettings_LutAssetId ON PresetColorSettings(LutAssetId);
+CREATE INDEX IF NOT EXISTS IX_AdminPresets_EventId ON AdminPresets(EventId);
+UPDATE AdminPresets SET SettingsJson=NULL;
+DELETE FROM PresetProcessingSettings;
+UPDATE AdminPresets SET IsDefault=0 WHERE Id NOT IN (SELECT PresetId FROM PresetColorSettings);
+UPDATE WorkflowSettings SET DefaultPresetId=NULL
+WHERE DefaultPresetId IS NOT NULL AND DefaultPresetId NOT IN (SELECT PresetId FROM PresetColorSettings);
+");
+            ApplyMigration(15, "photo_event_presets", @"
+CREATE TABLE IF NOT EXISTS EventPresets (
+ EventId TEXT NOT NULL,
+ PresetId TEXT NOT NULL,
+ SortOrder INTEGER NOT NULL CHECK(SortOrder>=0),
+ PRIMARY KEY(EventId,PresetId),
+ UNIQUE(EventId,SortOrder),
+ FOREIGN KEY(EventId) REFERENCES EventConfigurations(EventId) ON DELETE CASCADE,
+ FOREIGN KEY(PresetId) REFERENCES AdminPresets(Id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS IX_EventPresets_PresetId ON EventPresets(PresetId);
+INSERT OR IGNORE INTO EventPresets(EventId,PresetId,SortOrder)
+SELECT configuration.EventId,
+       COALESCE(event.PresetId,(SELECT DefaultPresetId FROM WorkflowSettings WHERE Id=1)),
+       0
+FROM EventConfigurations configuration
+INNER JOIN CustomerSessions event ON event.Id=configuration.EventId AND event.Kind='Event'
+WHERE COALESCE(event.PresetId,(SELECT DefaultPresetId FROM WorkflowSettings WHERE Id=1)) IS NOT NULL
+  AND EXISTS(
+      SELECT 1 FROM PresetColorSettings color
+      WHERE color.PresetId=COALESCE(event.PresetId,(SELECT DefaultPresetId FROM WorkflowSettings WHERE Id=1))
+  );
+");
             Execute("CREATE INDEX IF NOT EXISTS IX_CapturedImages_SessionId ON CapturedImages(SessionId); CREATE INDEX IF NOT EXISTS IX_FrameSlots_FrameId ON FrameSlots(FrameId); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_StartedAtUtc ON CustomerSessions(StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_Kind_Status ON CustomerSessions(Kind,Status,StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_EventId ON CustomerSessions(EventId,StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_CustomerSessions_Account_Device ON CustomerSessions(AccountId,DeviceId,StartedAtUtc); CREATE INDEX IF NOT EXISTS IX_Captures_SessionId ON Captures(SessionId); CREATE INDEX IF NOT EXISTS IX_Captures_Account_Device ON Captures(AccountId,DeviceId,CreatedAtUtc); CREATE INDEX IF NOT EXISTS IX_Captures_Status_ExpiresAtUtc ON Captures(Status,ExpiresAtUtc); CREATE INDEX IF NOT EXISTS IX_CapturePhotos_CaptureId ON CapturePhotos(CaptureId); CREATE INDEX IF NOT EXISTS IX_CapturePhotos_IsUploaded ON CapturePhotos(IsUploaded); CREATE INDEX IF NOT EXISTS IX_UploadQueue_Due ON UploadQueue(Status,NextRetryAtUtc); CREATE INDEX IF NOT EXISTS IX_PrintJobs_PrintedAtUtc ON PrintJobs(PrintedAtUtc); CREATE INDEX IF NOT EXISTS IX_PrintJobs_Status ON PrintJobs(Status); CREATE INDEX IF NOT EXISTS IX_PrintJobs_SessionId ON PrintJobs(SessionId);");
         }
 

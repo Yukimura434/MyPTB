@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +13,15 @@ using PhotoBooth.Core.Services;
 
 namespace PhotoBooth.Admin.UI.ViewModels
 {
+    public sealed class EventPresetCard : ObservableObject
+    {
+        byte[] previewBytes;
+        public Preset Preset { get; set; }
+        public Guid Id => Preset.Id;
+        public string Name => Preset.Name;
+        public byte[] PreviewBytes { get => previewBytes; set => Set(ref previewBytes, value); }
+    }
+
     public sealed class EventOption<T>
     {
         public string Label { get; set; }
@@ -23,7 +33,10 @@ namespace PhotoBooth.Admin.UI.ViewModels
     {
         readonly IPhotoEventManagementService service;
         readonly IFrameService frames;
+        readonly IPresetService presets;
+        readonly IColorLutService colors;
         readonly EventFramePickerViewModel picker;
+        readonly EventPresetPickerViewModel presetPicker;
         readonly INavigationService navigation;
         readonly ILogger<EventManagerViewModel> log;
         PhotoEvent selectedEvent;
@@ -34,11 +47,15 @@ namespace PhotoBooth.Admin.UI.ViewModels
         EventOption<int> gifDuration, waitingTimeout, rotation;
         EventOption<CustomerLayoutMode> layout;
         int loadVersion;
+        readonly string modelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "model.png");
+        byte[] modelBytes;
 
-        public EventManagerViewModel(IPhotoEventManagementService eventService, IFrameService frameService,
-            EventFramePickerViewModel framePicker, INavigationService navigationService, ILogger<EventManagerViewModel> logger)
+        public EventManagerViewModel(IPhotoEventManagementService eventService, IFrameService frameService, IPresetService presetService,
+            IColorLutService colorService, EventFramePickerViewModel framePicker, EventPresetPickerViewModel eventPresetPicker,
+            INavigationService navigationService, ILogger<EventManagerViewModel> logger)
         {
-            service = eventService; frames = frameService; picker = framePicker; navigation = navigationService; log = logger;
+            service = eventService; frames = frameService; presets = presetService; colors = colorService; picker = framePicker; presetPicker = eventPresetPicker; navigation = navigationService; log = logger;
+            try { if (File.Exists(modelPath)) modelBytes = File.ReadAllBytes(modelPath); } catch (Exception error) { log.LogWarning(error, "Unable to load preset model image"); }
             PhotoCounts = Enumerable.Range(1, 8).ToArray();
             Countdowns = Enumerable.Range(1, 10).ToArray();
             GifDurations = new[] { Option("0.4 giây", 400), Option("0.6 giây", 600), Option("0.8 giây", 800), Option("1.0 giây", 1000) };
@@ -51,6 +68,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
             DeleteCommand = new AsyncCommand(_ => Delete(), _ => SelectedEvent != null && !SelectedEvent.IsDefault);
             OpenFramePickerCommand = new AsyncCommand(_ => OpenFramePicker(), _ => SelectedEvent != null);
             RemoveFrameCommand = new RelayCommand(RemoveFrame);
+            OpenPresetPickerCommand = new AsyncCommand(_ => OpenPresetPicker(), _ => SelectedEvent != null);
+            RemovePresetCommand = new RelayCommand(RemovePreset);
             ReloadCommand = new AsyncCommand(_ => RefreshAsync());
             _ = RefreshAsync();
         }
@@ -58,6 +77,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public override string Title => "Events";
         public ObservableCollection<PhotoEvent> Events { get; } = new ObservableCollection<PhotoEvent>();
         public ObservableCollection<Frame> SelectedFrames { get; } = new ObservableCollection<Frame>();
+        public ObservableCollection<EventPresetCard> SelectedPresets { get; } = new ObservableCollection<EventPresetCard>();
         public IReadOnlyList<int> PhotoCounts { get; }
         public IReadOnlyList<int> Countdowns { get; }
         public IReadOnlyList<EventOption<int>> GifDurations { get; }
@@ -100,6 +120,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public int SlimFace { get => slim; set { if (Set(ref slim, Clamp(value))) MarkDirty(); } }
         public string EventSummary => Events.Count == 0 ? "Chưa có event" : Events.Count + " event";
         public string FrameSummary => SelectedFrames.Count + " / 10 frame";
+        public string PresetSummary => SelectedPresets.Count + " preset";
 
         public ICommand CreateCommand { get; }
         public ICommand SaveCommand { get; }
@@ -107,6 +128,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public ICommand DeleteCommand { get; }
         public ICommand OpenFramePickerCommand { get; }
         public ICommand RemoveFrameCommand { get; }
+        public ICommand OpenPresetPickerCommand { get; }
+        public ICommand RemovePresetCommand { get; }
         public ICommand ReloadCommand { get; }
 
         public async Task RefreshAsync(Guid? selectId = null)
@@ -124,11 +147,12 @@ namespace PhotoBooth.Admin.UI.ViewModels
 
         async Task LoadConfiguration(PhotoEvent target, int version)
         {
-            if (target == null) { SelectedFrames.Clear(); Raise(nameof(FrameSummary)); Dirty = false; return; }
+            if (target == null) { SelectedFrames.Clear(); SelectedPresets.Clear(); Raise(nameof(FrameSummary)); Raise(nameof(PresetSummary)); Dirty = false; return; }
             try
             {
                 var configuration = await service.GetConfigurationAsync(target.Id, CancellationToken.None);
                 var allFrames = await frames.GetAllAsync(CancellationToken.None);
+                var allPresets = await presets.GetAllAsync(CancellationToken.None);
                 if (version != loadVersion || SelectedEvent?.Id != target.Id) return;
                 loading = true;
                 rowVersion = configuration.RowVersion;
@@ -148,6 +172,14 @@ namespace PhotoBooth.Admin.UI.ViewModels
                     if (frame != null) SelectedFrames.Add(frame);
                 }
                 Raise(nameof(FrameSummary)); Message = null; Dirty = false;
+                SelectedPresets.Clear();
+                foreach (var id in configuration.PresetIds ?? new Guid[0])
+                {
+                    var preset = allPresets.FirstOrDefault(x => x.Id == id);
+                    if (preset != null) SelectedPresets.Add(new EventPresetCard { Preset = preset, PreviewBytes = modelBytes });
+                }
+                Raise(nameof(PresetSummary));
+                _ = RenderPresetPreviews(version);
             }
             catch (Exception error) { Fail(error, "Không thể tải cấu hình event"); }
             finally { loading = false; Raise(nameof(IsBeautyEditorEnabled)); }
@@ -160,7 +192,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 var created = await service.CreateAsync(CreateName, CancellationToken.None);
                 CreateName = "Event mới";
                 await RefreshAsync(created.Id);
-                Message = "Đã tạo event. Hãy chọn frame và lưu cấu hình.";
+                Message = "Đã tạo event. Hãy chọn frame, preset và lưu cấu hình.";
             }
             catch (Exception error) { Fail(error, "Không thể tạo event"); }
         }
@@ -178,7 +210,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 {
                     await service.ActivateAsync(target.Id, CancellationToken.None);
                     await RefreshAsync(target.Id);
-                    Message = "Đã lưu và sử dụng event. Frame đã được ghim, setting và Beauty đã được áp dụng.";
+                    Message = "Đã lưu và sử dụng event. Frame, preset, setting và Beauty đã được áp dụng.";
                 }
                 else
                 {
@@ -208,6 +240,12 @@ namespace PhotoBooth.Admin.UI.ViewModels
             navigation.Navigate("event-frame-picker");
         }
 
+        async Task OpenPresetPicker()
+        {
+            await presetPicker.OpenAsync(SelectedPresets.Select(x => x.Id).ToList(), ApplyPickedPresets);
+            navigation.Navigate("event-preset-picker");
+        }
+
         void ApplyPickedFrames(IReadOnlyList<Frame> selected)
         {
             SelectedFrames.Clear();
@@ -222,13 +260,44 @@ namespace PhotoBooth.Admin.UI.ViewModels
             SelectedFrames.Remove(frame); Raise(nameof(FrameSummary)); MarkDirty();
         }
 
+        void ApplyPickedPresets(IReadOnlyList<Preset> selected)
+        {
+            SelectedPresets.Clear();
+            foreach (var preset in selected) SelectedPresets.Add(new EventPresetCard { Preset = preset, PreviewBytes = modelBytes });
+            Raise(nameof(PresetSummary)); MarkDirty();
+            _ = RenderPresetPreviews(loadVersion);
+        }
+
+        void RemovePreset(object parameter)
+        {
+            var card = parameter as EventPresetCard;
+            if (card == null) return;
+            SelectedPresets.Remove(card); Raise(nameof(PresetSummary)); MarkDirty();
+        }
+
+        async Task RenderPresetPreviews(int version)
+        {
+            foreach (var card in SelectedPresets.ToList())
+            {
+                try
+                {
+                    var bytes = await colors.RenderPreviewAsync(card.Preset.LutAssetId, modelPath, ColorLutData.DefaultStrength, CancellationToken.None);
+                    if (version != loadVersion) return;
+                    if (!SelectedPresets.Contains(card)) continue;
+                    card.PreviewBytes = bytes;
+                }
+                catch (Exception error) { log.LogWarning(error, "Unable to render event preset preview for {PresetId}", card.Id); }
+            }
+        }
+
         PhotoEventConfiguration CurrentConfiguration(Guid eventId) => new PhotoEventConfiguration
         {
             EventId = eventId, RowVersion = rowVersion, PhotoCount = PhotoCount, CountdownSeconds = Countdown,
             GifFrameDurationMilliseconds = GifDuration?.Value ?? 1000, WaitingTimeoutSeconds = WaitingTimeout?.Value ?? 30,
             CustomerLayoutMode = Layout?.Value ?? CustomerLayoutMode.Landscape, ImageRotationDegrees = Rotation?.Value ?? 0,
             Beauty = new BeautySettings { Enabled=BeautyEnabled,SmoothSkin=SmoothSkin,BrightenSkin=BrightenSkin,SkinTone=SkinTone,Sharpen=Sharpen,EyeSize=EyeSize,SlimFace=SlimFace },
-            FrameIds = SelectedFrames.Select(x => x.Id).ToList()
+            FrameIds = SelectedFrames.Select(x => x.Id).ToList(),
+            PresetIds = SelectedPresets.Select(x => x.Id).ToList()
         };
 
         void MarkDirty() { if (!loading) { Dirty = true; System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }

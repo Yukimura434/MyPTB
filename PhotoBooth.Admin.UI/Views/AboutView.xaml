@@ -4,30 +4,39 @@
              Background="{StaticResource BackgroundBrush}">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="40" MaxWidth="820" HorizontalAlignment="Left">
-            <TextBlock Text="About" Style="{StaticResource PageTitle}" />
+            <TextBlock Text="Giới thiệu" Style="{StaticResource PageTitle}" />
             <TextBlock Text="Thông tin phiên bản ứng dụng"
                        Foreground="#A8A8AE"
                        Margin="0,4,0,24" />
 
             <Border Style="{StaticResource Card}" Padding="28">
-                <StackPanel>
-                    <TextBlock Text="{Binding ProductName}"
-                               FontSize="28"
-                               FontWeight="SemiBold"
-                               Foreground="White" />
-                    <TextBlock Text="Phiên bản hiện tại"
-                               Foreground="#A8A8AE"
-                               Margin="0,22,0,4" />
-                    <TextBlock Text="{Binding Version}"
-                               FontFamily="Consolas"
-                               FontSize="22"
-                               Foreground="{StaticResource AccentBrush}" />
-                </StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Image Source="/PhotoBooth.Admin.UI;component/Assets/fox-logo.png"
+                           Width="112" Height="112" Margin="0,0,28,0"
+                           VerticalAlignment="Top" SnapsToDevicePixels="True" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ProductName}"
+                                   FontSize="28"
+                                   FontWeight="SemiBold"
+                                   Foreground="White" />
+                        <TextBlock Text="Phiên bản hiện tại"
+                                   Foreground="#A8A8AE"
+                                   Margin="0,22,0,4" />
+                        <TextBlock Text="{Binding Version}"
+                                   FontFamily="Consolas"
+                                   FontSize="22"
+                                   Foreground="{StaticResource AccentBrush}" />
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <Border Style="{StaticResource Card}" Padding="28" Margin="8,16,8,8">
                 <StackPanel>
-                    <TextBlock Text="What's New" Style="{StaticResource SectionTitle}" />
+                    <TextBlock Text="Có gì mới" Style="{StaticResource SectionTitle}" />
                     <TextBlock Text="Nội dung cập nhật sẽ được hiển thị tại đây trong các phiên bản sau."
                                Foreground="#A8A8AE"
                                TextWrapping="Wrap"

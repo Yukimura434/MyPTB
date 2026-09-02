@@ -45,5 +45,18 @@ namespace PhotoBooth.UnitTests
                 service.Reset();
             }
         }
+
+        [Fact]
+        public async Task Live_preview_cancellation_quietly_drops_stale_frame()
+        {
+            var input=new byte[]{1,2,3};
+            using(var cancellation=new CancellationTokenSource())
+            using(var service=new OpenCvLiveBeautyPreviewService("missing-assets"))
+            {
+                cancellation.Cancel();
+                var output=await service.ProcessAsync(input,new BeautySettings{Enabled=true,SmoothSkin=25},cancellation.Token);
+                Assert.Same(input,output);
+            }
+        }
     }
 }

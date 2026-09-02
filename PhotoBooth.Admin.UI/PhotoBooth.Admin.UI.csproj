@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><Version>1.1.0</Version></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><ApplicationIcon>Assets\photobooth.ico</ApplicationIcon><Version>1.1.0</Version></PropertyGroup>
   <PropertyGroup Condition="'$(TrialBuild)' == 'true'">
     <DefineConstants>$(DefineConstants);TRIAL_BUILD</DefineConstants>
     <Version>1.1.0-trial</Version>
@@ -23,8 +23,11 @@
     <Page Include="App.xaml" />
   </ItemGroup>
   <ItemGroup>
+    <Resource Include="Assets\fox-logo.png" />
+    <Resource Include="Assets\photobooth.ico" />
     <Content Include="..\PhotoBooth.Native\Canon\EDSDK.dll" Link="EDSDK.dll" CopyToOutputDirectory="Always" />
     <Content Include="..\PhotoBooth.Native\Canon\EdsImage.dll" Link="EdsImage.dll" CopyToOutputDirectory="Always" />
     <Content Include="Assets\logo_big.jpg" Link="logo_big.jpg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\model.png" Link="model.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

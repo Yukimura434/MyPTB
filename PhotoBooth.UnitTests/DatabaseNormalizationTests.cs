@@ -18,7 +18,7 @@ namespace PhotoBooth.UnitTests
    var session=new Session{Id=Guid.NewGuid(),SessionName="Base_session",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedFiles=new[]{Path.Combine(root,"IMG_0001.JPG")},CapturedImageIds=new[]{"260807000001"}};await new SqliteSessionRepository(db).SaveAsync(session,CancellationToken.None);
    var frame=new Frame{Id=Guid.NewGuid(),Name="Frame",CreatedAtUtc=DateTime.UtcNow,Slots=new[]{new FrameSlot{Id=Guid.NewGuid(),Index=0,X=1,Y=2,Width=3,Height=4}}};await new SqliteFrameRepository(db).SaveAsync(frame,CancellationToken.None);
    var preset=new Preset{Id=Guid.NewGuid(),Name="Preset",SettingsJson="{\"Brightness\":0.25}",CreatedAtUtc=DateTime.UtcNow,ModifiedAtUtc=DateTime.UtcNow};await new SqlitePresetRepository(db).SaveAsync(preset,CancellationToken.None);
-   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT (SELECT COUNT(*) FROM CapturedImages),(SELECT COUNT(*) FROM FrameSlots),(SELECT COUNT(*) FROM PresetProcessingSettings)";using(var r=q.ExecuteReader()){Assert.True(r.Read());Assert.Equal(1,r.GetInt32(0));Assert.Equal(1,r.GetInt32(1));Assert.Equal(1,r.GetInt32(2));}}
+   using(var c=db.OpenConnection())using(var q=c.CreateCommand()){q.CommandText="SELECT (SELECT COUNT(*) FROM CapturedImages),(SELECT COUNT(*) FROM FrameSlots),(SELECT COUNT(*) FROM PresetProcessingSettings)";using(var r=q.ExecuteReader()){Assert.True(r.Read());Assert.Equal(1,r.GetInt32(0));Assert.Equal(1,r.GetInt32(1));Assert.Equal(0,r.GetInt32(2));}}
   }
 
   [Fact] public async Task Capture_group_is_added_without_changing_existing_session_keys()

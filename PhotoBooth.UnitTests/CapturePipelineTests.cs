@@ -398,10 +398,12 @@ namespace PhotoBooth.UnitTests
         {
             readonly List<string> events;public OrderedLutService(List<string> value){events=value;}
             public Task ApplyCaptureAsync(Guid id,string path,CancellationToken t){events.Add("lut");using(var image=new Bitmap(path))AssertNear(Color.Red,image.GetPixel(0,0));return Task.CompletedTask;}
+            public Task ApplyToFileAsync(Guid id,string source,string destination,float strength,CancellationToken t){File.Copy(source,destination,true);return Task.CompletedTask;}
             public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken t)=>Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
             public Task<ColorLutData> GetLiveAsync(Guid id,CancellationToken t)=>Task.FromResult<ColorLutData>(null);
+            public Task<byte[]> RenderPreviewAsync(Guid id,string path,float strength,CancellationToken t)=>Task.FromResult<byte[]>(null);
             public Task<ColorLutImportResult> ImportAsync(string p,string n,CancellationToken t)=>Task.FromResult<ColorLutImportResult>(null);
-            public Task AttachAsync(Guid p,Guid l,float s,CancellationToken t)=>Task.CompletedTask;
+            public Task AttachAsync(Guid p,Guid l,CancellationToken t)=>Task.CompletedTask;
             public Task DetachAsync(Guid p,CancellationToken t)=>Task.CompletedTask;
             public Task DeleteAsync(Guid id,long version,CancellationToken t)=>Task.CompletedTask;
             public Task ReconcileAsync(CancellationToken t)=>Task.CompletedTask;
@@ -410,10 +412,12 @@ namespace PhotoBooth.UnitTests
         sealed class GreenLutService : IColorLutService
         {
             public Task ApplyCaptureAsync(Guid presetId, string imagePath, CancellationToken token) { using (var image = new Bitmap(4, 2)) { using (var graphics = Graphics.FromImage(image)) graphics.Clear(Color.Lime); image.Save(imagePath, ImageFormat.Jpeg); } return Task.CompletedTask; }
+            public Task ApplyToFileAsync(Guid presetId,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
             public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
             public Task<ColorLutData> GetLiveAsync(Guid presetId, CancellationToken token) => Task.FromResult<ColorLutData>(null);
+            public Task<byte[]> RenderPreviewAsync(Guid assetId,string imagePath,float strength,CancellationToken token)=>Task.FromResult<byte[]>(null);
             public Task<ColorLutImportResult> ImportAsync(string sourcePath, string displayName, CancellationToken token) => Task.FromResult<ColorLutImportResult>(null);
-            public Task AttachAsync(Guid presetId, Guid assetId, float strength, CancellationToken token) => Task.CompletedTask;
+            public Task AttachAsync(Guid presetId, Guid assetId, CancellationToken token) => Task.CompletedTask;
             public Task DetachAsync(Guid presetId, CancellationToken token) => Task.CompletedTask;
             public Task DeleteAsync(Guid assetId, long expectedRowVersion, CancellationToken token) => Task.CompletedTask;
             public Task ReconcileAsync(CancellationToken token) => Task.CompletedTask;
@@ -423,10 +427,12 @@ namespace PhotoBooth.UnitTests
         {
             int calls;
             public Task ApplyCaptureAsync(Guid presetId,string imagePath,CancellationToken token){if(++calls==2)throw new InvalidOperationException("expected second-image failure");return Task.CompletedTask;}
+            public Task ApplyToFileAsync(Guid presetId,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
             public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token)=>Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
             public Task<ColorLutData> GetLiveAsync(Guid presetId,CancellationToken token)=>Task.FromResult<ColorLutData>(null);
+            public Task<byte[]> RenderPreviewAsync(Guid assetId,string imagePath,float strength,CancellationToken token)=>Task.FromResult<byte[]>(null);
             public Task<ColorLutImportResult> ImportAsync(string sourcePath,string displayName,CancellationToken token)=>Task.FromResult<ColorLutImportResult>(null);
-            public Task AttachAsync(Guid presetId,Guid assetId,float strength,CancellationToken token)=>Task.CompletedTask;
+            public Task AttachAsync(Guid presetId,Guid assetId,CancellationToken token)=>Task.CompletedTask;
             public Task DetachAsync(Guid presetId,CancellationToken token)=>Task.CompletedTask;
             public Task DeleteAsync(Guid assetId,long expectedRowVersion,CancellationToken token)=>Task.CompletedTask;
             public Task ReconcileAsync(CancellationToken token)=>Task.CompletedTask;

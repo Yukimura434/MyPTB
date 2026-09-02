@@ -7,7 +7,7 @@
             <Setter Property="MinWidth" Value="46"/><Setter Property="MinHeight" Value="44"/>
             <Setter Property="Width" Value="46"/><Setter Property="Height" Value="44"/>
             <Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="3"/>
-            <Setter Property="FontSize" Value="22"/><Setter Property="Background" Value="#35313B"/>
+            <Setter Property="FontSize" Value="22"/><Setter Property="Background" Value="{StaticResource SurfaceInteractiveBrush}"/>
         </Style>
         <Style x:Key="SlotButton" TargetType="Button">
             <!-- The composed preview underneath already applies the real frame
@@ -27,7 +27,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Background="#100F13">
+    <Grid Background="{StaticResource BackgroundBrush}">
         <Grid Margin="28,24,28,22">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -35,9 +35,9 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <Grid Margin="0,0,0,14">
-                <TextBlock Text="Chọn frame và sắp xếp ảnh" FontSize="34" FontWeight="SemiBold" Foreground="White"/>
-                <StackPanel HorizontalAlignment="Right">
+            <Grid x:Name="PageHeader" Margin="0,0,0,14">
+                <TextBlock Text="Ghép frame và chỉnh màu" FontSize="34" FontWeight="SemiBold" Foreground="White"/>
+                <StackPanel x:Name="HeaderStatus" HorizontalAlignment="Right">
                     <TextBlock Text="{Binding AssignmentStatus}" HorizontalAlignment="Right" FontSize="20" FontWeight="SemiBold" Foreground="White"/>
                     <TextBlock Text="{Binding Guidance}" HorizontalAlignment="Right" FontSize="15" Foreground="#A8A4AE"/>
                 </StackPanel>
@@ -53,28 +53,39 @@
                     <ColumnDefinition Width="260"/>
                 </Grid.ColumnDefinitions>
 
-                <Border x:Name="FramesPanel" Style="{StaticResource SoftCard}" Background="#19171D" Padding="8">
-                    <DockPanel>
-                        <TextBlock Text="FRAME" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold" Foreground="#C9A7BB" Margin="6,2,6,8"/>
-                        <ListBox x:Name="FrameList" ItemsSource="{Binding PinnedFrames}" SelectedItem="{Binding SelectedFrame}"
+                <Border x:Name="FramesPanel" Style="{StaticResource SoftCard}" Background="{StaticResource SurfaceBrush}" Padding="8">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Grid Margin="2,0,2,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Button Content="KHUNG" Command="{Binding ShowFramesCommand}" Margin="2" Padding="8,7" FontSize="16" FontWeight="Bold">
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="{StaticResource SurfaceInteractiveBrush}"/><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/><Style.Triggers><DataTrigger Binding="{Binding FramesPanelActive}" Value="True"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="Foreground" Value="White"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                            </Button>
+                            <Button Grid.Column="1" Content="MÀU" Command="{Binding ShowPresetsCommand}" Margin="2" Padding="8,7" FontSize="16" FontWeight="Bold">
+                                <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="{StaticResource SurfaceInteractiveBrush}"/><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/><Style.Triggers><DataTrigger Binding="{Binding PresetsPanelActive}" Value="True"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="Foreground" Value="White"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                            </Button>
+                        </Grid>
+                        <ListBox x:Name="FrameList" Grid.Row="1" ItemsSource="{Binding PinnedFrames}" SelectedItem="{Binding SelectedFrame}"
+                                 Visibility="{Binding FramesPanelActive,Converter={StaticResource BoolVisibility}}"
                                  Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Center"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem">
                                     <Setter Property="HorizontalContentAlignment" Value="Center"/>
                                     <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Margin" Value="0,4"/>
+                                    <Setter Property="Margin" Value="4"/>
                                     <Setter Property="Template">
                                         <Setter.Value>
                                             <ControlTemplate TargetType="ListBoxItem">
                                                 <Border x:Name="FrameBox" Height="240" Padding="8" CornerRadius="12"
-                                                Background="#242129" BorderBrush="#554451" BorderThickness="2">
+                                                Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1">
                                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                                 </Border>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsSelected" Value="True">
-                                                        <Setter TargetName="FrameBox" Property="BorderBrush" Value="#EF5DA8"/>
-                                                        <Setter TargetName="FrameBox" Property="BorderThickness" Value="5"/>
+                                                        <Setter TargetName="FrameBox" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                                        <Setter TargetName="FrameBox" Property="BorderThickness" Value="3"/>
+                                                        <Setter TargetName="FrameBox" Property="Background" Value="{StaticResource AccentSubtleBrush}"/>
                                                     </Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate>
@@ -89,15 +100,28 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                    </DockPanel>
+                        <Grid Grid.Row="1" Visibility="{Binding PresetsPanelActive,Converter={StaticResource BoolVisibility}}">
+                            <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <ListBox x:Name="PresetList" ItemsSource="{Binding PinnedPresets}" SelectedItem="{Binding SelectedPreset}"
+                                     Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="3"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="PresetBox" Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1" CornerRadius="10" Padding="5"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="PresetBox" Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter TargetName="PresetBox" Property="BorderThickness" Value="3"/><Setter TargetName="PresetBox" Property="Background" Value="{StaticResource AccentSubtleBrush}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style></ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate><DataTemplate><Grid><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Image Source="{Binding PreviewBytes,Converter={StaticResource ByteImage}}" Height="132" MinWidth="180" Stretch="UniformToFill"/><Border Grid.Row="1" Background="#D91A181E" Padding="6,5"><TextBlock Text="{Binding Name}" Foreground="White" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/></Border></Grid></DataTemplate></ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Text="Chưa có preset được ghim." HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#918A95" FontSize="15"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasPinnedPresets}" Value="False"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+                            <Grid Grid.Row="1" Margin="6,8,6,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding PresetStrengthPercent,UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanApplyPreset}"/><TextBlock Grid.Column="1" Text="{Binding PresetStrengthText}" Foreground="White" HorizontalAlignment="Right" VerticalAlignment="Center"/></Grid>
+                            <TextBlock Grid.Row="2" Text="{Binding PresetStatus}" Foreground="#BDB5C0" FontSize="12" TextWrapping="Wrap" Margin="6,4,6,6" MinHeight="30"/>
+                            <WrapPanel Grid.Row="3" HorizontalAlignment="Center"><Button Content="Áp dụng" Command="{Binding ApplyPresetToPhotoCommand}" MinWidth="118" Padding="8,7" Margin="2"/><Button Content="Tất cả" Command="{Binding ApplyPresetToAllCommand}" MinWidth="78" Padding="8,7" Margin="2"/><Button Content="Hủy" Command="{Binding CancelPresetCommand}" MinWidth="62" Padding="8,7" Margin="2" Style="{StaticResource SecondaryButton}" ToolTip="Hủy xem trước và gỡ preset khỏi ảnh đang chọn"/></WrapPanel>
+                        </Grid>
+                    </Grid>
                 </Border>
 
-                <Border x:Name="PreviewPanel" Grid.Column="2" Style="{StaticResource SoftCard}" Background="#151319" Padding="0" ClipToBounds="True">
+                <Border x:Name="PreviewPanel" Grid.Column="2" Style="{StaticResource SoftCard}" Background="{StaticResource PreviewBackdropBrush}" Padding="0" ClipToBounds="True">
                     <Grid>
                         <TextBlock Text="Đang tạo bản xem trước..." Foreground="#A8929F" FontSize="20"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         <ScrollViewer x:Name="PreviewHost" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                                      Background="#151319" PanningMode="Both" PanningDeceleration="0.001" Margin="8">
+                                      Background="{StaticResource PreviewBackdropBrush}" PanningMode="Both" PanningDeceleration="0.001" Margin="8">
                             <Viewbox Stretch="Uniform" StretchDirection="Both"
                                      Width="{Binding ViewportWidth,ElementName=PreviewHost}"
                                      Height="{Binding ViewportHeight,ElementName=PreviewHost}">
@@ -106,24 +130,24 @@
                                     <ItemsControl ItemsSource="{Binding FrameSlots}">
                                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Canvas.Left" Value="{Binding X}"/><Setter Property="Canvas.Top" Value="{Binding Y}"/></Style></ItemsControl.ItemContainerStyle>
-                                        <ItemsControl.ItemTemplate><DataTemplate><controls:MediaSlotControl Width="{Binding Width}" Height="{Binding Height}" SourcePath="{Binding PhotoPath}" Zoom="{Binding MediaZoom,Mode=TwoWay}" CenterX="{Binding MediaCenterX,Mode=TwoWay}" CenterY="{Binding MediaCenterY,Mode=TwoWay}" SelectCommand="{Binding DataContext.SelectSlotCommand,RelativeSource={RelativeSource AncestorType=UserControl}}" SelectCommandParameter="{Binding}" ToolTip="Giữ chuột trái để di chuyển; lăn chuột để phóng đại"/></DataTemplate></ItemsControl.ItemTemplate>
+                                    <ItemsControl.ItemTemplate><DataTemplate><Grid Width="{Binding Width}" Height="{Binding Height}"><controls:MediaSlotControl SourcePath="{Binding PhotoPath}" Zoom="{Binding MediaZoom,Mode=TwoWay}" CenterX="{Binding MediaCenterX,Mode=TwoWay}" CenterY="{Binding MediaCenterY,Mode=TwoWay}" SelectCommand="{Binding DataContext.SelectSlotCommand,RelativeSource={RelativeSource AncestorType=UserControl}}" SelectCommandParameter="{Binding}" ToolTip="Giữ chuột trái để di chuyển; lăn chuột để phóng đại"/><Border BorderBrush="{StaticResource AccentBrush}" BorderThickness="4" IsHitTestVisible="False"><Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style></Border></Grid></DataTemplate></ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                     <Image Source="{Binding SelectedFrame.SourcePath,Converter={StaticResource CustomerPathImage},ConverterParameter=1280}" Stretch="Fill" IsHitTestVisible="False"/>
                                 </Grid>
                             </Viewbox>
                         </ScrollViewer>
                         <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="18" Padding="5"
-                                Background="#E619171E" CornerRadius="24">
+                                Background="#E615151A" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="22">
                             <StackPanel Orientation="Horizontal">
                                 <Button Content="−" Command="{Binding ZoomOutCommand}" Style="{StaticResource CompactControlButton}" ToolTip="Thu nhỏ"/>
-                                <Button Content="{Binding ZoomText}" Command="{Binding ResetZoomCommand}" MinWidth="76" Height="44" Padding="10,0" Margin="3" FontSize="16" Background="#292630" ToolTip="Trở về 100%"/>
+                                <Button Content="{Binding ZoomText}" Command="{Binding ResetZoomCommand}" MinWidth="76" Height="44" Padding="10,0" Margin="3" FontSize="16" Style="{StaticResource SecondaryButton}" ToolTip="Trở về 100%"/>
                                 <Button Content="+" Command="{Binding ZoomInCommand}" Style="{StaticResource CompactControlButton}" ToolTip="Phóng to"/>
                             </StackPanel>
                         </Border>
                     </Grid>
                 </Border>
 
-                <Border x:Name="PhotosPanel" Grid.Column="4" Style="{StaticResource SoftCard}" Background="#19171D" Padding="8">
+                <Border x:Name="PhotosPanel" Grid.Column="4" Style="{StaticResource SoftCard}" Background="{StaticResource SurfaceBrush}" Padding="8">
                     <DockPanel>
                         <TextBlock Text="ẢNH ĐÃ CHỤP" DockPanel.Dock="Top" FontSize="18" FontWeight="Bold" Foreground="#C9A7BB" Margin="6,2,6,8"/>
                         <ScrollViewer x:Name="CapturedPhotoScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
@@ -131,12 +155,12 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Button Command="{Binding DataContext.SelectPhotoCommand,RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}" Padding="5" Margin="4" Background="#242129" BorderThickness="3" Cursor="Hand">
+                                                CommandParameter="{Binding}" Padding="5" Margin="4" Background="{StaticResource SurfaceRaisedBrush}" Cursor="Hand">
                                             <Button.Style>
                                                 <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                    <Setter Property="BorderBrush" Value="#E5B4CA"/>
+                                                    <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}"/><Setter Property="BorderThickness" Value="1"/>
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="BorderBrush" Value="#EF5DA8"/></DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/><Setter Property="BorderThickness" Value="3"/><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/></DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Button.Style>
@@ -157,9 +181,9 @@
 
             <WrapPanel Grid.Row="2" Margin="0,16,0,0" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Button Content="Bỏ ảnh khỏi ô đang chọn" Command="{Binding ClearSlotCommand}"
-                        Background="#85687A" MinWidth="220"/>
+                        Style="{StaticResource SecondaryButton}" MinWidth="220"/>
                 <StackPanel Orientation="Horizontal">
-                    <Button Content="Quay lại" Command="{Binding CancelCommand}" Background="#CE93D8"/>
+                    <Button Content="Quay lại" Command="{Binding CancelCommand}" Style="{StaticResource SecondaryButton}"/>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0" IsEnabled="{Binding PrintingEnabled}">
                         <TextBlock Text="Số bản in" FontSize="18" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <Button Content="−" Command="{Binding DecreaseCopiesCommand}" Style="{StaticResource CompactControlButton}"/>
@@ -178,7 +202,7 @@
                         <TextBlock Text="{Binding ErrorMessage}" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                             <Button Content="Thử lại" Command="{Binding RetryCommand}"/>
-                            <Button Content="Đóng" Command="{Binding CancelErrorCommand}" Background="#CE93D8"/>
+                            <Button Content="Đóng" Command="{Binding CancelErrorCommand}" Style="{StaticResource SecondaryButton}"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>

@@ -182,8 +182,10 @@ namespace PhotoBooth.Admin.UI
 
             services.AddSingleton<HomeViewModel>();
             services.AddSingleton<EventFramePickerViewModel>();
+            services.AddSingleton<EventPresetPickerViewModel>();
             services.AddSingleton<EventManagerViewModel>();
             services.AddSingleton<FrameManagerViewModel>();
+            services.AddSingleton<FrameSlotOrderViewModel>();
             services.AddSingleton<PresetManagerViewModel>();
             services.AddSingleton<BeautyViewModel>();
             services.AddSingleton<PrinterManagerViewModel>();

@@ -1,13 +1,15 @@
 <UserControl x:Class="PhotoBooth.Admin.UI.Views.LocalShareView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ScrollViewer>
-        <StackPanel Margin="32" MaxWidth="720" HorizontalAlignment="Left">
-            <TextBlock Text="Local Share" Style="{StaticResource PageTitle}"/>
-            <TextBlock Text="Chia sẻ ảnh của lượt chụp qua mạng LAN bằng mã QR." Foreground="#999" Margin="0,4,0,0"/>
+        <StackPanel Margin="32" MaxWidth="760" HorizontalAlignment="Left">
+            <TextBlock Text="Chia sẻ nội bộ" Style="{StaticResource PageTitle}"/>
+            <TextBlock Text="Cho phép khách tải ảnh qua mạng LAN bằng mã QR." Style="{StaticResource PageSubtitle}"/>
             <Border Style="{StaticResource Card}" Margin="0,20,0,0">
                 <StackPanel>
-                    <CheckBox Content="Cho phép chia sẻ qua mạng LAN (bỏ chọn để tắt server)" IsChecked="{Binding LocalShareEnabled}" Margin="0,0,0,8"/>
-                    <Button Content="Khởi động Local Share" Command="{Binding StartServerCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
-                    <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource AccentBrush}" Margin="0,8,0,0"/>
+                    <TextBlock Text="Máy chủ chia sẻ" Style="{StaticResource SectionTitle}"/>
+                    <CheckBox Content="Cho phép chia sẻ ảnh qua mạng LAN" IsChecked="{Binding LocalShareEnabled}" Margin="0,0,0,10"/>
+                    <TextBlock Text="Thiết bị của khách phải kết nối cùng mạng với máy PhotoBooth." Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                    <Button Content="Khởi động chia sẻ" Command="{Binding StartServerCommand}" HorizontalAlignment="Left" Margin="0"/>
+                    <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource AccentHoverBrush}" Margin="0,12,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
         </StackPanel>

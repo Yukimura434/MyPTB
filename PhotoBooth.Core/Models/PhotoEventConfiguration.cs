@@ -14,6 +14,7 @@ namespace PhotoBooth.Core.Models
         public int ImageRotationDegrees { get; set; }
         public BeautySettings Beauty { get; set; } = new BeautySettings();
         public IReadOnlyList<Guid> FrameIds { get; set; } = new Guid[0];
+        public IReadOnlyList<Guid> PresetIds { get; set; } = new Guid[0];
         public DateTime ModifiedAtUtc { get; set; }
         public long RowVersion { get; set; }
     }
