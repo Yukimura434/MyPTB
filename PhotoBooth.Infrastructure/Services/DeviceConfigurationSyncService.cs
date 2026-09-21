@@ -68,8 +68,13 @@ namespace PhotoBooth.Infrastructure.Services
             var baseUrl = (options.PhotoApiBaseUrl ?? string.Empty).TrimEnd('/');
             if (baseUrl.Length == 0) throw new InvalidOperationException("Photo API base URL is not configured.");
 
+            var frameCatalogChanged = await SyncFrameCatalogAsync(baseUrl, credential, cancellationToken).ConfigureAwait(false);
             var assignment = await GetAssignmentAsync(baseUrl, credential, cancellationToken).ConfigureAwait(false);
-            if (assignment == null) return new DeviceConfigurationSyncResult { Message = "Chưa có cấu hình mới." };
+            if (assignment == null) return new DeviceConfigurationSyncResult
+            {
+                Applied = frameCatalogChanged,
+                Message = frameCatalogChanged ? "Đã đồng bộ thư viện frame." : "Frame đã được cập nhật."
+            };
 
             var result = new DeviceConfigurationSyncResult
             {
@@ -146,6 +151,37 @@ namespace PhotoBooth.Infrastructure.Services
             }
         }
 
+        async Task<bool> SyncFrameCatalogAsync(string baseUrl, string credential, CancellationToken token)
+        {
+            RemoteFrame[] remoteFrames;
+            using (var request = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/v3/device/frames"))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential);
+                using (var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
+                {
+                    var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Không thể tải thư viện frame từ xa.");
+                    remoteFrames = Read<RemoteFrameCatalogEnvelope>(body)?.Frames ?? new RemoteFrame[0];
+                }
+            }
+
+            var localFrames = await frameRepository.GetAllAsync(token).ConfigureAwait(false);
+            var remoteLocals = localFrames.Where(frame => IsRemoteFrame(frame.SourcePath)).ToList();
+            var expectedIds = new HashSet<Guid>(remoteFrames.Select(RemoteLocalId));
+            var changed = remoteLocals.Any(frame => !expectedIds.Contains(frame.Id)) ||
+                expectedIds.Any(id => remoteLocals.All(frame => frame.Id != id || !File.Exists(frame.SourcePath)));
+
+            foreach (var remoteFrame in remoteFrames)
+                await EnsureFrameAsync(remoteFrame, credential, token).ConfigureAwait(false);
+
+            foreach (var stale in remoteLocals.Where(frame => !expectedIds.Contains(frame.Id)))
+            {
+                await frameRepository.DeleteAsync(stale.Id, token).ConfigureAwait(false);
+                try { if (File.Exists(stale.SourcePath)) File.Delete(stale.SourcePath); } catch (Exception exception) { logger?.LogDebug(exception, "Could not remove obsolete remote frame cache."); }
+            }
+            return changed;
+        }
+
         async Task AcknowledgeAsync(string baseUrl, string credential, string assignmentId, string status, string error, CancellationToken token)
         {
             var body = Json(new ApplyRequest { AssignmentId = assignmentId, Status = status, Error = error });
@@ -166,12 +202,8 @@ namespace PhotoBooth.Infrastructure.Services
             if (remote == null || string.IsNullOrWhiteSpace(remote.Id) || string.IsNullOrWhiteSpace(remote.AssetUrl) || string.IsNullOrWhiteSpace(remote.ContentSha256))
                 throw new InvalidOperationException("Frame từ xa thiếu thông tin bắt buộc.");
             if (remote.AssetBytes <= 0 || remote.AssetBytes > MaxFrameBytes) throw new InvalidOperationException("Kích thước frame không hợp lệ.");
-            var versionIdentity = string.IsNullOrWhiteSpace(remote.FrameVersionId)
-                ? (remote.Id + ":" + remote.Version)
-                : remote.FrameVersionId;
-            Guid localId;
-            using (var identityHash = SHA256.Create())
-                localId = new Guid(identityHash.ComputeHash(Encoding.UTF8.GetBytes(versionIdentity)).Take(16).ToArray());
+            var versionIdentity = RemoteVersionIdentity(remote);
+            var localId = RemoteLocalId(remote);
             var existing = await frameRepository.GetAsync(localId, token).ConfigureAwait(false);
             if (existing != null && File.Exists(existing.SourcePath)) return localId;
 
@@ -220,6 +252,23 @@ namespace PhotoBooth.Infrastructure.Services
         {
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential);
             return Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        }
+
+        static string RemoteVersionIdentity(RemoteFrame remote) => string.IsNullOrWhiteSpace(remote.FrameVersionId)
+            ? (remote.Id + ":" + remote.Version)
+            : remote.FrameVersionId;
+
+        static Guid RemoteLocalId(RemoteFrame remote)
+        {
+            using (var identityHash = SHA256.Create())
+                return new Guid(identityHash.ComputeHash(Encoding.UTF8.GetBytes(RemoteVersionIdentity(remote))).Take(16).ToArray());
+        }
+
+        static bool IsRemoteFrame(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            var normalized = path.Replace('/', '\\');
+            return normalized.IndexOf("\\Frames\\Remote\\", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         async Task<PhotoEvent> EnsureEventAsync(string remoteId, string name, CancellationToken token)
@@ -284,6 +333,7 @@ namespace PhotoBooth.Infrastructure.Services
         static T Read<T>(string value) { using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(value ?? string.Empty))) return (T)new DataContractJsonSerializer(typeof(T)).ReadObject(stream); }
 
         [DataContract] sealed class RemoteEnvelope { [DataMember(Name = "assignment")] public RemoteAssignment Assignment { get; set; } }
+        [DataContract] sealed class RemoteFrameCatalogEnvelope { [DataMember(Name = "frames")] public RemoteFrame[] Frames { get; set; } }
         [DataContract] sealed class RemoteAssignment { [DataMember(Name = "id")] public string Id { get; set; } [DataMember(Name = "eventId")] public string EventId { get; set; } [DataMember(Name = "eventName")] public string EventName { get; set; } [DataMember(Name = "operation")] public string Operation { get; set; } [DataMember(Name = "version")] public int Version { get; set; } [DataMember(Name = "payload")] public RemotePayload Payload { get; set; } [DataMember(Name = "frames")] public RemoteFrame[] Frames { get; set; } }
         [DataContract] sealed class RemotePayload { [DataMember(Name = "basePriceMinor")] public long BasePriceMinor { get; set; } [DataMember(Name = "additionalPrintPriceMinor")] public long AdditionalPrintPriceMinor { get; set; } [DataMember(Name = "currency")] public string Currency { get; set; } [DataMember(Name = "photoCount")] public int PhotoCount { get; set; } [DataMember(Name = "countdownSeconds")] public int CountdownSeconds { get; set; } [DataMember(Name = "customerLayoutMode")] public string CustomerLayoutMode { get; set; } [DataMember(Name = "imageRotationDegrees")] public int ImageRotationDegrees { get; set; } }
         [DataContract] sealed class RemoteFrame { [DataMember(Name = "id")] public string Id { get; set; } [DataMember(Name = "frameVersionId")] public string FrameVersionId { get; set; } [DataMember(Name = "name")] public string Name { get; set; } [DataMember(Name = "version")] public int Version { get; set; } [DataMember(Name = "assetUrl")] public string AssetUrl { get; set; } [DataMember(Name = "assetFormat")] public string AssetFormat { get; set; } [DataMember(Name = "assetBytes")] public long AssetBytes { get; set; } [DataMember(Name = "contentSha256")] public string ContentSha256 { get; set; } [DataMember(Name = "pixelWidth")] public int PixelWidth { get; set; } [DataMember(Name = "pixelHeight")] public int PixelHeight { get; set; } [DataMember(Name = "slots")] public RemoteSlot[] Slots { get; set; } }
