@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace PhotoBooth.Core.Models
 {
     /// <summary>
-    /// Compatibility persistence model for the legacy Sessions table. New customer-flow
-    /// contracts use <see cref="BoothSession"/> and operator grouping uses <see cref="PhotoEvent"/>.
+    /// Application projection shared by the Event and BoothSession workflows.
+    /// Persistence maps each kind to its separate canonical v2 table.
     /// </summary>
     public class Session
     {
@@ -27,10 +27,14 @@ namespace PhotoBooth.Core.Models
         public string FinalImageId { get; set; }
         public string Kind { get; set; } = SessionKinds.Event;
         public Guid? EventId { get; set; }
+        public string RemoteEventId { get; set; }
         public string Status { get; set; } = BoothSessionStates.Active;
         public long StateVersion { get; set; }
         public string TerminalReason { get; set; }
         public string DisplayCode { get; set; }
+        public long BasePriceMinor { get; set; }
+        public long AdditionalPrintPriceMinor { get; set; }
+        public string Currency { get; set; } = "VND";
         public DateTime UpdatedAtUtc { get; set; }
         public bool IsBoothSession => string.Equals(Kind, SessionKinds.Booth, StringComparison.Ordinal);
         public override string ToString() => SessionName ?? string.Empty;
@@ -64,10 +68,14 @@ namespace PhotoBooth.Core.Models
                 FinalImageId = value.FinalImageId,
                 Kind = value.Kind,
                 EventId = value.EventId,
+                RemoteEventId = value.RemoteEventId,
                 Status = value.Status,
                 StateVersion = value.StateVersion,
                 TerminalReason = value.TerminalReason,
                 DisplayCode = value.DisplayCode,
+                BasePriceMinor = value.BasePriceMinor,
+                AdditionalPrintPriceMinor = value.AdditionalPrintPriceMinor,
+                Currency = value.Currency,
                 UpdatedAtUtc = value.UpdatedAtUtc
             };
         }

@@ -1,13 +1,13 @@
 # AGENTS.md
 
-Guidance for coding agents working in this repository. This is a **PhotoBooth** project: a Windows WPF desktop photo-booth app (Admin + Customer UIs, SQLite, multi-camera capture, printing) backed by a Cloudflare Worker + D1 API and two web portals. An in-progress **Android/Kotlin migration** lives under `/kotlin`.
+Guidance for coding agents working in this repository. This is a **PhotoBooth** project: a Windows WPF desktop photo-booth app (Admin + Customer UIs, SQLite, multi-camera capture, printing) backed by a Cloudflare Worker + D1 API and two web portals stored in the sibling `../Web` workspace. An in-progress **Android/Kotlin migration** lives under `/kotlin`.
 
 ## Repository layout (what matters)
 
 - `PhotoBooth.sln` — **the active solution**. Contains `PhotoBooth.Admin.UI`, `PhotoBooth.Customer.UI`, `PhotoBooth.Core`, `PhotoBooth.Business`, `PhotoBooth.Infrastructure`, `PhotoBooth.Database`, `PhotoBooth.Shared`, `PhotoBooth.FrameEngine`, `PhotoBooth.UnitTests`, and `CameraControl.Devices`.
-- `backend/PhotoBooth.Worker` — Cloudflare Worker (TypeScript) API for D1 + Cloudinary.
-- `web-admin/` and `web-customer/` — Next.js/React portals built on **vinext** (Cloudflare Sites), with Drizzle + D1.
-- `frontend/` — older standalone Vite static app (`myptbooth-frontend`).
+- `../Web/backend/PhotoBooth.Worker` — Cloudflare Worker (TypeScript) API for D1 + Cloudinary.
+- `../Web/web-admin/` and `../Web/web-customer/` — Next.js/React portals built on **vinext** (Cloudflare Sites), with Drizzle + D1.
+- `../Web/frontend/` — standalone Vite gallery (`myptbooth-frontend`).
 - `kotlin/` — **Android/Kotlin migration**. `/kotlin/AGENTS.md` is the authoritative instruction file for Android work; `/kotlin/docs/MIGRATION_PLAN.md` is the migration roadmap.
 - `kotlin/docs/` — analysis docs (design patterns, workflows, camera SDK feasibility, performance) that informed the migration plan.
 - `template/digiCamControl/` and `.legacy-archive/` — **original digiCamControl source (MIT)**. Not part of the active solution. Do not build or modify casually.
@@ -23,7 +23,7 @@ Guidance for coding agents working in this repository. This is a **PhotoBooth** 
 - `Docs/FOLDER_STRUCTURE.md` — runtime data layout under `%LOCALAPPDATA%\PhotoBooth\Data`.
 - `Docs/API.md` — replaceable extension boundaries (`IUploadService`, `IQrCodeService`, `IPhotoDeliveryService`, `IPrintQueueService`, etc.).
 - `setup.backend.md` — Worker/D1/Cloudinary reconfiguration (contains real production URLs and test accounts; never echo secrets).
-- `backend/PhotoBooth.Worker/README.md` — Worker secrets and API flow.
+- `../Web/backend/PhotoBooth.Worker/README.md` — Worker secrets and API flow.
 - `kotlin/AGENTS.md` — **read before any Android/Kotlin work**.
 - `kotlin/docs/MIGRATION_PLAN.md` — the Windows→Android migration roadmap and gates.
 
@@ -52,15 +52,14 @@ msbuild PhotoBooth.sln /t:Build /p:Configuration=Release /m
 ## Backend and portals
 
 ```powershell
-# Worker (run in backend\PhotoBooth.Worker)
+# Worker (run in ..\Web\backend\PhotoBooth.Worker)
 npm install
 npm run typecheck                # tsc --noEmit
 npm run dev                      # wrangler dev
 npm run db:migrate:local         # wrangler d1 migrations apply DB --local
 npm run db:migrate:remote        # apply to production D1
-npm run deploy                   # wrangler deploy
 
-# Portals (web-admin / web-customer)
+# Portals (run in ..\Web\web-admin or ..\Web\web-customer)
 npm install
 npm run dev                      # customer uses --port 3001
 npm run build
@@ -68,6 +67,8 @@ npm run test                     # build + node --test rendered-html.test.mjs
 npm run lint                     # web-admin only
 npm run db:generate              # drizzle-kit generate
 ```
+
+Worker và các portal production được Cloudflare tự động build/deploy từ GitHub. Sau khi build/test đạt, chỉ push commit lên nhánh đã kết nối; không chạy `wrangler deploy` hoặc publish Site thủ công. Remote D1 migration là thao tác dữ liệu riêng và chỉ chạy khi được yêu cầu rõ ràng.
 
 ## Architecture rules — preserve these
 
@@ -89,6 +90,7 @@ Dependency flow is `UI -> Core contracts <- Business/Infrastructure/Database`:
 - Preserve existing behavior; reuse existing abstractions/patterns rather than adding new services, helpers, or interfaces that duplicate what already exists.
 - Inspect the relevant subsystem and its docs before modifying it.
 - Run the appropriate build/tests above to validate your change.
+- Mọi giao diện thương mại trên Web Admin, Web Customer, app PC và app Android phải dùng ngôn ngữ người dùng; không đưa thuật ngữ hạ tầng như D1, R2, bucket, object key, ID nội bộ hoặc chi tiết triển khai ra màn hình. Nội dung phải ngắn gọn, trực quan và phù hợp sản phẩm thương mại; chỉ hiển thị mã kỹ thuật trong khu vực chẩn đoán dành riêng khi thật sự cần thiết.
 
 ## Security, secrets, licensing, generated code
 
@@ -110,5 +112,5 @@ Dependency flow is `UI -> Core contracts <- Business/Infrastructure/Database`:
 
 - README uses `dotnet build`; `Docs/DEVELOPER_GUIDE.md` and `PhotoBooth.ARCHITECTURE.md` use `msbuild`. Both build the same `PhotoBooth.sln`. Use whichever tooling is available; prefer the README's `dotnet` commands when on a dev machine with the .NET SDK.
 - `.gitignore` is the legacy digiCamControl one; several paths reference the archived project. It is not authoritative for the new PhotoBooth projects' outputs. It has not yet been extended for `/kotlin` Gradle outputs.
-- `web-admin`/`web-customer` share the "vinext-starter" README template; production naming is `myptbooth-admin` / `myptbooth-customer`.
+- `../Web/web-admin` and `../Web/web-customer` share the "vinext-starter" README template; production naming is `myptbooth-admin` / `myptbooth-customer`.
 - Repository analysis found several behavior gaps versus the earlier `kotlin/docs` blueprints (e.g. upload is done synchronously in `CloudPhotoDeliveryService`, not via a background queue). Record such conflicts in `kotlin/docs/MIGRATION_PLAN.md` rather than silently inventing behavior.
