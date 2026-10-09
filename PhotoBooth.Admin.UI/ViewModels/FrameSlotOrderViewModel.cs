@@ -43,6 +43,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
 
     public sealed class FrameSlotOrderViewModel : PageViewModel
     {
+        readonly IPcSessionContext sessions;
         readonly IFrameService frames;
         readonly INavigationService navigation;
         readonly ILogger<FrameSlotOrderViewModel> log;
@@ -51,8 +52,10 @@ namespace PhotoBooth.Admin.UI.ViewModels
         Action<Guid, bool> closed;
 
         public FrameSlotOrderViewModel(IFrameService frameService, INavigationService navigationService,
-            ILogger<FrameSlotOrderViewModel> logger)
+            ILogger<FrameSlotOrderViewModel> logger, IPcSessionContext sessions)
         {
+            this.sessions = sessions;
+            sessions.Changed += (_, __) => RaiseState();
             frames = frameService;
             navigation = navigationService;
             log = logger;
@@ -69,7 +72,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public bool HasMessage => !string.IsNullOrWhiteSpace(Message);
         public int NumberedCount => Slots.Count(x => x.IsNumbered);
         public int TotalCount => Slots.Count;
-        public bool CanSave => TotalCount > 0 && NumberedCount == TotalCount;
+        public bool CanSave => sessions.Current?.CanManageConfiguration == true && TotalCount > 0 && NumberedCount == TotalCount;
         public string ProgressText => "Đã đánh số " + NumberedCount + " / " + TotalCount + " ô ảnh";
         public string SaveHint => CanSave ? "Đã đủ thứ tự. Bạn có thể lưu thay đổi." : "Đánh số đủ tất cả ô ảnh để bật nút lưu.";
         public ICommand ToggleSlotCommand { get; }

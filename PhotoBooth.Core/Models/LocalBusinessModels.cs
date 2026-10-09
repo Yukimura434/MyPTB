@@ -51,6 +51,54 @@ namespace PhotoBooth.Core.Models
         public const string Deliverable = "Deliverable";
     }
 
+    public static class MediaReplicaProviders
+    {
+        public const string Local = "Local";
+        // Transitional intent before the Worker returns the session's snapshotted destination.
+        public const string Online = "Online";
+        public const string SystemLibrary = "SystemLibrary";
+        public const string GoogleDrive = "GoogleDrive";
+
+        public static string FromApi(string value)
+        {
+            if(string.Equals(value,"google_drive",StringComparison.OrdinalIgnoreCase)||string.Equals(value,"drive",StringComparison.OrdinalIgnoreCase))return GoogleDrive;
+            if(string.Equals(value,"system_library",StringComparison.OrdinalIgnoreCase)||string.Equals(value,"r2",StringComparison.OrdinalIgnoreCase))return SystemLibrary;
+            return Online;
+        }
+    }
+
+    public static class MediaReplicaStates
+    {
+        public const string Present = "Present";
+        public const string Queued = "Queued";
+        public const string Uploading = "Uploading";
+        public const string Verified = "Verified";
+        public const string Failed = "Failed";
+        public const string Missing = "Missing";
+        public const string Deleting = "Deleting";
+        public const string Deleted = "Deleted";
+    }
+
+    public sealed class MediaAssetReplicaRecord
+    {
+        public string Id { get; set; }
+        public string AssetId { get; set; }
+        public string Provider { get; set; }
+        public bool IsRequired { get; set; }
+        public string PolicyReason { get; set; }
+        public string State { get; set; }
+        public string RemoteReference { get; set; }
+        public int AttemptCount { get; set; }
+        public DateTime? NextAttemptAtUtc { get; set; }
+        public string LastErrorCategory { get; set; }
+        public string LastError { get; set; }
+        public string ContentHashSha256 { get; set; }
+        public long FileLength { get; set; }
+        public DateTime? VerifiedAtUtc { get; set; }
+        public DateTime CreatedAtUtc { get; set; }
+        public DateTime UpdatedAtUtc { get; set; }
+    }
+
     public static class DurableOutputJobStates
     {
         public const string Pending = "Pending";
@@ -62,6 +110,14 @@ namespace PhotoBooth.Core.Models
         public const string UnknownOutcome = "UnknownOutcome";
         public const string PermanentFailure = "PermanentFailure";
         public const string Cancelled = "Cancelled";
+    }
+
+    public static class DurableOutputJobTypes
+    {
+        public const string Print = "Print";
+        public const string UploadAsset = "UploadAsset";
+        public const string CommitDeliverable = "CommitDeliverable";
+        public const string CreateGallery = "CreateGallery";
     }
 
     public sealed class CaptureAttemptRecord
@@ -107,13 +163,46 @@ namespace PhotoBooth.Core.Models
     {
         public string Id { get; set; }
         public Guid SessionId { get; set; }
+        public string DeliverableId { get; set; }
         public string AssetId { get; set; }
         public string JobType { get; set; }
         public string IdempotencyKey { get; set; }
         public string State { get; set; }
         public int AttemptCount { get; set; }
+        public DateTime? NextRetryAtUtc { get; set; }
+        public string ExternalReference { get; set; }
+        public string LastError { get; set; }
+        // DPAPI-protected employee/session credential used only by this delivery chain.
+        public string ProtectedAuthorization { get; set; }
+        public string AuthorizationScope { get; set; }
+        public DateTime CreatedAtUtc { get; set; }
+        public DateTime UpdatedAtUtc { get; set; }
+    }
+
+    /// <summary>A recoverable, idempotent export of one finalized booth deliverable into its Event folder.</summary>
+    public sealed class EventExportJobRecord
+    {
+        public string Id { get; set; }
+        public Guid EventId { get; set; }
+        public Guid SessionId { get; set; }
+        public string DeliverableId { get; set; }
+        public string DestinationRoot { get; set; }
+        public string TurnFolderName { get; set; }
+        public string IdempotencyKey { get; set; }
+        public string State { get; set; }
+        public int AttemptCount { get; set; }
+        public DateTime? NextRetryAtUtc { get; set; }
+        public string ExportedPath { get; set; }
         public string LastError { get; set; }
         public DateTime CreatedAtUtc { get; set; }
         public DateTime UpdatedAtUtc { get; set; }
+    }
+
+    public sealed class GalleryLinkCacheRecord
+    {
+        public string DeliverableId { get; set; }
+        public Uri PublicUrl { get; set; }
+        public DateTime ExpiresAtUtc { get; set; }
+        public DateTime ReceivedAtUtc { get; set; }
     }
 }

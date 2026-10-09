@@ -1,22 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><ApplicationIcon>Assets\photobooth.ico</ApplicationIcon><Version>1.1.0</Version></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><ApplicationIcon>Assets\photobooth.ico</ApplicationIcon><Version>3.0.0</Version></PropertyGroup>
+  <PropertyGroup><AssemblyName>MiuPhotoBooth</AssemblyName></PropertyGroup>
   <PropertyGroup Condition="'$(TrialBuild)' == 'true'">
     <DefineConstants>$(DefineConstants);TRIAL_BUILD</DefineConstants>
-    <Version>1.1.0-trial</Version>
+    <Version>2.0.0-alpha-trial</Version>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\PhotoBooth.Customer.UI\PhotoBooth.Customer.UI.csproj" />
     <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
     <ProjectReference Include="..\PhotoBooth.Infrastructure\PhotoBooth.Infrastructure.csproj" />
     <ProjectReference Include="..\PhotoBooth.Shared\PhotoBooth.Shared.csproj" />
-    <ProjectReference Include="..\PhotoBooth.Customer.UI\PhotoBooth.Customer.UI.csproj" />
+    <ProjectReference Include="..\PhotoBooth.Color.D3D11\PhotoBooth.Color.D3D11.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
-    <PackageReference Include="Velopack" Version="1.2.0" Condition="'$(TrialBuild)' != 'true'" />
     <Reference Include="System.Security" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="System.Windows.Forms" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TrialBuild)' == 'true'">
-    <Compile Remove="Services\VelopackUpdateService.cs" />
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Remove="App.xaml" />
@@ -29,5 +28,6 @@
     <Content Include="..\PhotoBooth.Native\Canon\EdsImage.dll" Link="EdsImage.dll" CopyToOutputDirectory="Always" />
     <Content Include="Assets\logo_big.jpg" Link="logo_big.jpg" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\model.png" Link="model.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\beauty-model.png" Link="beauty-model.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

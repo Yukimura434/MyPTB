@@ -20,7 +20,7 @@ namespace PhotoBooth.UnitTests
                 var database=new SqliteDatabase(Path.Combine(directory,"test.db"));database.Initialize();
                 using(var schema=database.OpenConnection())
                 {
-                    using(var migration=schema.CreateCommand()){migration.CommandText="SELECT COUNT(*) FROM SchemaMigrations WHERE Version=14 AND Name='single_lut_preset_library_and_events'";Assert.Equal(1,Convert.ToInt32(migration.ExecuteScalar()));}
+                    using(var version=schema.CreateCommand()){version.CommandText="SELECT Version FROM SchemaInfo";Assert.Equal(SqliteDatabase.SchemaVersion,Convert.ToInt32(version.ExecuteScalar()));}
                     using(var columns=schema.CreateCommand()){columns.CommandText="SELECT COUNT(*) FROM pragma_table_info('PresetColorSettings') WHERE name IN ('Strength','Enabled')";Assert.Equal(0,Convert.ToInt32(columns.ExecuteScalar()));}
                 }
                 var assets=new SqliteColorLutAssetRepository(database);
@@ -63,36 +63,25 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
-        public async System.Threading.Tasks.Task Legacy_preset_color_data_is_migrated_without_persisted_strength()
+        public async System.Threading.Tasks.Task Preset_color_relation_persists_only_the_selected_lut()
         {
-            var directory=Path.Combine(Path.GetTempPath(),"photobooth-color-migration-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
+            var directory=Path.Combine(Path.GetTempPath(),"photobooth-color-relation-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
             try
             {
                 var database=new SqliteDatabase(Path.Combine(directory,"test.db"));database.Initialize();
-                var asset=NewAsset();var unassigned=NewAsset();unassigned.Id=Guid.NewGuid();unassigned.DisplayName="Unassigned LUT";unassigned.RelativePath="Assets/Presets/Cubes/unassigned.cube";unassigned.ContentHashSha256=new string('c',64);
-                var assetRepository=new SqliteColorLutAssetRepository(database);await assetRepository.InsertAsync(asset,CancellationToken.None);await assetRepository.InsertAsync(unassigned,CancellationToken.None);
-                var presetId=Guid.NewGuid();var orphanId=Guid.NewGuid();var now=DateTime.UtcNow.ToString("O");
+                var asset=NewAsset();await new SqliteColorLutAssetRepository(database).InsertAsync(asset,CancellationToken.None);
+                var presetId=Guid.NewGuid();var now=DateTime.UtcNow;
                 using(var connection=database.OpenConnection())using(var command=connection.CreateCommand())
                 {
-                    command.CommandText=@"DELETE FROM SchemaMigrations WHERE Version=14;
-DROP TABLE PresetColorSettings;
-CREATE TABLE PresetColorSettings(PresetId TEXT PRIMARY KEY NOT NULL,LutAssetId TEXT,Strength REAL NOT NULL DEFAULT 1.0,Enabled INTEGER NOT NULL DEFAULT 1,ModifiedAtUtc TEXT NOT NULL,RowVersion INTEGER NOT NULL DEFAULT 1,FOREIGN KEY(PresetId) REFERENCES AdminPresets(Id) ON DELETE CASCADE,FOREIGN KEY(LutAssetId) REFERENCES ColorLutAssets(Id) ON DELETE RESTRICT);
-INSERT INTO AdminPresets(Id,Name,SettingsJson,Countdown,CreatedAtUtc,ModifiedAtUtc,IsDefault,IsPinned) VALUES($preset,'Legacy','{""Brightness"":0.25}',3,$now,$now,1,0);
-INSERT INTO AdminPresets(Id,Name,SettingsJson,Countdown,CreatedAtUtc,ModifiedAtUtc,IsDefault,IsPinned) VALUES($orphan,'Orphan','{}',3,$now,$now,1,0);
-INSERT INTO PresetColorSettings(PresetId,LutAssetId,Strength,Enabled,ModifiedAtUtc,RowVersion) VALUES($preset,$asset,0.83,1,$now,4);";
-                    command.Parameters.AddWithValue("$preset",presetId.ToString());command.Parameters.AddWithValue("$orphan",orphanId.ToString());command.Parameters.AddWithValue("$asset",asset.Id.ToString());command.Parameters.AddWithValue("$now",now);command.ExecuteNonQuery();
+                    command.CommandText="INSERT INTO AdminPresets(Id,Name,SettingsJson,Countdown,CreatedAtUtc,ModifiedAtUtc,IsDefault,IsPinned) VALUES($preset,'Preset','{}',3,$now,$now,0,0)";
+                    command.Parameters.AddWithValue("$preset",presetId.ToString());command.Parameters.AddWithValue("$now",now.ToString("O"));command.ExecuteNonQuery();
                 }
-
-                database.Initialize();
-                var values=await new SqlitePresetRepository(database).GetAllAsync(CancellationToken.None);
-                var migrated=Assert.Single(values,x=>x.Id==presetId);Assert.Equal(asset.Id,migrated.LutAssetId);
-                var backfilled=Assert.Single(values,x=>x.LutAssetId==unassigned.Id);Assert.Equal("Unassigned LUT",backfilled.Name);
-                Assert.DoesNotContain(values,x=>x.Id==orphanId);
+                await new SqlitePresetColorRepository(database).SaveAsync(new PresetColorSettings{PresetId=presetId,LutAssetId=asset.Id,ModifiedAtUtc=now},null,CancellationToken.None);
+                Assert.Equal(asset.Id,(await new SqlitePresetColorRepository(database).GetAsync(presetId,CancellationToken.None)).LutAssetId);
                 using(var connection=database.OpenConnection())using(var command=connection.CreateCommand())
                 {
-                    command.CommandText="SELECT (SELECT COUNT(*) FROM pragma_table_info('PresetColorSettings') WHERE name IN ('Strength','Enabled')),(SELECT SettingsJson IS NULL FROM AdminPresets WHERE Id=$preset),(SELECT IsDefault FROM AdminPresets WHERE Id=$orphan)";
-                    command.Parameters.AddWithValue("$preset",presetId.ToString());command.Parameters.AddWithValue("$orphan",orphanId.ToString());
-                    using(var reader=command.ExecuteReader()){Assert.True(reader.Read());Assert.Equal(0,reader.GetInt32(0));Assert.Equal(1,reader.GetInt32(1));Assert.Equal(0,reader.GetInt32(2));}
+                    command.CommandText="SELECT COUNT(*) FROM pragma_table_info('PresetColorSettings') WHERE name IN ('Strength','Enabled')";
+                    Assert.Equal(0,Convert.ToInt32(command.ExecuteScalar()));
                 }
             }
             finally{try{Directory.Delete(directory,true);}catch{}}

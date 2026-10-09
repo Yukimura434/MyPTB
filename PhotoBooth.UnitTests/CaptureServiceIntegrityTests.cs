@@ -21,9 +21,13 @@ namespace PhotoBooth.UnitTests
             var root=Path.Combine(Path.GetTempPath(),"PhotoBoothTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
             try
             {
-                var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var sessionId=Guid.NewGuid();var sessionRepository=new SqliteSessionRepository(db);
+                var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var eventId=Guid.NewGuid();var sessionId=Guid.NewGuid();var sessionRepository=new SqliteSessionRepository(db);
                 var shots=new[]{Shot(root,"one"),Shot(root,"two")};
-                await sessionRepository.SaveAsync(new Session{Id=sessionId,SessionName="Event",StartedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedShots=shots},CancellationToken.None);
+                await sessionRepository.SaveAsync(new Session{Id=eventId,Kind=SessionKinds.Event,SessionName="Event",StartedAtUtc=DateTime.UtcNow,UpdatedAtUtc=DateTime.UtcNow,OutputDirectory=root,CapturedShots=new CapturedShot[0]},CancellationToken.None);
+                var boothRoot=Path.Combine(root,"Sessions",sessionId.ToString("N"));Directory.CreateDirectory(boothRoot);
+                await sessionRepository.SaveAsync(new Session{Id=sessionId,Kind=SessionKinds.Booth,EventId=eventId,Status=BoothSessionStates.Active,StartedAtUtc=DateTime.UtcNow,UpdatedAtUtc=DateTime.UtcNow,OutputDirectory=boothRoot,CapturedShots=new CapturedShot[0]},CancellationToken.None);
+                var attempts=new SqliteCaptureAttemptRepository(db);
+                foreach(var shot in shots){await attempts.BeginAsync(new CaptureAttemptRecord{Id=shot.Id,SessionId=sessionId,Sequence=shot.Sequence,AttemptNumber=1,IntentAtUtc=shot.CapturedAtUtc},CancellationToken.None);await attempts.MarkAcceptedAsync(shot.Id,CancellationToken.None);await sessionRepository.AddCapturedShotAsync(sessionId,shot,CancellationToken.None);}
                 var composite=Write(root,"final.png","static");var videoComposite=Write(root,"final.mp4","video video");
                 var deliverableService=(IDeliverableService)new DeliverableService(new SqliteDeliverableRepository(db),sessionRepository);
                 var deliverable=await deliverableService.CreateWithCompositeVideoAsync(sessionId,null,"composite-id",composite,shots,videoComposite,shots.Select(x=>x.VideoPath).ToList(),null,CancellationToken.None);
@@ -37,7 +41,7 @@ namespace PhotoBooth.UnitTests
             }
             finally{SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
         }
-        static CapturedShot Shot(string root,string name){return new CapturedShot{Id=name,Sequence=name=="one"?1:2,PicturePath=Write(root,name+".jpg","picture "+name),VideoPath=Write(root,name+".mp4","video "+name),CapturedAtUtc=DateTime.UtcNow};}
+        static CapturedShot Shot(string root,string name){return new CapturedShot{Id=Guid.NewGuid().ToString("N"),Sequence=name=="one"?1:2,PictureAssetId=Guid.NewGuid().ToString("N"),VideoAssetId=Guid.NewGuid().ToString("N"),PicturePath=Write(root,name+".jpg","picture "+name),VideoPath=Write(root,name+".mp4","video "+name),CapturedAtUtc=DateTime.UtcNow};}
         static string Write(string root,string name,string value){var path=Path.Combine(root,name);File.WriteAllText(path,value);return path;}
     }
 }

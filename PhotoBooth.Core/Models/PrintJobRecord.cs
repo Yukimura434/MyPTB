@@ -5,6 +5,7 @@ namespace PhotoBooth.Core.Models
     public sealed class PrintJobRecord
     {
         public Guid Id { get; set; }
+        public string OutputJobId { get; set; }
         public Guid? SessionId { get; set; }
         public string CaptureId { get; set; }
         public Guid? BoothSessionId { get => SessionId; set => SessionId=value; }

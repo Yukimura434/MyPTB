@@ -18,6 +18,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
         readonly IStatsRepository statistics;
         readonly IStorageManager storage;
         readonly IMediaThumbnailService thumbnails;
+        readonly IRemoteDeliveryQueue remoteDelivery;
+        readonly IQrCodeService qr;
         CaptureLibrarySnapshot snapshot = EmptySnapshot();
         IReadOnlyList<CaptureCardViewModel> captures = new CaptureCardViewModel[0];
         IReadOnlyList<string> eventSuggestions = new string[0];
@@ -27,26 +29,32 @@ namespace PhotoBooth.Admin.UI.ViewModels
         DateTime? selectedDate = DateTime.Today;
         string filterText;
         string error;
+        string syncMessage;
         bool loading;
         int searchGeneration;
+        byte[] selectedQrBytes;
+        string selectedQrUrl;
 
-        public DiagnosticsViewModel(IStatsRepository statistics, IStorageManager storage, IMediaThumbnailService thumbnails)
+        public DiagnosticsViewModel(IStatsRepository statistics, IStorageManager storage, IMediaThumbnailService thumbnails, IRemoteDeliveryQueue remoteDelivery, IQrCodeService qr)
         {
             this.statistics = statistics;
             this.storage = storage;
             this.thumbnails = thumbnails;
+            this.remoteDelivery = remoteDelivery;
+            this.qr = qr;
             FilterOptions = new[]
             {
                 new CaptureFilterOption(CaptureLibraryFilterModes.All, "Tất cả lượt chụp"),
                 new CaptureFilterOption(CaptureLibraryFilterModes.Date, "Theo ngày"),
                 new CaptureFilterOption(CaptureLibraryFilterModes.Event, "Theo sự kiện"),
-                new CaptureFilterOption(CaptureLibraryFilterModes.Session, "Theo session")
+                new CaptureFilterOption(CaptureLibraryFilterModes.Session, "Theo lượt chụp")
             };
             selectedFilter = FilterOptions[0];
             SearchCommand = new AsyncCommand(_ => SearchAsync());
-            OpenCaptureCommand = new AsyncCommand(OpenCaptureAsync);
+            RetrySyncCommand = new AsyncCommand(_ => RetrySyncAsync());
             CloseCaptureCommand = new RelayCommand(_ => CloseCapture());
             OpenMediaCommand = new RelayCommand(OpenMedia);
+            CloseQrCommand = new RelayCommand(_ => { SelectedQrBytes=null;SelectedQrUrl=null; });
             _ = InitializeAsync();
         }
 
@@ -72,7 +80,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public bool IsEventFilter => string.Equals(SelectedFilter?.Mode, CaptureLibraryFilterModes.Event, StringComparison.Ordinal);
         public bool IsSessionFilter => string.Equals(SelectedFilter?.Mode, CaptureLibraryFilterModes.Session, StringComparison.Ordinal);
         public bool IsTextFilter => IsEventFilter || IsSessionFilter;
-        public string FilterHint => IsSessionFilter ? "Nhập Session ID hoặc mã lượt khách" : "Nhập hoặc chọn tên sự kiện";
+        public string FilterHint => IsSessionFilter ? "Nhập mã lượt chụp" : "Nhập hoặc chọn tên sự kiện";
 
         public DateTime? SelectedDate { get => selectedDate; set => Set(ref selectedDate, value); }
         public string FilterText { get => filterText; set => Set(ref filterText, value); }
@@ -84,6 +92,13 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public string ExtraPrintCountText => (Snapshot?.ExtraPrintCount ?? 0).ToString("N0");
         public string RevenueText => Snapshot != null && Snapshot.HasRevenueData ? Snapshot.RevenueAmount.ToString("N0") + " ₫" : "—";
         public string RevenueHint => Snapshot != null && Snapshot.HasRevenueData ? "Theo bộ lọc hiện tại" : "Chờ cấu hình thanh toán";
+        public string ReadyShareCountText => (Snapshot?.ReadyShareCount ?? 0).ToString("N0");
+        public string PendingShareCountText => (Snapshot?.PendingShareCount ?? 0).ToString("N0");
+        public string FailedShareCountText => (Snapshot?.FailedShareCount ?? 0).ToString("N0");
+        public string LocalOnlyShareCountText => (Snapshot?.LocalOnlyShareCount ?? 0).ToString("N0");
+        public bool HasRecoverableUploads => (Snapshot?.RecoverableShareCount ?? 0) > 0;
+        public string RecoveryTitle => "Có " + (Snapshot?.RecoverableShareCount ?? 0).ToString("N0") + " lượt chụp cần tiếp tục";
+        public string RecoveryDescription => "Bạn chỉ cần bấm một lần. MiuManager sẽ khôi phục toàn bộ lượt bị gián đoạn trên thiết bị này.";
         public string ResultText => Snapshot == null ? string.Empty : Captures.Count < Snapshot.CaptureCount
             ? "Hiển thị " + Captures.Count.ToString("N0") + " / " + Snapshot.CaptureCount.ToString("N0") + " lượt chụp gần nhất"
             : Snapshot.CaptureCount.ToString("N0") + " lượt chụp";
@@ -105,10 +120,24 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public bool IsLoading { get => loading; private set => Set(ref loading, value); }
         public string Error { get => error; private set { if (Set(ref error, value)) Raise(nameof(HasError)); } }
         public bool HasError => !string.IsNullOrWhiteSpace(Error);
+        public string SyncMessage { get => syncMessage; private set { if(Set(ref syncMessage,value)) Raise(nameof(HasSyncMessage)); } }
+        public bool HasSyncMessage => !string.IsNullOrWhiteSpace(SyncMessage);
         public ICommand SearchCommand { get; }
-        public ICommand OpenCaptureCommand { get; }
+        public ICommand RetrySyncCommand { get; }
         public ICommand CloseCaptureCommand { get; }
         public ICommand OpenMediaCommand { get; }
+        public ICommand CloseQrCommand { get; }
+        public byte[] SelectedQrBytes { get=>selectedQrBytes; private set { if(Set(ref selectedQrBytes,value))Raise(nameof(IsQrOpen)); } }
+        public string SelectedQrUrl { get=>selectedQrUrl; private set=>Set(ref selectedQrUrl,value); }
+        public bool IsQrOpen => SelectedQrBytes!=null;
+
+        async Task ShowQrAsync(object parameter)
+        {
+            var card=parameter as CaptureCardViewModel;var value=card?.Value;
+            if(value==null||string.IsNullOrWhiteSpace(value.GalleryUrl)){Error="Lượt chụp này chưa có liên kết QR. Hãy tải lại ảnh hoặc kiểm tra phương thức chia sẻ.";return;}
+            Uri uri;if(!Uri.TryCreate(value.GalleryUrl,UriKind.Absolute,out uri)){Error="Liên kết chia sẻ của lượt chụp không hợp lệ.";return;}
+            SelectedQrUrl=uri.AbsoluteUri;SelectedQrBytes=await qr.GeneratePngAsync(uri,420,CancellationToken.None);
+        }
 
         async Task InitializeAsync()
         {
@@ -129,7 +158,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 var result = await statistics.SearchCaptureLibraryAsync(filter, CancellationToken.None);
                 if (generation != searchGeneration) return;
                 Snapshot = result ?? EmptySnapshot();
-                var cards = (Snapshot.Captures ?? new CaptureLibraryItem[0]).Select(x => new CaptureCardViewModel(x)).ToList();
+                var cards = (Snapshot.Captures ?? new CaptureLibraryItem[0]).Select(x => new CaptureCardViewModel(x,OpenCaptureAsync,ShowQrAsync,RetryCaptureSyncAsync)).ToList();
                 Captures = cards;
                 CloseCapture();
                 await LoadCardThumbnailsAsync(cards, generation);
@@ -141,6 +170,29 @@ namespace PhotoBooth.Admin.UI.ViewModels
             finally
             {
                 if (generation == searchGeneration) IsLoading = false;
+            }
+        }
+
+        async Task RetrySyncAsync()
+        {
+            try { SyncMessage=""; var count=await remoteDelivery.RetryPendingAsync(null,CancellationToken.None); SyncMessage=count>0?"Đã khôi phục "+count+" lượt chụp. Ảnh sẽ tiếp tục được tải tự động.":"Không có lượt chụp bị gián đoạn cần khôi phục."; await RefreshSyncStateAsync(); }
+            catch(Exception){Error="Chưa thể tiếp tục tải ảnh. Hãy kiểm tra kết nối mạng rồi thử lại.";}
+        }
+
+        async Task RetryCaptureSyncAsync(object parameter)
+        {
+            var card=parameter as CaptureCardViewModel;
+            if(card==null)return;
+            try { SyncMessage=""; var count=await remoteDelivery.RetryPendingAsync(card.Value.CaptureId,CancellationToken.None); SyncMessage=count>0?"Đã khôi phục lượt chụp này. Ảnh sẽ tiếp tục được tải tự động.":"Lượt chụp này không có phần tải lên bị gián đoạn."; await RefreshSyncStateAsync(); }
+            catch(Exception){Error="Chưa thể tải lại ảnh của lượt chụp này. Hãy kiểm tra kết nối mạng.";}
+        }
+
+        async Task RefreshSyncStateAsync()
+        {
+            for(var attempt=0;attempt<4;attempt++)
+            {
+                if(attempt>0)await Task.Delay(1000);
+                await SearchAsync();
             }
         }
 
@@ -240,6 +292,13 @@ namespace PhotoBooth.Admin.UI.ViewModels
             Raise(nameof(ExtraPrintCountText));
             Raise(nameof(RevenueText));
             Raise(nameof(RevenueHint));
+            Raise(nameof(ReadyShareCountText));
+            Raise(nameof(PendingShareCountText));
+            Raise(nameof(FailedShareCountText));
+            Raise(nameof(LocalOnlyShareCountText));
+            Raise(nameof(HasRecoverableUploads));
+            Raise(nameof(RecoveryTitle));
+            Raise(nameof(RecoveryDescription));
             Raise(nameof(ResultText));
         }
 
@@ -258,13 +317,36 @@ namespace PhotoBooth.Admin.UI.ViewModels
     {
         byte[] thumbnailBytes;
         bool mediaMissing;
-        public CaptureCardViewModel(CaptureLibraryItem value) { Value = value; }
+        public CaptureCardViewModel(CaptureLibraryItem value,Func<object,Task> open,Func<object,Task> showQr,Func<object,Task> retry)
+        {
+            Value=value;
+            OpenCommand=new AsyncCommand(_=>open(this));
+            ShowQrCommand=new AsyncCommand(_=>showQr(this),_=>HasQrAction);
+            RetryCommand=new AsyncCommand(_=>retry(this),_=>HasRetryAction);
+        }
         public CaptureLibraryItem Value { get; }
         public string Title => "Lượt chụp " + Value.CreatedAtLocal.ToString("dd/MM/yyyy HH:mm");
-        public string CaptureIdText => "Capture ID: " + Value.CaptureId;
+        public string CaptureIdText => "Mã ảnh: " + Value.CaptureId;
         public string EventText => Value.EventName;
-        public string SessionText => "Session: " + Value.SessionDisplayCode + "  ·  " + Value.SessionId.ToString();
+        public string SessionText => "Mã lượt chụp: " + Value.SessionDisplayCode;
         public string MediaText => Value.PictureCount + " ảnh  ·  " + Value.VideoCount + " video  ·  " + Value.GifCount + " GIF";
+        public string SyncStatusText => SyncStatus(Value.Status);
+        public string SyncStatusHint => HasQrAction?"Khách có thể quét lại mã QR để nhận ảnh.":HasFailed?"Tải ảnh chưa hoàn tất. Có thể khôi phục mà không ảnh hưởng ảnh gốc.":HasPending?"Ứng dụng đang tự tải ảnh ở chế độ nền.":"Ảnh hiện chỉ được lưu trên máy này.";
+        public string StatusBackground => HasQrAction?"#1E4032":HasFailed?"#47262D":HasPending?"#44351F":"#232A37";
+        public string StatusForeground => HasQrAction?"#8FE0B4":HasFailed?"#FFB7BF":HasPending?"#FFD08A":"#C3CAD5";
+        public string SyncDetailText => Value.FailedSyncCount>0?Value.FailedSyncCount+" tác vụ thất bại":Value.PendingSyncCount>0?Value.PendingSyncCount+" tác vụ đang chờ":!string.IsNullOrWhiteSpace(Value.GalleryUrl)?"Đã có liên kết web":"";
+        public string SyncErrorText => Value.LastSyncError;
+        public bool HasQrAction => !string.IsNullOrWhiteSpace(Value.GalleryUrl);
+        public bool HasFailed => Value.FailedSyncCount>0||string.Equals(Value.Status,"Failed",StringComparison.Ordinal);
+        public bool HasPending => Value.PendingSyncCount>0||string.Equals(Value.Status,"QueuedForUpload",StringComparison.Ordinal)||string.Equals(Value.Status,"Uploading",StringComparison.Ordinal)||string.Equals(Value.Status,"Uploaded",StringComparison.Ordinal)||string.Equals(Value.Status,"RetryWaiting",StringComparison.Ordinal);
+        public bool HasRetryAction => HasFailed||string.Equals(Value.Status,"RetryWaiting",StringComparison.Ordinal);
+        public ICommand OpenCommand { get; }
+        public ICommand ShowQrCommand { get; }
+        public ICommand RetryCommand { get; }
+        static string SyncStatus(string value)
+        {
+            switch(value){case "QueuedForUpload":return "Đang chờ tải ảnh";case "Uploading":return "Đang tải ảnh";case "Uploaded":return "Đang tạo liên kết nhận ảnh";case "GalleryReady":return "Sẵn sàng nhận ảnh";case "RetryWaiting":return "Đang chờ kết nối ổn định";case "Failed":return "Cần tải lại";case "Ready":return "Chỉ lưu trên máy";default:return "Chưa chia sẻ";}
+        }
         public byte[] ThumbnailBytes { get => thumbnailBytes; set => Set(ref thumbnailBytes, value); }
         public bool IsMediaMissing { get => mediaMissing; set => Set(ref mediaMissing, value); }
     }

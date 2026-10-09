@@ -20,7 +20,23 @@ namespace PhotoBooth.Infrastructure.Services
         readonly IColorLutAssetRepository assets;readonly IPresetColorRepository colors;readonly IColorLutParser parser;readonly IColorLutPathResolver paths;readonly ILogger<ColorLutService> log;
         public ColorLutService(IColorLutAssetRepository assets,IPresetColorRepository colors,IColorLutParser parser,IColorLutPathResolver paths,ILogger<ColorLutService> log){this.assets=assets;this.colors=colors;this.parser=parser;this.paths=paths;this.log=log;}
         public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token)=>assets.GetAllAsync(token);
-        public Task<ColorLutData> GetLiveAsync(Guid presetId,CancellationToken token)=>Task.FromResult<ColorLutData>(null);
+        public async Task<ColorLutData> GetLiveAsync(Guid presetId, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            var setting = await colors.GetAsync(presetId, token).ConfigureAwait(false);
+            if (setting == null) return null;
+            var asset = await assets.GetAsync(setting.LutAssetId, token).ConfigureAwait(false);
+            if (asset == null || asset.Status != ColorLutAssetStatus.Ready || asset.CubeSize < 2 || asset.CubeSize > 65) return null;
+            var path = paths.GetFullPath(asset.RelativePath);
+            return await Task.Run(() =>
+            {
+                token.ThrowIfCancellationRequested();
+                if (!File.Exists(path) || !string.Equals(Hash(path, token), asset.ContentHashSha256, StringComparison.OrdinalIgnoreCase)) return null;
+                var data = parser.Parse(path, token);
+                if (data.Metadata.CubeSize <= 65) return data;
+                data.Dispose(); return null;
+            }, token).ConfigureAwait(false);
+        }
 
         public async Task ApplyCaptureAsync(Guid presetId,string imagePath,CancellationToken token)
         {
@@ -38,15 +54,30 @@ namespace PhotoBooth.Infrastructure.Services
 
         public async Task ApplyToFileAsync(Guid presetId,string sourcePath,string destinationPath,float strength,CancellationToken token)
         {
+            var setting=await colors.GetAsync(presetId,token).ConfigureAwait(false);
+            if(setting==null)throw new InvalidOperationException("Preset does not have a LUT.");
+            await ApplyAssetToFileAsync(setting.LutAssetId,sourcePath,destinationPath,strength,token).ConfigureAwait(false);
+        }
+
+        public async Task ApplyAssetToFileAsync(Guid assetId,string sourcePath,string destinationPath,float strength,CancellationToken token)
+        {
             if(string.IsNullOrWhiteSpace(sourcePath)||!File.Exists(sourcePath))throw new FileNotFoundException("Preset source image was not found.",sourcePath);
             if(string.IsNullOrWhiteSpace(destinationPath))throw new ArgumentException("Preset destination image path is required.",nameof(destinationPath));
             if(!IsRasterImage(sourcePath)||!IsRasterImage(destinationPath))throw new InvalidDataException("Presets can only be applied to still raster images.");
             if(string.Equals(Path.GetFullPath(sourcePath),Path.GetFullPath(destinationPath),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Preset output must be a new image file.");
-            var setting=await colors.GetAsync(presetId,token).ConfigureAwait(false);
-            if(setting==null)throw new InvalidOperationException("Preset does not have a LUT.");
-            var asset=await assets.GetAsync(setting.LutAssetId,token).ConfigureAwait(false);
+            var asset=await assets.GetAsync(assetId,token).ConfigureAwait(false);
             if(asset==null||asset.Status!=ColorLutAssetStatus.Ready)throw new InvalidOperationException("LUT asset is not ready.");
-            using(var data=await Task.Run(()=>parser.Parse(paths.GetFullPath(asset.RelativePath),token),token).ConfigureAwait(false))
+            await ApplySnapshotToFileAsync(paths.GetFullPath(asset.RelativePath),sourcePath,destinationPath,strength,token).ConfigureAwait(false);
+        }
+
+        public async Task ApplySnapshotToFileAsync(string lutFilePath,string sourcePath,string destinationPath,float strength,CancellationToken token)
+        {
+            if(string.IsNullOrWhiteSpace(sourcePath)||!File.Exists(sourcePath))throw new FileNotFoundException("Preset source image was not found.",sourcePath);
+            if(string.IsNullOrWhiteSpace(destinationPath))throw new ArgumentException("Preset destination image path is required.",nameof(destinationPath));
+            if(string.IsNullOrWhiteSpace(lutFilePath)||!File.Exists(lutFilePath))throw new FileNotFoundException("LUT snapshot was not found.",lutFilePath);
+            if(!IsRasterImage(sourcePath)||!IsRasterImage(destinationPath))throw new InvalidDataException("Presets can only be applied to still raster images.");
+            if(string.Equals(Path.GetFullPath(sourcePath),Path.GetFullPath(destinationPath),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Preset output must be a new image file.");
+            using(var data=await Task.Run(()=>parser.Parse(lutFilePath,token),token).ConfigureAwait(false))
             {
                 data.Strength=Math.Max(0,Math.Min(1,strength));
                 await Task.Run(()=>ApplyTetrahedralToFile(sourcePath,destinationPath,data,token),token).ConfigureAwait(false);
@@ -63,7 +94,15 @@ namespace PhotoBooth.Infrastructure.Services
             var asset=await assets.GetAsync(assetId,CancellationToken.None).ConfigureAwait(false);
             if(asset==null||asset.Status!=ColorLutAssetStatus.Ready)throw new InvalidOperationException("LUT asset is not ready.");
             if(token.IsCancellationRequested)return null;
-            using(var data=await Task.Run(()=>parser.Parse(paths.GetFullPath(asset.RelativePath),CancellationToken.None)).ConfigureAwait(false))
+            return await RenderSnapshotPreviewAsync(paths.GetFullPath(asset.RelativePath),imagePath,strength,token).ConfigureAwait(false);
+        }
+
+        public async Task<byte[]> RenderSnapshotPreviewAsync(string lutFilePath,string imagePath,float strength,CancellationToken token)
+        {
+            if(string.IsNullOrWhiteSpace(imagePath)||!File.Exists(imagePath))throw new FileNotFoundException("Preset preview image was not found.",imagePath);
+            if(string.IsNullOrWhiteSpace(lutFilePath)||!File.Exists(lutFilePath))throw new FileNotFoundException("LUT snapshot was not found.",lutFilePath);
+            if(token.IsCancellationRequested)return null;
+            using(var data=await Task.Run(()=>parser.Parse(lutFilePath,CancellationToken.None)).ConfigureAwait(false))
             using(var source=Image.FromFile(imagePath))
             {
                 if(token.IsCancellationRequested)return null;

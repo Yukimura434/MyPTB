@@ -4,7 +4,11 @@
     <ProjectReference Include="..\PhotoBooth.Core\PhotoBooth.Core.csproj" />
     <PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.11.0.20250507" />
+    <!-- 1.20.1 includes the win-x86 DirectML runtime required by the camera host. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.20.1" />
     <Content Include="Models\frontface.xml" Link="Assets\Beauty\frontface.xml" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Models\LFBmodel.yaml" Link="Assets\Beauty\lbfmodel.yaml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\face_detection_yunet_2023mar.onnx" Link="Assets\Beauty\face_detection_yunet_2023mar.onnx" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Models\LICENSE-YuNet.txt" Link="Assets\Beauty\LICENSE-YuNet.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

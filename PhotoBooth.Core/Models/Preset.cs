@@ -14,6 +14,7 @@ namespace PhotoBooth.Core.Models
         public DateTime ModifiedAtUtc { get; set; }
         public bool IsDefault { get; set; }
         public bool IsPinned { get; set; }
+        public int StrengthPercent { get; set; } = 50;
         public Guid? EventId { get; set; }
         public Guid LutAssetId { get; set; }
         public string LutDisplayName { get; set; }

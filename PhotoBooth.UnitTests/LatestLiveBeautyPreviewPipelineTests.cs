@@ -13,6 +13,35 @@ namespace PhotoBooth.UnitTests
     public sealed class LatestLiveBeautyPreviewPipelineTests
     {
         [Fact]
+        public void Heavy_only_settings_bypass_live_processing()
+        {
+            var processor = new ControlledProcessor();
+            var pipeline = new LatestLiveBeautyPreviewPipeline(processor);
+            pipeline.UpdateSettings(new BeautySettings { Enabled = true, EyeSize = 50, SlimFace = 50, BlemishRemoval = 100 });
+            LiveBeautyPreviewFrameEventArgs output = null;
+            pipeline.FrameReady += (s, e) => output = e;
+            var frame = Frame(7); pipeline.Submit(frame, CancellationToken.None);
+            Assert.Same(frame, output.Frame); Assert.Null(output.Pixels); Assert.False(output.BeautyApplied); Assert.Equal(0, processor.Calls);
+        }
+
+        [Fact]
+        public void Missing_processed_pixels_do_not_claim_beauty()
+        {
+            var pipeline = new LatestLiveBeautyPreviewPipeline(new EmptyProcessor());
+            pipeline.UpdateSettings(new BeautySettings { Enabled = true, SmoothSkin = 50 });
+            LiveBeautyPreviewFrameEventArgs output = null;
+            pipeline.FrameReady += (s, e) => output = e;
+            var frame = Frame(9); pipeline.Submit(frame, CancellationToken.None);
+            Assert.Same(frame, output.Frame); Assert.Null(output.Pixels); Assert.False(output.BeautyApplied);
+        }
+
+        sealed class EmptyProcessor : ILiveBeautyPreviewService
+        {
+            public Task<LiveBeautyPixels> ProcessAsync(byte[] jpegData, BeautySettings settings, CancellationToken token) => Task.FromResult<LiveBeautyPixels>(null);
+            public void Reset() { }
+        }
+
+        [Fact]
         public async Task Disabled_beauty_publishes_raw_frame_immediately()
         {
             var processor = new ControlledProcessor();
@@ -40,8 +69,8 @@ namespace PhotoBooth.UnitTests
             var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             pipeline.FrameReady += (s, e) =>
             {
-                lock (outputs) outputs.Add(e.Frame.ImageData[0]);
-                if (e.Frame.ImageData[0] == 103) completed.TrySetResult(true);
+                lock (outputs) outputs.Add((e.Pixels?.Pixels ?? e.Frame.ImageData)[0]);
+                if ((e.Pixels?.Pixels ?? e.Frame.ImageData)[0] == 103) completed.TrySetResult(true);
             };
             pipeline.UpdateSettings(new BeautySettings { Enabled = true, SmoothSkin = 20 });
 
@@ -62,7 +91,7 @@ namespace PhotoBooth.UnitTests
             var processor = new ControlledProcessor();
             var pipeline = new LatestLiveBeautyPreviewPipeline(processor);
             var outputs = new List<byte>();
-            pipeline.FrameReady += (s, e) => { lock (outputs) outputs.Add(e.Frame.ImageData[0]); };
+            pipeline.FrameReady += (s, e) => { lock (outputs) outputs.Add((e.Pixels?.Pixels ?? e.Frame.ImageData)[0]); };
             pipeline.UpdateSettings(new BeautySettings { Enabled = true, SmoothSkin = 20 });
             pipeline.Submit(Frame(1), CancellationToken.None);
             await processor.FirstCallStarted.Task;
@@ -87,7 +116,7 @@ namespace PhotoBooth.UnitTests
             public TaskCompletionSource<bool> FirstCallStarted { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             public TaskCompletionSource<bool> ReleaseFirst { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            public async Task<byte[]> ProcessAsync(byte[] jpegData, BeautySettings settings, CancellationToken token)
+            public async Task<LiveBeautyPixels> ProcessAsync(byte[] jpegData, BeautySettings settings, CancellationToken token)
             {
                 var call = Interlocked.Increment(ref calls);
                 if (call == 1)
@@ -96,7 +125,7 @@ namespace PhotoBooth.UnitTests
                     await ReleaseFirst.Task;
                 }
                 token.ThrowIfCancellationRequested();
-                return new[] { (byte)(jpegData[0] + 100) };
+                return new LiveBeautyPixels(new[] { (byte)(jpegData[0] + 100), (byte)0, (byte)0 }, 1, 1, true);
             }
 
             public void Reset() { }

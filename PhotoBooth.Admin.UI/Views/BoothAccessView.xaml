@@ -1,0 +1,170 @@
+<UserControl x:Class="PhotoBooth.Admin.UI.Views.BoothAccessView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BackgroundBrush}">
+    <UserControl.Resources>
+        <Style x:Key="BoothComboBox" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="BorderBrush" Value="#667085"/>
+        </Style>
+        <Style x:Key="ModeChoice" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="ModeBorder" Background="{StaticResource SurfaceBrush}"
+                                BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="15" MinHeight="92">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ModeBorder" Property="Background" Value="{StaticResource AccentSubtleBrush}"/>
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="ModeBorder" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="{StaticResource AccentHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+    <Grid Margin="28,24,28,28">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,20">
+            <TextBlock Text="Tạo phiên chụp" Style="{StaticResource PageTitle}"/>
+            <TextBlock Text="{Binding PageDescription}"
+                       Style="{StaticResource PageSubtitle}"/>
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid x:Name="ContentGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="FormColumn" Width="5*"/>
+                <ColumnDefinition x:Name="GapColumn" Width="18"/>
+                <ColumnDefinition x:Name="CodeColumn" Width="4*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition x:Name="FormRow" Height="Auto"/>
+                <RowDefinition x:Name="StackGapRow" Height="0"/>
+                <RowDefinition x:Name="CodeRow" Height="0"/>
+            </Grid.RowDefinitions>
+            <Border x:Name="FormCard" Style="{StaticResource Card}" Margin="0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="Chọn chế độ" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="PhotoBooth và SelfBooth là hai loại mã độc lập. Chọn đúng chế độ trước khi thiết lập phiên chụp."
+                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,-5,0,13"/>
+                        <Grid Margin="0,0,0,20">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="14"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <RadioButton GroupName="CodeType" IsChecked="{Binding IsPhotoBooth,Mode=TwoWay}" Style="{StaticResource ModeChoice}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Border Width="34" Height="34" CornerRadius="8" Background="#294878" VerticalAlignment="Top">
+                                        <Path Data="{DynamicResource Icon.Camera}" Style="{StaticResource VectorIcon}" Width="18" Height="18" Stroke="#D9E5FF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="PhotoBooth" FontSize="16" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Mã dùng một lần cho một lượt chụp; giữ đầy đủ ảnh, GIF và video theo cấu hình."
+                                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,5,0,0" LineHeight="18"/>
+                                    </StackPanel>
+                                </Grid>
+                            </RadioButton>
+                            <RadioButton Grid.Column="2" GroupName="CodeType" IsChecked="{Binding IsSelfBooth,Mode=TwoWay}" Style="{StaticResource ModeChoice}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Border Width="34" Height="34" CornerRadius="8" Background="#294878" VerticalAlignment="Top">
+                                        <Path Data="{DynamicResource Icon.User}" Style="{StaticResource VectorIcon}" Width="18" Height="18" Stroke="#D9E5FF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="SelfBooth" FontSize="16" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Mã dùng nhiều lần đến khi hết hạn; ảnh tĩnh được gom vào một album chung."
+                                                   Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,5,0,0" LineHeight="18"/>
+                                    </StackPanel>
+                                </Grid>
+                            </RadioButton>
+                        </Grid>
+                        <TextBlock Text="Thông số phiên chụp" Style="{StaticResource SectionTitle}"/>
+                        <TextBlock Text="Các giá trị được đóng băng khi khách đổi mã và không đổi giữa phiên." Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,16"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="16"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Số ảnh mỗi lượt" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding PhotoCounts}" SelectedItem="{Binding PhotoCount}" Style="{StaticResource BoothComboBox}"/>
+                                <TextBlock Text="Đếm ngược (giây)" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding CountdownOptions}" SelectedItem="{Binding CountdownSeconds}" Style="{StaticResource BoothComboBox}"/>
+                                <TextBlock Text="Thời hạn mã" Style="{StaticResource FieldLabel}"
+                                           Visibility="{Binding IsSelfBooth,Converter={StaticResource BoolVisibility}}"/>
+                                <ComboBox ItemsSource="{Binding DurationOptions}" SelectedItem="{Binding Duration}" Style="{StaticResource BoothComboBox}"
+                                          Visibility="{Binding IsSelfBooth,Converter={StaticResource BoolVisibility}}"/>
+                                <TextBlock Text="Thời lượng mỗi ảnh GIF" Style="{StaticResource FieldLabel}"
+                                           Visibility="{Binding IsPhotoBooth,Converter={StaticResource BoolVisibility}}"/>
+                                <ComboBox ItemsSource="{Binding GifDurationOptions}" SelectedItem="{Binding GifDuration}" Style="{StaticResource BoothComboBox}"
+                                          Visibility="{Binding IsPhotoBooth,Converter={StaticResource BoolVisibility}}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Thời gian hiển thị kết quả / QR (giây)" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding ResultDurations}" SelectedItem="{Binding ResultSeconds}" Style="{StaticResource BoothComboBox}"/>
+                                <TextBlock Text="Số bản in" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding PrintCopyOptions}" SelectedItem="{Binding PrintCopies}" Style="{StaticResource BoothComboBox}"/>
+                                <Border Background="{StaticResource AccentSubtleBrush}" BorderBrush="#43659B" BorderThickness="1" CornerRadius="8" Padding="12" Margin="4,18,4,4">
+                                    <TextBlock Text="0 bản in sẽ bỏ qua bước in. Cấu hình máy in được quản lý tại tab Máy in." Foreground="#D9E5FF" TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                        <Border Background="#1E4032" BorderBrush="#347052" BorderThickness="1" CornerRadius="8" Padding="12" Margin="4,16,4,0"
+                                Visibility="{Binding IsPhotoBooth,Converter={StaticResource BoolVisibility}}">
+                            <TextBlock Text="PhotoBooth: mã dùng một lần; GIF và video vẫn được giữ theo cấu hình của ứng dụng."
+                                       Foreground="#C6F6DE" TextWrapping="Wrap"/>
+                        </Border>
+                        <Border Background="{StaticResource AccentSubtleBrush}" BorderBrush="#43659B" BorderThickness="1" CornerRadius="8" Padding="12" Margin="4,16,4,0"
+                                Visibility="{Binding IsSelfBooth,Converter={StaticResource BoolVisibility}}">
+                            <TextBlock Text="SelfBooth: mã dùng nhiều lần; không tạo GIF hoặc video và dùng chung một album ảnh tĩnh."
+                                       Foreground="#D9E5FF" TextWrapping="Wrap"/>
+                        </Border>
+                        <Button Command="{Binding CreateCommand}" Margin="4,16,4,4" MinHeight="48"
+                                Background="#2F579F" BorderBrush="#5B8DEF">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Data="{DynamicResource Icon.Session}" Style="{StaticResource ButtonVectorIcon}" Width="17" Height="17" Margin="0,0,9,0"/>
+                                <TextBlock Text="{Binding CreateButtonText}" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+            <Border x:Name="CodeCard" Grid.Column="2" Style="{StaticResource Card}" Margin="0" Background="#151922" MinHeight="360">
+                <Grid Margin="12">
+                    <StackPanel VerticalAlignment="Center">
+                        <Border Background="{StaticResource AccentSubtleBrush}" BorderBrush="#43659B" BorderThickness="1" CornerRadius="11" Padding="10,4" HorizontalAlignment="Center" Margin="0,0,0,4">
+                            <TextBlock Text="{Binding CodeHeading}" Foreground="#D9E5FF" FontWeight="SemiBold"/>
+                        </Border>
+                        <Border Background="#0D1016" BorderBrush="{StaticResource AccentBrush}" BorderThickness="2" CornerRadius="14" Padding="22" Margin="0,18,0,14">
+                            <TextBlock Text="{Binding Code,TargetNullValue=—— —— —— ——}" FontSize="42" FontWeight="Bold"
+                                       FontFamily="Consolas" HorizontalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="{Binding ExpiresAt,StringFormat=Hết hạn lúc {0:dd/MM/yyyy HH:mm}}" FontSize="16" HorizontalAlignment="Center"
+                                   Visibility="{Binding HasCode,Converter={StaticResource BoolVisibility}}"/>
+                        <StackPanel Visibility="{Binding HasAlbumQr,Converter={StaticResource BoolVisibility}}" Margin="0,18,0,0">
+                            <TextBlock Text="QR ALBUM DÙNG CHUNG" Foreground="{StaticResource MutedTextBrush}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                            <Border Background="White" CornerRadius="10" Padding="10" Margin="0,10,0,0" HorizontalAlignment="Center">
+                                <Image Source="{Binding AlbumQr,Converter={StaticResource ByteImage}}" Width="210" Height="210"/>
+                            </Border>
+                            <TextBlock Text="Ảnh mới sẽ tiếp tục xuất hiện trong album này đến khi mã hết hiệu lực."
+                                       Foreground="#D9E5FF" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0"/>
+                        </StackPanel>
+                        <Border Background="{StaticResource WarningSubtleBrush}" BorderBrush="#76582B" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,18,0,0"
+                                Visibility="{Binding HasMessage,Converter={StaticResource BoolVisibility}}">
+                            <TextBlock Text="{Binding Message}" Foreground="#FFE0A6" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

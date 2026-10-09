@@ -1,5 +1,7 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -16,6 +18,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
         private readonly ISettingsService _settings;
 
         private string _backgroundPath;
+        Settings configured = new Settings();
+        IReadOnlyList<InterfaceAsset> availableAssets = new InterfaceAsset[0];
+        double viewportWidth = 1600, viewportHeight = 900;
 
         public WaitingViewModel(
             IInterfaceAssetService assetService,
@@ -33,7 +38,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public event EventHandler EnterRequested;
 
-        public byte[] LiveImage => _capture.LiveImage;
+        public object LiveImage => _capture.LiveImage;
+        public PhotoBooth.Color.D3D11.LivePreviewLut LivePreset => _capture.LivePreset;
         public int LiveFrameWidth => _capture.LiveFrameWidth;
         public int LiveFrameHeight => _capture.LiveFrameHeight;
         public bool ShowLiveView { get; private set; } = true;
@@ -43,8 +49,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public double LiveViewRotation { get; private set; }
         public double LiveViewAreaPercent { get; private set; } = LiveViewLayoutGeometry.MinimumAreaPercent;
         public bool IsPortraitMode { get; private set; }
-        public double CanvasWidth => IsPortraitMode ? 900d : 1600d;
-        public double CanvasHeight => IsPortraitMode ? 1600d : 900d;
+        public double CanvasWidth => viewportWidth;
+        public double CanvasHeight => viewportHeight;
         public double BackgroundZoom { get; private set; } = 100;
         public double BackgroundPanX { get; private set; }
         public double BackgroundPanY { get; private set; }
@@ -68,23 +74,36 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public async Task ActivateAsync()
         {
-            var selectedAsset =
-                await _assets.GetSelectedAsync(CancellationToken.None);
+            availableAssets = await _assets.GetAllAsync(CancellationToken.None);
+            configured = await _settings.GetAsync(CancellationToken.None) ?? new Settings();
+            ApplyProfile();
+        }
 
-            BackgroundPath = selectedAsset?.FilePath;
-            var configured = await _settings.GetAsync(CancellationToken.None);
-            ShowLiveView = configured.ShowWaitingLiveView;
-            IsPortraitMode = configured.CustomerLayoutMode == PhotoBooth.Core.Models.CustomerLayoutMode.Portrait;
-            LiveViewPositionX = Clamp(configured.WaitingLiveViewX, 0, 100);
-            LiveViewPositionY = Clamp(configured.WaitingLiveViewY, 0, 100);
+        // Size changes are presentation-only: never activate, reconnect or restart capture.
+        public void UpdateViewport(double width, double height)
+        {
+            if (width <= 0 || height <= 0 || double.IsNaN(width) || double.IsNaN(height) || double.IsInfinity(width) || double.IsInfinity(height)) return;
+            if (Math.Abs(viewportWidth - width) < .1 && Math.Abs(viewportHeight - height) < .1) return;
+            viewportWidth = width; viewportHeight = height;
+            IsPortraitMode = height > width;
+            ApplyProfile();
+        }
+
+        void ApplyProfile()
+        {
+            var profile = configured.GetWaitingScreen(IsPortraitMode, availableAssets.FirstOrDefault(x => x.IsSelected)?.Id);
+            BackgroundPath = availableAssets.FirstOrDefault(x => x.Id == profile.BackgroundAssetId)?.FilePath;
+            ShowLiveView = profile.ShowLiveView;
+            LiveViewPositionX = Clamp(profile.LiveViewX, 0, 100);
+            LiveViewPositionY = Clamp(profile.LiveViewY, 0, 100);
             LiveViewScaleX = configured.AutoFlip ? -1d : 1d;
             LiveViewRotation = configured.ImageRotationDegrees;
-            LiveViewAreaPercent = Clamp(configured.WaitingLiveViewAreaPercent, LiveViewLayoutGeometry.MinimumAreaPercent, LiveViewLayoutGeometry.MaximumAreaPercent);
+            LiveViewAreaPercent = Clamp(profile.LiveViewAreaPercent, LiveViewLayoutGeometry.MinimumAreaPercent, LiveViewLayoutGeometry.MaximumAreaPercent);
             LiveViewCanvasX = LiveViewLayout.Left;
             LiveViewCanvasY = LiveViewLayout.Top;
-            BackgroundZoom = Clamp(configured.WaitingBackgroundZoom, 100, 300);
-            BackgroundPanX = Clamp(configured.WaitingBackgroundPanX, -100, 100);
-            BackgroundPanY = Clamp(configured.WaitingBackgroundPanY, -100, 100);
+            BackgroundZoom = Clamp(profile.BackgroundZoom, 100, 300);
+            BackgroundPanX = Clamp(profile.BackgroundPanX, -100, 100);
+            BackgroundPanY = Clamp(profile.BackgroundPanY, -100, 100);
             Raise(nameof(ShowLiveView));
             Raise(nameof(IsPortraitMode));
             Raise(nameof(CanvasWidth));
@@ -105,6 +124,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             Raise(nameof(BackgroundCanvasY));
 
             Raise(nameof(LiveImage));
+            Raise(nameof(LivePreset));
         }
 
         private void OnEnter()
@@ -119,6 +139,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             object sender,
             PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(CaptureViewModel.LivePreset)) Raise(nameof(LivePreset));
             if (e.PropertyName == nameof(CaptureViewModel.LiveImage))
             {
                 Raise(nameof(LiveImage));

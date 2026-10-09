@@ -1,118 +1,29 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using PhotoBooth.Customer.UI.ViewModels;
-
 namespace PhotoBooth.Customer.UI.Views
 {
     public partial class FrameSelectionView : UserControl
     {
-        bool? appliedPortrait;
-        public FrameSelectionView()
+        int layoutMode = -1;
+        public FrameSelectionView() { InitializeComponent(); PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape && Confirmation.Visibility == Visibility.Visible) { Confirmation.Visibility = Visibility.Collapsed; FinishButton.Focus(); e.Handled = true; } }; Loaded += (s, e) => Layout(); SizeChanged += (s, e) => Layout(); foreach (var list in new[] { FrameList, PresetList, CapturedPhotoList }) list.PreviewMouseWheel += ScrollHorizontally; }
+        void Layout()
         {
-            InitializeComponent();
-            Loaded += (s, e) => ApplyOrientation();
-            SizeChanged += (s, e) => ApplyOrientation();
-            FrameList.PreviewMouseWheel += ScrollHorizontally;
-            PresetList.PreviewMouseWheel += ScrollHorizontally;
-            CapturedPhotoScroll.PreviewMouseWheel += ScrollHorizontally;
+            if (ActualWidth <= 0 || ActualHeight <= 0) return; bool portrait = ActualHeight > ActualWidth, small = portrait && ActualWidth <= 650, shortWide = !portrait && ActualHeight <= 850;
+            PaperPreview.MaxWidth = portrait ? 570 : double.PositiveInfinity;
+            HeaderRow.Height = new GridLength(portrait ? (small ? 72 : 86) : 80); FooterRow.Height = new GridLength(portrait ? (small ? 86 : 100) : 92); WorkspaceGrid.Margin = new Thickness(portrait ? (small ? 20 : 28) : (shortWide ? 28 : 34), portrait ? (small ? 18 : 26) : (shortWide ? 20 : 24), portrait ? (small ? 20 : 28) : (shortWide ? 28 : 34), portrait ? (small ? 18 : 26) : (shortWide ? 20 : 24)); ToolColumn.Width = new GridLength(portrait ? 0 : shortWide ? 326 : 350); ToolGap.Width = new GridLength(portrait ? 0 : shortWide ? 22 : 28); ToolRow.Height = new GridLength(portrait ? (small ? 260 : 284) : 0); ToolRowGap.Height = new GridLength(portrait ? (small ? 16 : 22) : 0); Grid.SetRow(Tools, portrait ? 2 : 0); Grid.SetColumn(Tools, portrait ? 0 : 2); PreviewTitle.FontSize = portrait && !small ? 34 : 28; PreviewTitle.LineHeight = PreviewTitle.FontSize * 1.12; TabsRow.Height = new GridLength(small ? 57 : portrait ? 65 : 67); ToolContent.Margin = new Thickness(small ? 13 : 20, portrait ? (small ? 13 : 15) : 20, small ? 13 : 20, portrait ? (small ? 13 : 15) : 20); FrameList.Tag = portrait ? 85 : shortWide ? 120 : 140; FrameNote.Visibility = Visibility.Collapsed; BackButton.Padding = small ? new Thickness(10) : new Thickness(19, 12, 19, 12); FooterTitle.FontSize = small ? 14 : 17; TabsBorder.Padding = new Thickness(8, 8, 8, small ? 0 : 8); foreach (RadioButton tab in TabButtons.Children) { tab.MinHeight = 0; tab.FontSize = portrait ? 17 : 15; tab.Padding = new Thickness(6, small ? 8 : 13, 6, small ? 8 : 13); }
+            FrameList.Margin = new Thickness(0, 0, portrait ? 0 : -12, portrait ? (small ? -20 : -12) : 0); PreviewCaption.Height = small ? 18 : 22; FooterHint.Visibility = Visibility.Visible; FooterHint.FontSize = small ? 12 : 14; PreviewSubtitle.FontSize = small ? 12 : 13; PreviewHeading.Margin = new Thickness(0, 0, 0, small ? 10 : 14); ToolTitle.FontSize = small ? 16 : 18; ToolTitle.Margin = new Thickness(0, 0, 0, portrait ? 12 : 17); FinishButton.MinWidth = small ? 185 : portrait ? 240 : 220; FinishButton.Height = small ? 56 : portrait ? 62 : 52; Footer.Margin = new Thickness(small ? 20 : portrait ? 28 : 34, small ? 12 : 16, small ? 20 : portrait ? 28 : 34, small ? 12 : 16);
+            int mode = portrait ? (small ? 2 : 1) : 0; if (layoutMode == mode) return; layoutMode = mode; foreach (var list in new[] { FrameList, PresetList, CapturedPhotoList }) { var style = new Style(typeof(ListBoxItem), (Style)FindResource("UxItem")); style.Setters.Add(new Setter(FrameworkElement.HeightProperty, portrait ? (small ? 149d : 132d) : 192d)); style.Setters.Add(new Setter(FrameworkElement.WidthProperty, portrait ? (small ? 120d : 145d) : 136d)); style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, portrait ? 14 : 12, 12))); list.ItemContainerStyle = style; var factory = new FrameworkElementFactory(portrait ? typeof(StackPanel) : typeof(WrapPanel)); factory.SetValue(portrait ? StackPanel.OrientationProperty : WrapPanel.OrientationProperty, Orientation.Horizontal); list.ItemsPanel = new ItemsPanelTemplate(factory); ScrollViewer.SetHorizontalScrollBarVisibility(list, portrait ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Disabled); ScrollViewer.SetVerticalScrollBarVisibility(list, portrait ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Hidden); ScrollViewer.SetPanningMode(list, portrait ? PanningMode.HorizontalOnly : PanningMode.VerticalOnly); }
         }
-
-        void ApplyOrientation()
-        {
-            var shell = Window.GetWindow(this)?.DataContext as CustomerShellViewModel;
-            var portrait = shell != null && shell.IsPortraitMode;
-            if (appliedPortrait == portrait) return;
-            appliedPortrait = portrait;
-            if (portrait)
-            {
-                PageHeader.Margin = new Thickness(0, 0, 0, 18);
-                HeaderStatus.HorizontalAlignment = HorizontalAlignment.Center;
-                HeaderStatus.Margin = new Thickness(0, 50, 0, 0);
-                WorkspaceTopRow.Height = new GridLength(350);
-                WorkspaceBottomRow.Height = new GridLength(1, GridUnitType.Star);
-                WorkspacePhotoRow.Height = new GridLength(250);
-                WorkspaceGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
-                WorkspaceGrid.ColumnDefinitions[1].Width = new GridLength(0);
-                WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(0);
-                WorkspaceGrid.ColumnDefinitions[3].Width = new GridLength(0);
-                WorkspaceGrid.ColumnDefinitions[4].Width = new GridLength(0);
-                Grid.SetRow(FramesPanel, 0); Grid.SetColumn(FramesPanel, 0); Grid.SetColumnSpan(FramesPanel, 5);
-                Grid.SetRow(PreviewPanel, 1); Grid.SetColumn(PreviewPanel, 0); Grid.SetColumnSpan(PreviewPanel, 5);
-                Grid.SetRow(PhotosPanel, 2); Grid.SetColumn(PhotosPanel, 0); Grid.SetColumnSpan(PhotosPanel, 5);
-                FramesPanel.Margin = new Thickness(0, 0, 0, 14);
-                PreviewPanel.Margin = new Thickness(0, 0, 0, 14);
-                SetItemsOrientation(FrameList, Orientation.Horizontal);
-                SetItemsOrientation(PresetList, Orientation.Horizontal);
-                SetItemsOrientation(CapturedPhotoList, Orientation.Horizontal);
-                SetHorizontalScrolling(FrameList, true);
-                SetHorizontalScrolling(PresetList, true);
-                CapturedPhotoScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-                CapturedPhotoScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
-                CapturedPhotoScroll.PanningMode = PanningMode.HorizontalOnly;
-            }
-            else
-            {
-                PageHeader.Margin = new Thickness(0, 0, 0, 14);
-                HeaderStatus.HorizontalAlignment = HorizontalAlignment.Right;
-                HeaderStatus.Margin = new Thickness(0);
-                WorkspaceTopRow.Height = new GridLength(1, GridUnitType.Star);
-                WorkspaceBottomRow.Height = new GridLength(0);
-                WorkspacePhotoRow.Height = new GridLength(0);
-                WorkspaceGrid.ColumnDefinitions[0].Width = new GridLength(280);
-                WorkspaceGrid.ColumnDefinitions[1].Width = new GridLength(18);
-                WorkspaceGrid.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
-                WorkspaceGrid.ColumnDefinitions[3].Width = new GridLength(18);
-                WorkspaceGrid.ColumnDefinitions[4].Width = new GridLength(260);
-                Grid.SetRow(FramesPanel, 0); Grid.SetColumn(FramesPanel, 0); Grid.SetColumnSpan(FramesPanel, 1);
-                Grid.SetRow(PreviewPanel, 0); Grid.SetColumn(PreviewPanel, 2); Grid.SetColumnSpan(PreviewPanel, 1);
-                Grid.SetRow(PhotosPanel, 0); Grid.SetColumn(PhotosPanel, 4); Grid.SetColumnSpan(PhotosPanel, 1);
-                FramesPanel.Margin = new Thickness(0);
-                PreviewPanel.Margin = new Thickness(0);
-                SetItemsOrientation(FrameList, Orientation.Vertical);
-                SetItemsOrientation(PresetList, Orientation.Vertical);
-                SetItemsOrientation(CapturedPhotoList, Orientation.Vertical);
-                SetHorizontalScrolling(FrameList, false);
-                SetHorizontalScrolling(PresetList, false);
-                CapturedPhotoScroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-                CapturedPhotoScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-                CapturedPhotoScroll.PanningMode = PanningMode.VerticalOnly;
-            }
-        }
-
-        static void SetItemsOrientation(ItemsControl control, Orientation orientation)
-        {
-            var factory = new FrameworkElementFactory(typeof(StackPanel));
-            factory.SetValue(StackPanel.OrientationProperty, orientation);
-            control.ItemsPanel = new ItemsPanelTemplate(factory);
-        }
-
-        static void SetHorizontalScrolling(DependencyObject control, bool horizontal)
-        {
-            ScrollViewer.SetHorizontalScrollBarVisibility(control, horizontal ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled);
-            ScrollViewer.SetVerticalScrollBarVisibility(control, horizontal ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
-            ScrollViewer.SetPanningMode(control, horizontal ? PanningMode.HorizontalOnly : PanningMode.VerticalOnly);
-        }
-
-        static void ScrollHorizontally(object sender, MouseWheelEventArgs e)
-        {
-            var viewer = FindVisualChild<ScrollViewer>((DependencyObject)sender);
-            if (viewer == null || viewer.ScrollableWidth <= 0) return;
-            viewer.ScrollToHorizontalOffset(viewer.HorizontalOffset - e.Delta);
-            e.Handled = true;
-        }
-
-        static T FindVisualChild<T>(DependencyObject root) where T : DependencyObject
-        {
-            if (root == null) return null;
-            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            {
-                var child = VisualTreeHelper.GetChild(root, i);
-                var match = child as T ?? FindVisualChild<T>(child);
-                if (match != null) return match;
-            }
-            return null;
-        }
+        void Tool_Checked(object s, RoutedEventArgs e) { if (FramesPanel == null) return; string key = ((RadioButton)s).Tag as string; Tag = key; FramesPanel.Visibility = key == "frames" ? Visibility.Visible : Visibility.Collapsed; ColorsPanel.Visibility = key == "colors" ? Visibility.Visible : Visibility.Collapsed; PhotosPanel.Visibility = key == "photos" ? Visibility.Visible : Visibility.Collapsed; if (DataContext is FrameSelectionViewModel vm) { if (key == "colors") vm.ShowPresetsCommand.Execute(null); else if (key == "frames") vm.ShowFramesCommand.Execute(null); } }
+        void Photo_Changed(object s, SelectionChangedEventArgs e) { if (DataContext is FrameSelectionViewModel vm && CapturedPhotoList.SelectedItem != null) vm.SelectPhotoCommand.Execute(CapturedPhotoList.SelectedItem); }
+        void Continue_Click(object s, RoutedEventArgs e) { if (DataContext is FrameSelectionViewModel vm && vm.CanFinish && !vm.IsPrinting) { Confirmation.Visibility = Visibility.Visible; ContinueEditing.Focus(); } }
+        void Edit_Click(object s, RoutedEventArgs e) => Confirmation.Visibility = Visibility.Collapsed;
+        void Finish_Click(object s, RoutedEventArgs e) { Confirmation.Visibility = Visibility.Collapsed; if (DataContext is FrameSelectionViewModel vm && vm.PrintCommand.CanExecute(null)) vm.PrintCommand.Execute(null); }
+        static void ScrollHorizontally(object s, MouseWheelEventArgs e) { var viewer = Find<ScrollViewer>((DependencyObject)s); if (viewer == null || viewer.ScrollableWidth <= 0) return; viewer.ScrollToHorizontalOffset(viewer.HorizontalOffset - e.Delta); e.Handled = true; }
+        static T Find<T>(DependencyObject root) where T : DependencyObject { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T result) return result; var nested = Find<T>(child); if (nested != null) return nested; } return null; }
     }
 }

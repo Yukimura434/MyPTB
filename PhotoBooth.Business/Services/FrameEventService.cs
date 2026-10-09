@@ -19,24 +19,24 @@ namespace PhotoBooth.Business.Services
         {
             name = Normalize(name);
             var all = await events.GetAllAsync(token);
-            if (all.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("Sự kiện đã tồn tại.");
+            if (all.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("Bộ sưu tập đã tồn tại.");
             var value = new FrameEvent { Id = Guid.NewGuid(), Name = name, CreatedAtUtc = DateTime.UtcNow };
             await events.SaveAsync(value, token); return value;
         }
         public async Task RenameAsync(Guid id, string name, CancellationToken token)
         {
             name = Normalize(name); var all = await events.GetAllAsync(token); var value = all.FirstOrDefault(x => x.Id == id);
-            if (value == null) throw new InvalidOperationException("Không tìm thấy sự kiện.");
-            if (all.Any(x => x.Id != id && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("Sự kiện đã tồn tại.");
+            if (value == null) throw new InvalidOperationException("Không tìm thấy bộ sưu tập.");
+            if (all.Any(x => x.Id != id && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("Bộ sưu tập đã tồn tại.");
             value.Name = name; await events.SaveAsync(value, token);
         }
         public Task DeleteAsync(Guid id, CancellationToken token) => events.DeleteAsync(id, token);
         public async Task AssignFrameAsync(Guid frameId, Guid? eventId, CancellationToken token)
         {
-            if (eventId.HasValue && !(await events.GetAllAsync(token)).Any(x => x.Id == eventId.Value)) throw new InvalidOperationException("Không tìm thấy sự kiện.");
+            if (eventId.HasValue && !(await events.GetAllAsync(token)).Any(x => x.Id == eventId.Value)) throw new InvalidOperationException("Không tìm thấy bộ sưu tập.");
             var frame = await frames.GetAsync(frameId, token); if (frame == null) throw new InvalidOperationException("Không tìm thấy frame.");
             frame.EventId = eventId; await frames.SaveAsync(frame, token);
         }
-        static string Normalize(string name) { name = (name ?? string.Empty).Trim(); if (name.Length == 0) throw new InvalidOperationException("Tên sự kiện không được để trống."); if (name.Length > 80) throw new InvalidOperationException("Tên sự kiện không được vượt quá 80 ký tự."); return name; }
+        static string Normalize(string name) { name = (name ?? string.Empty).Trim(); if (name.Length == 0) throw new InvalidOperationException("Tên bộ sưu tập không được để trống."); if (name.Length > 80) throw new InvalidOperationException("Tên bộ sưu tập không được vượt quá 80 ký tự."); return name; }
     }
 }

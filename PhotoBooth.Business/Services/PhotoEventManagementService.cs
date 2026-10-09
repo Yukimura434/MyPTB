@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -64,23 +65,42 @@ namespace PhotoBooth.Business.Services
                 CustomerLayoutMode = workflow.CustomerLayoutMode,
                 ImageRotationDegrees = workflow.ImageRotationDegrees,
                 Beauty = beautySettings.Clone(),
-                FrameIds = availableFrames.Where(x => x.IsPinned).Take(10).Select(x => x.Id).ToList(),
+                FrameIds = availableFrames.Where(x => x.IsPinned).Select(x => x.Id).ToList(),
                 PresetIds = selectedPresets,
                 RowVersion = 0
             };
         }
 
-        public async Task<PhotoEventConfiguration> SaveAsync(string eventName, PhotoEventConfiguration configuration, CancellationToken token)
+        public async Task<PhotoEventConfiguration> GetActiveConfigurationAsync(Guid eventId, CancellationToken token)
+        {
+            var active = await configurations.GetActiveAsync(eventId, token).ConfigureAwait(false);
+            if (active != null) return active;
+            var selected = await events.GetDefaultAsync(token).ConfigureAwait(false);
+            return selected?.Id == eventId ? await GetConfigurationAsync(eventId, token).ConfigureAwait(false) : null;
+        }
+
+        public Task<PhotoEventConfiguration> SaveAsync(string eventName, PhotoEventConfiguration configuration, CancellationToken token)
+            => SaveAsync(eventName, null, configuration, token);
+
+        public async Task<PhotoEventConfiguration> SaveAsync(string eventName, string outputDirectory, PhotoEventConfiguration configuration, CancellationToken token)
         {
             if (configuration == null) throw new ArgumentNullException(nameof(configuration));
             configuration = Normalize(configuration);
-            var saved = await configurations.SaveAsync(NormalizeName(eventName), configuration, token).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                outputDirectory = Path.GetFullPath(outputDirectory.Trim());
+                Directory.CreateDirectory(outputDirectory);
+            }
+            var saved = await configurations.SaveAsync(NormalizeName(eventName), outputDirectory, configuration, token).ConfigureAwait(false);
             EventsChanged?.Invoke(this, EventArgs.Empty);
             return saved;
         }
 
         public async Task ActivateAsync(Guid eventId, CancellationToken token)
         {
+            var selectedEvent=(await events.GetAllAsync(token).ConfigureAwait(false)).FirstOrDefault(x=>x.Id==eventId);
+            if(selectedEvent==null)throw new InvalidOperationException("Không tìm thấy sự kiện.");
+            if(!selectedEvent.AcceptsNewBoothSessions)throw new InvalidOperationException("Chỉ sự kiện đang mở mới có thể được chọn để vận hành.");
             var configuration = await configurations.GetAsync(eventId, token).ConfigureAwait(false);
             if (configuration == null) throw new InvalidOperationException("Hãy lưu cấu hình event trước khi sử dụng.");
             await configurations.ActivateAsync(eventId, token).ConfigureAwait(false);
@@ -90,8 +110,27 @@ namespace PhotoBooth.Business.Services
             EventsChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        public async Task<PhotoEvent> TransitionAsync(Guid eventId,string lifecycleState,CancellationToken token)
+        {
+            var selectedEvent=(await events.GetAllAsync(token).ConfigureAwait(false)).FirstOrDefault(x=>x.Id==eventId);
+            if(selectedEvent==null)throw new InvalidOperationException("Không tìm thấy sự kiện.");
+            if(selectedEvent.IsSystemDefault&&lifecycleState!=PhotoEventLifecycleStates.Open)
+                throw new InvalidOperationException("Sự kiện mặc định luôn mở để booth có thể vận hành ngay.");
+            if(lifecycleState==PhotoEventLifecycleStates.Open)
+            {
+                var configuration=await configurations.GetAsync(eventId,token).ConfigureAwait(false);
+                if(configuration==null||(configuration.FrameIds??new Guid[0]).Count==0)throw new InvalidOperationException("Hãy lưu cấu hình và chọn ít nhất một khung ảnh trước khi mở sự kiện.");
+            }
+            var value=await events.TransitionAsync(eventId,lifecycleState,token).ConfigureAwait(false);
+            EventsChanged?.Invoke(this,EventArgs.Empty);
+            return value;
+        }
+
         public async Task DeleteAsync(Guid eventId, CancellationToken token)
         {
+            var selectedEvent=(await events.GetAllAsync(token).ConfigureAwait(false)).FirstOrDefault(x=>x.Id==eventId);
+            if(selectedEvent==null)throw new InvalidOperationException("Không tìm thấy sự kiện.");
+            if(selectedEvent.IsSystemDefault)throw new InvalidOperationException("Sự kiện mặc định luôn được giữ lại và không thể xóa.");
             await configurations.DeleteAsync(eventId, token).ConfigureAwait(false);
             EventsChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -101,11 +140,10 @@ namespace PhotoBooth.Business.Services
             var ids = (value.FrameIds ?? new Guid[0]).Where(x => x != Guid.Empty).Distinct().ToList();
             var presetIds = (value.PresetIds ?? new Guid[0]).Where(x => x != Guid.Empty).Distinct().ToList();
             if (ids.Count == 0) throw new InvalidOperationException("Event phải có ít nhất một frame.");
-            if (ids.Count > 10) throw new InvalidOperationException("Mỗi event chỉ được chọn tối đa 10 frame.");
             value.PhotoCount = Math.Max(1, Math.Min(8, value.PhotoCount));
             value.CountdownSeconds = Math.Max(1, Math.Min(10, value.CountdownSeconds));
             value.GifFrameDurationMilliseconds = Math.Max(400, Math.Min(1000, value.GifFrameDurationMilliseconds));
-            if (!new[] { 30, 60, 120, 300, 600, 900 }.Contains(value.WaitingTimeoutSeconds)) value.WaitingTimeoutSeconds = 30;
+            if (!new[] { 30, 60, 120, 300, 600, 900 }.Contains(value.WaitingTimeoutSeconds)) value.WaitingTimeoutSeconds = 60;
             if (!new[] { 0, 90, 180, -90 }.Contains(value.ImageRotationDegrees)) value.ImageRotationDegrees = 0;
             value.Beauty = value.Beauty?.Clone() ?? new BeautySettings();
             value.Beauty.SmoothSkin = Clamp(value.Beauty.SmoothSkin);

@@ -9,15 +9,25 @@ namespace PhotoBooth.Customer.UI
     public partial class MainWindow : Window
     {
         bool fullScreen;
-        bool returnInProgress;
+        bool managerRequestInProgress;
+        int staffClickCount;
+        DateTime lastStaffClickUtc;
         WindowState stateBeforeFullScreen = WindowState.Normal;
-        public bool ReturnedToAdmin { get; private set; }
-        public Func<bool> RequestAdminAccess { get; set; }
+        public Func<Task> RequestManagerAccessAsync { get; set; }
 
         public MainWindow()
         {
             InitializeComponent();
+            SizeChanged += (s, e) => UpdateViewport();
+            DataContextChanged += (s, e) => UpdateViewport();
+            Loaded += (s, e) => UpdateViewport();
+            Activated += async (s, e) => { if (DataContext is ViewModels.CustomerShellViewModel shell) await shell.ValidateForegroundAsync(); };
             StateChanged += (s, e) => RestoreButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
+        }
+
+        void UpdateViewport()
+        {
+            (DataContext as ViewModels.CustomerShellViewModel)?.UpdateViewport(ActualWidth, ActualHeight);
         }
 
         void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -30,44 +40,36 @@ namespace PhotoBooth.Customer.UI
 
         void Close_Click(object sender, RoutedEventArgs e) => Close();
 
-        async void Admin_Click(object sender, RoutedEventArgs e)
+        public async Task RegisterStaffPressAsync()
         {
-            if (!TryAuthorizeAdmin()) return;
-            var button = sender as System.Windows.Controls.Button;
-            if (button != null) button.IsEnabled = false;
-            await ReturnToAdminAsync();
-        }
-
-        void Window_Closing(object sender, CancelEventArgs e)
-        {
-            // When Customer was opened from Admin, every path back to the hidden
-            // Admin window (including Alt+F4 and the title-bar close button) returns to Admin.
-            if (Owner == null || ReturnedToAdmin) return;
-            e.Cancel = true;
-            if (returnInProgress) return;
-            if (!TryAuthorizeAdmin()) return;
-            _ = ReturnToAdminAsync();
-        }
-
-        async Task ReturnToAdminAsync()
-        {
-            if (returnInProgress) return;
-            returnInProgress = true;
-            try
+            if (managerRequestInProgress || !(DataContext is ViewModels.CustomerShellViewModel shell) ||
+                !(shell.CurrentPage is ViewModels.BoothLoginViewModel login) || login.IsBusy)
             {
-                var shell = DataContext as ViewModels.CustomerShellViewModel;
-                if (shell != null) await shell.PrepareReturnToAdminAsync();
+                staffClickCount = 0;
+                return;
             }
-            catch (OperationCanceledException) { }
-            finally
-            {
-                ReturnedToAdmin = true;
-                returnInProgress = false;
-                Close();
-            }
+            var now = DateTime.UtcNow;
+            if ((now - lastStaffClickUtc).TotalSeconds > 2) staffClickCount = 0;
+            lastStaffClickUtc = now;
+            if (++staffClickCount < 5) return;
+            staffClickCount = 0;
+            await RequestManagerAsync();
         }
 
-        bool TryAuthorizeAdmin() => RequestAdminAccess == null || RequestAdminAccess();
+        async Task RequestManagerAsync()
+        {
+            if (managerRequestInProgress || RequestManagerAccessAsync == null) return;
+            managerRequestInProgress = true;
+            try { await RequestManagerAccessAsync(); }
+            finally { managerRequestInProgress = false; staffClickCount = 0; }
+        }
+
+        async void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.F5) { staffClickCount = 0; return; }
+            e.Handled = true;
+            if (!e.IsRepeat) await RequestManagerAsync();
+        }
 
         void Chrome_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -87,8 +89,27 @@ namespace PhotoBooth.Customer.UI
             }
         }
 
-        void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e) => (DataContext as ViewModels.CustomerShellViewModel)?.RegisterInteraction();
-        void Window_PreviewTouchDown(object sender, TouchEventArgs e) => (DataContext as ViewModels.CustomerShellViewModel)?.RegisterInteraction();
+        void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (!IsStaffInput(e.OriginalSource)) staffClickCount = 0;
+            (DataContext as ViewModels.CustomerShellViewModel)?.RegisterInteraction();
+        }
+        bool IsStaffInput(object source)
+        {
+            var node = source as DependencyObject;
+            while (node != null)
+            {
+                if (node is FrameworkElement element && Equals(element.Tag, "CustomerStaffEntrance")) return true;
+                node = node is System.Windows.Media.Visual ? System.Windows.Media.VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node);
+            }
+            return false;
+        }
+
+        void Window_PreviewTouchDown(object sender, TouchEventArgs e)
+        {
+            if (!IsStaffInput(e.OriginalSource)) staffClickCount = 0;
+            (DataContext as ViewModels.CustomerShellViewModel)?.RegisterInteraction();
+        }
 
         void ToggleFullScreen()
         {
@@ -96,14 +117,12 @@ namespace PhotoBooth.Customer.UI
             {
                 stateBeforeFullScreen = WindowState;
                 Chrome.Visibility = Visibility.Collapsed;
-                ChromeRow.Height = new GridLength(0);
                 WindowState = WindowState.Maximized;
                 fullScreen = true;
             }
             else
             {
-                Chrome.Visibility = Visibility.Visible;
-                ChromeRow.Height = new GridLength(42);
+                Chrome.ClearValue(VisibilityProperty);
                 WindowState = stateBeforeFullScreen;
                 fullScreen = false;
             }

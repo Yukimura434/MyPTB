@@ -1,0 +1,22 @@
+<UserControl x:Class="PhotoBooth.Admin.UI.Views.AnalyticsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}">
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="24,22,24,24">
+  <TextBlock Text="Phân tích &amp; báo cáo" Style="{StaticResource PageTitle}"/>
+  <TextBlock Text="Theo dõi lượt chụp và tình trạng chia sẻ ảnh trên máy này." Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,6,0,20"/>
+  <DockPanel Margin="0,0,0,18"><Button Content="Làm mới" Command="{Binding RefreshCommand}" DockPanel.Dock="Right" Margin="12,0,0,0"/><ComboBox ItemsSource="{Binding PeriodOptions}" SelectedItem="{Binding SelectedPeriod}" MaxWidth="260" HorizontalAlignment="Left"/></DockPanel>
+  <TextBlock Text="Đang tải báo cáo…" Foreground="#C3CEE0" Margin="0,0,0,12" Visibility="{Binding IsLoading,Converter={StaticResource BoolVisibility}}"/>
+  <Border Background="#49252D" BorderBrush="#C9818D" BorderThickness="1" Padding="14" CornerRadius="8" Margin="0,0,0,12" Visibility="{Binding HasError,Converter={StaticResource BoolVisibility}}"><TextBlock Text="{Binding Error}" Foreground="#FFE8EB" TextWrapping="Wrap"/></Border>
+  <UniformGrid Columns="2">
+   <Border Style="{StaticResource Card}" Margin="0,0,8,12"><StackPanel><TextBlock Text="Lượt chụp" Foreground="#C3CEE0"/><TextBlock Text="{Binding CaptureCountText}" FontSize="30" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel></Border>
+   <Border Style="{StaticResource Card}" Margin="8,0,0,12"><StackPanel><TextBlock Text="Ảnh đã chụp" Foreground="#C3CEE0"/><TextBlock Text="{Binding PictureCountText}" FontSize="30" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel></Border>
+   <Border Style="{StaticResource Card}" Margin="0,0,8,12"><StackPanel><TextBlock Text="Lượt đã sẵn sàng chia sẻ" Foreground="#C3CEE0"/><TextBlock Text="{Binding ReadyCountText}" FontSize="30" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel></Border>
+   <Border Style="{StaticResource Card}" Margin="8,0,0,12"><StackPanel><TextBlock Text="Lượt có ảnh chờ tải lên" Foreground="#C3CEE0"/><TextBlock Text="{Binding PendingCountText}" FontSize="30" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel></Border>
+  </UniformGrid>
+  <Border Style="{StaticResource Card}" Margin="0,4,0,16"><StackPanel>
+   <TextBlock Text="Lượt chụp theo ngày" Style="{StaticResource SectionTitle}"/>
+   <TextBlock Text="Tối đa 14 ngày gần nhất" Foreground="#C3CEE0" Margin="0,4,0,12"/>
+   <ItemsControl ItemsSource="{Binding DailyPoints}"><ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><StackPanel ToolTip="{Binding ToolTip}" Margin="3,0"><Grid Height="170"><Border Background="#669CFA" Height="{Binding CaptureHeight}" VerticalAlignment="Bottom" CornerRadius="4,4,0,0"/></Grid><TextBlock Text="{Binding Label}" FontSize="11" Foreground="#C3CEE0" HorizontalAlignment="Center" Margin="0,8,0,0"/></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+  </StackPanel></Border>
+  <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Tình trạng tải ảnh" Style="{StaticResource SectionTitle}"/><TextBlock Foreground="#E9C78F" Margin="0,12,0,0"><Run Text="Lượt có lỗi cần thử lại: "/><Run Text="{Binding FailedCountText,Mode=OneWay}"/></TextBlock><TextBlock Text="Mở Ảnh &amp; mã QR để kiểm tra và thử lại các lượt chưa chia sẻ được." Foreground="#C3CEE0" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel></Border>
+  <TextBlock Text="{Binding DataScopeText}" Foreground="#C3CEE0" TextWrapping="Wrap" Margin="0,16,0,0"/>
+ </StackPanel></ScrollViewer>
+</UserControl>

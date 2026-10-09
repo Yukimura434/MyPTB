@@ -33,7 +33,7 @@ namespace PhotoBooth.Database
             var result=new List<Session>();
             using(var connection=database.OpenConnection())using(var command=connection.CreateCommand())
             {
-                command.CommandText="SELECT Id,PresetId,Name,OutputDirectory,IsDefault,SessionNumber,CreatedAtUtc,UpdatedAtUtc,RemoteEventId FROM Events ORDER BY CASE WHEN IsDefault=1 THEN 0 ELSE 1 END,CreatedAtUtc DESC";
+                command.CommandText=EventSelect+" ORDER BY CASE WHEN r.SelectedEventId=e.Id THEN 0 ELSE 1 END,e.CreatedAtUtc DESC";
                 using(var reader=command.ExecuteReader())while(reader.Read()){token.ThrowIfCancellationRequested();result.Add(ReadEvent(reader));}
             }
             return Task.FromResult<IReadOnlyList<Session>>(result);
@@ -57,8 +57,26 @@ namespace PhotoBooth.Database
             token.ThrowIfCancellationRequested();
             using(var connection=database.OpenConnection())using(var transaction=connection.BeginTransaction())
             {
-                using(var clear=connection.CreateCommand()){clear.Transaction=transaction;clear.CommandText="UPDATE Events SET IsDefault=0 WHERE IsDefault=1";clear.ExecuteNonQuery();}
-                using(var set=connection.CreateCommand()){set.Transaction=transaction;set.CommandText="UPDATE Events SET IsDefault=1,RowVersion=RowVersion+1,UpdatedAtUtc=$now WHERE Id=$id";set.Parameters.AddWithValue("$id",id.ToString());set.Parameters.AddWithValue("$now",Utc(DateTime.UtcNow));if(set.ExecuteNonQuery()!=1)throw new InvalidOperationException("Event not found.");}
+                string configurationId;
+                using(var read=connection.CreateCommand())
+                {
+                    read.Transaction=transaction;
+                    read.CommandText=@"SELECT c.Id FROM Events e
+INNER JOIN ConfigurationVersions c ON c.EventId=e.Id AND c.State='Active'
+WHERE e.Id=$id AND e.LifecycleState='Open'
+ORDER BY c.VersionNumber DESC LIMIT 1";
+                    read.Parameters.AddWithValue("$id",id.ToString());
+                    configurationId=read.ExecuteScalar() as string;
+                }
+                if(string.IsNullOrWhiteSpace(configurationId))throw new InvalidOperationException("Sự kiện phải đang mở và có cấu hình sẵn sàng trước khi sử dụng.");
+                using(var set=connection.CreateCommand())
+                {
+                    set.Transaction=transaction;
+                    set.CommandText=@"INSERT INTO DeviceRuntimeState(Id,SelectedEventId,SelectedConfigurationVersionId,SelectedAtUtc,UpdatedAtUtc)
+VALUES(1,$event,$configuration,$now,$now)
+ON CONFLICT(Id) DO UPDATE SET SelectedEventId=excluded.SelectedEventId,SelectedConfigurationVersionId=excluded.SelectedConfigurationVersionId,SelectedAtUtc=excluded.SelectedAtUtc,UpdatedAtUtc=excluded.UpdatedAtUtc";
+                    set.Parameters.AddWithValue("$event",id.ToString());set.Parameters.AddWithValue("$configuration",configurationId);set.Parameters.AddWithValue("$now",Utc(DateTime.UtcNow));set.ExecuteNonQuery();
+                }
                 transaction.Commit();
             }
             return Task.CompletedTask;
@@ -105,7 +123,7 @@ namespace PhotoBooth.Database
                 {
                     token.ThrowIfCancellationRequested();
                     using(var previous=connection.CreateCommand()){previous.Transaction=transaction;previous.CommandText="UPDATE CaptureAttempts SET IsSelected=0 WHERE Id=$id AND BoothSessionId=$session AND IsSelected=1";previous.Parameters.AddWithValue("$id",pair.Key);previous.Parameters.AddWithValue("$session",sessionId.ToString());if(previous.ExecuteNonQuery()!=1)throw new InvalidOperationException("Selected captured shot not found.");}
-                    SelectAttempt(connection,transaction,sessionId,pair.Value);
+                    SelectReplacementAttempt(connection,transaction,sessionId,pair.Value);
                 }
                 transaction.Commit();
             }
@@ -131,12 +149,17 @@ namespace PhotoBooth.Database
             var now=value.UpdatedAtUtc==DateTime.MinValue?DateTime.UtcNow:value.UpdatedAtUtc;
             using(var command=connection.CreateCommand())
             {
-                command.Transaction=transaction;command.CommandText=@"INSERT INTO Events(Id,PresetId,Name,OutputDirectory,Status,IsDefault,SessionNumber,CreatedAtUtc,UpdatedAtUtc,RowVersion)
-VALUES($id,$preset,$name,$path,'Active',$default,$number,$created,$updated,1)
-ON CONFLICT(Id) DO UPDATE SET PresetId=excluded.PresetId,Name=excluded.Name,OutputDirectory=excluded.OutputDirectory,IsDefault=excluded.IsDefault,SessionNumber=excluded.SessionNumber,UpdatedAtUtc=excluded.UpdatedAtUtc,RowVersion=Events.RowVersion+1";
-                command.Parameters.AddWithValue("$id",value.Id.ToString());command.Parameters.AddWithValue("$preset",Db(value.PresetId));command.Parameters.AddWithValue("$name",value.SessionName??"Sự kiện");command.Parameters.AddWithValue("$path",value.OutputDirectory??string.Empty);command.Parameters.AddWithValue("$default",value.IsDefault?1:0);command.Parameters.AddWithValue("$number",value.SessionNumber);command.Parameters.AddWithValue("$created",Utc(value.StartedAtUtc));command.Parameters.AddWithValue("$updated",Utc(now));command.ExecuteNonQuery();
+                command.Transaction=transaction;command.CommandText=@"INSERT INTO Events(Id,PresetId,Name,OutputDirectory,Status,IsDefault,SessionNumber,CreatedAtUtc,UpdatedAtUtc,RowVersion,LifecycleState,ScheduledStartAtUtc,ScheduledEndAtUtc,OpenedAtUtc,ClosedAtUtc,DeliveredAtUtc,ArchivedAtUtc)
+VALUES($id,$preset,$name,$path,$compatibilityStatus,0,$number,$created,$updated,1,$lifecycle,$scheduledStart,$scheduledEnd,$opened,$closed,$delivered,$archived)
+ON CONFLICT(Id) DO UPDATE SET PresetId=excluded.PresetId,Name=excluded.Name,OutputDirectory=excluded.OutputDirectory,Status=excluded.Status,SessionNumber=excluded.SessionNumber,UpdatedAtUtc=excluded.UpdatedAtUtc,LifecycleState=excluded.LifecycleState,ScheduledStartAtUtc=excluded.ScheduledStartAtUtc,ScheduledEndAtUtc=excluded.ScheduledEndAtUtc,OpenedAtUtc=excluded.OpenedAtUtc,ClosedAtUtc=excluded.ClosedAtUtc,DeliveredAtUtc=excluded.DeliveredAtUtc,ArchivedAtUtc=excluded.ArchivedAtUtc,RowVersion=Events.RowVersion+1";
+                var lifecycle=PhotoEventLifecycleStates.IsKnown(value.EventLifecycleState)?value.EventLifecycleState:PhotoEventLifecycleStates.Draft;
+                command.Parameters.AddWithValue("$id",value.Id.ToString());command.Parameters.AddWithValue("$preset",Db(value.PresetId));command.Parameters.AddWithValue("$name",value.SessionName??"Sự kiện");command.Parameters.AddWithValue("$path",value.OutputDirectory??string.Empty);command.Parameters.AddWithValue("$compatibilityStatus",lifecycle==PhotoEventLifecycleStates.Archived?"Archived":"Active");command.Parameters.AddWithValue("$lifecycle",lifecycle);command.Parameters.AddWithValue("$scheduledStart",Db(value.EventScheduledStartAtUtc));command.Parameters.AddWithValue("$scheduledEnd",Db(value.EventScheduledEndAtUtc));command.Parameters.AddWithValue("$opened",Db(value.EventOpenedAtUtc));command.Parameters.AddWithValue("$closed",Db(value.EventClosedAtUtc));command.Parameters.AddWithValue("$delivered",Db(value.EventDeliveredAtUtc));command.Parameters.AddWithValue("$archived",Db(value.EventArchivedAtUtc));command.Parameters.AddWithValue("$number",value.SessionNumber);command.Parameters.AddWithValue("$created",Utc(value.StartedAtUtc));command.Parameters.AddWithValue("$updated",Utc(now));command.ExecuteNonQuery();
             }
             EnsureBootstrapConfiguration(connection,transaction,value.Id,now);
+            if(value.EventLifecycleState!=PhotoEventLifecycleStates.Open)
+            {
+                using(var clear=connection.CreateCommand()){clear.Transaction=transaction;clear.CommandText="UPDATE DeviceRuntimeState SET SelectedEventId=NULL,SelectedConfigurationVersionId=NULL,SelectedAtUtc=NULL,UpdatedAtUtc=$now WHERE Id=1 AND SelectedEventId=$event";clear.Parameters.AddWithValue("$now",Utc(now));clear.Parameters.AddWithValue("$event",value.Id.ToString());clear.ExecuteNonQuery();}
+            }
         }
 
         void SaveBoothSession(SqliteConnection connection,SqliteTransaction transaction,Session value)
@@ -156,17 +179,18 @@ ON CONFLICT(Id) DO UPDATE SET PresetId=excluded.PresetId,Name=excluded.Name,Outp
             }
             using(var command=connection.CreateCommand())
             {
-                command.Transaction=transaction;command.CommandText=@"INSERT INTO BoothSessions(Id,EventId,ConfigurationVersionId,OriginDeviceId,PresetId,DisplayCode,BasePriceMinor,AdditionalPrintPriceMinor,Currency,State,StateVersion,CaptureIndex,FrameIndex,StartedAtUtc,UpdatedAtUtc,CompletedAtUtc,TerminalReason,StorageRootRelativePath,FinalImageAssetId)
-VALUES($id,$event,$configuration,$device,$preset,$display,$basePrice,$additionalPrintPrice,$currency,$state,$version,$captureIndex,$frameIndex,$started,$updated,$completed,$reason,$path,$final)
-ON CONFLICT(Id) DO UPDATE SET PresetId=excluded.PresetId,DisplayCode=excluded.DisplayCode,State=excluded.State,StateVersion=excluded.StateVersion,CaptureIndex=MAX(BoothSessions.CaptureIndex,excluded.CaptureIndex),FrameIndex=MAX(BoothSessions.FrameIndex,excluded.FrameIndex),UpdatedAtUtc=excluded.UpdatedAtUtc,CompletedAtUtc=excluded.CompletedAtUtc,TerminalReason=excluded.TerminalReason,FinalImageAssetId=excluded.FinalImageAssetId
+                command.Transaction=transaction;command.CommandText=@"INSERT INTO BoothSessions(Id,EventId,ConfigurationVersionId,OriginDeviceId,PresetId,DisplayCode,BasePriceMinor,AdditionalPrintPriceMinor,Currency,State,StateVersion,CaptureIndex,FrameIndex,StartedAtUtc,UpdatedAtUtc,CompletedAtUtc,TerminalReason,StorageRootRelativePath,FinalImageAssetId,RemoteEventId)
+VALUES($id,$event,$configuration,$device,$preset,$display,$basePrice,$additionalPrintPrice,$currency,$state,$version,$captureIndex,$frameIndex,$started,$updated,$completed,$reason,$path,$final,$remoteEvent)
+ON CONFLICT(Id) DO UPDATE SET PresetId=excluded.PresetId,DisplayCode=excluded.DisplayCode,State=excluded.State,StateVersion=excluded.StateVersion,CaptureIndex=MAX(BoothSessions.CaptureIndex,excluded.CaptureIndex),FrameIndex=MAX(BoothSessions.FrameIndex,excluded.FrameIndex),UpdatedAtUtc=excluded.UpdatedAtUtc,CompletedAtUtc=excluded.CompletedAtUtc,TerminalReason=excluded.TerminalReason,FinalImageAssetId=excluded.FinalImageAssetId,RemoteEventId=COALESCE(BoothSessions.RemoteEventId,excluded.RemoteEventId)
 WHERE excluded.StateVersion=BoothSessions.StateVersion+1 AND
 ((BoothSessions.State=excluded.State) OR
  (BoothSessions.State='Created' AND excluded.State IN ('Active','Abandoned','Failed')) OR
  (BoothSessions.State='Active' AND excluded.State IN ('Finalizing','Abandoned','Failed')) OR
  (BoothSessions.State='Finalizing' AND excluded.State IN ('Completed','Abandoned','Failed')))";
-                command.Parameters.AddWithValue("$id",value.Id.ToString());command.Parameters.AddWithValue("$event",value.EventId.Value.ToString());command.Parameters.AddWithValue("$configuration",configurationId);command.Parameters.AddWithValue("$device",deviceId);command.Parameters.AddWithValue("$preset",Db(value.PresetId));command.Parameters.AddWithValue("$display",Db(value.DisplayCode));command.Parameters.AddWithValue("$basePrice",Math.Max(0,value.BasePriceMinor));command.Parameters.AddWithValue("$additionalPrintPrice",Math.Max(0,value.AdditionalPrintPriceMinor));command.Parameters.AddWithValue("$currency",string.IsNullOrWhiteSpace(value.Currency)?"VND":value.Currency);command.Parameters.AddWithValue("$state",NormalizeState(value));command.Parameters.AddWithValue("$version",version);command.Parameters.AddWithValue("$captureIndex",value.CaptureIndex);command.Parameters.AddWithValue("$frameIndex",value.FrameIndex);command.Parameters.AddWithValue("$started",Utc(value.StartedAtUtc));command.Parameters.AddWithValue("$updated",Utc(value.UpdatedAtUtc==DateTime.MinValue?DateTime.UtcNow:value.UpdatedAtUtc));command.Parameters.AddWithValue("$completed",Db(value.CompletedAtUtc));command.Parameters.AddWithValue("$reason",Db(value.TerminalReason));command.Parameters.AddWithValue("$path",relative);command.Parameters.AddWithValue("$final",Db(value.FinalImageId));
+                command.Parameters.AddWithValue("$id",value.Id.ToString());command.Parameters.AddWithValue("$event",value.EventId.Value.ToString());command.Parameters.AddWithValue("$configuration",configurationId);command.Parameters.AddWithValue("$remoteEvent",Db(value.RemoteEventId));command.Parameters.AddWithValue("$device",deviceId);command.Parameters.AddWithValue("$preset",Db(value.PresetId));command.Parameters.AddWithValue("$display",Db(value.DisplayCode));command.Parameters.AddWithValue("$basePrice",Math.Max(0,value.BasePriceMinor));command.Parameters.AddWithValue("$additionalPrintPrice",Math.Max(0,value.AdditionalPrintPriceMinor));command.Parameters.AddWithValue("$currency",string.IsNullOrWhiteSpace(value.Currency)?"VND":value.Currency);command.Parameters.AddWithValue("$state",NormalizeState(value));command.Parameters.AddWithValue("$version",version);command.Parameters.AddWithValue("$captureIndex",value.CaptureIndex);command.Parameters.AddWithValue("$frameIndex",value.FrameIndex);command.Parameters.AddWithValue("$started",Utc(value.StartedAtUtc));command.Parameters.AddWithValue("$updated",Utc(value.UpdatedAtUtc==DateTime.MinValue?DateTime.UtcNow:value.UpdatedAtUtc));command.Parameters.AddWithValue("$completed",Db(value.CompletedAtUtc));command.Parameters.AddWithValue("$reason",Db(value.TerminalReason));command.Parameters.AddWithValue("$path",relative);command.Parameters.AddWithValue("$final",Db(value.FinalImageId));
                 if(command.ExecuteNonQuery()!=1)throw new InvalidOperationException("Booth session state changed concurrently or the requested state transition is invalid.");
                 value.StateVersion=version;
+                value.ConfigurationVersionId=configurationId;
             }
         }
 
@@ -182,7 +206,18 @@ WHERE excluded.StateVersion=BoothSessions.StateVersion+1 AND
         }
 
         static string GetDeviceId(SqliteConnection connection,SqliteTransaction transaction)
-        {using(var command=connection.CreateCommand()){command.Transaction=transaction;command.CommandText="SELECT DeviceId FROM DeviceIdentity WHERE Id=1";return command.ExecuteScalar() as string??"local-unenrolled";}}
+        {
+            using(var command=connection.CreateCommand())
+            {
+                command.Transaction=transaction;
+                command.CommandText=@"SELECT p.DeviceId
+FROM AppState a
+INNER JOIN DeviceProfiles p ON p.Id=a.ActiveProfileId
+WHERE a.Id=1 AND p.EnrollmentState='Enrolled'
+LIMIT 1";
+                return command.ExecuteScalar() as string??"local-unenrolled";
+            }
+        }
 
         static void EnsureBoothSession(SqliteConnection connection,SqliteTransaction transaction,Guid id)
         {using(var command=connection.CreateCommand()){command.Transaction=transaction;command.CommandText="SELECT COUNT(*) FROM BoothSessions WHERE Id=$id AND State IN ('Active','Finalizing')";command.Parameters.AddWithValue("$id",id.ToString());if(Convert.ToInt32(command.ExecuteScalar())!=1)throw new InvalidOperationException("Active booth session not found.");}}
@@ -194,15 +229,40 @@ WHERE excluded.StateVersion=BoothSessions.StateVersion+1 AND
             using(var select=connection.CreateCommand()){select.Transaction=transaction;select.CommandText="UPDATE CaptureAttempts SET IsSelected=1 WHERE Id=$id AND BoothSessionId=$session AND Sequence=$sequence";select.Parameters.AddWithValue("$id",shot.Id);select.Parameters.AddWithValue("$session",sessionId.ToString());select.Parameters.AddWithValue("$sequence",shot.Sequence);if(select.ExecuteNonQuery()!=1)throw new InvalidOperationException("Capture attempt was not recorded before selection.");}
         }
 
+        static void SelectReplacementAttempt(SqliteConnection connection,SqliteTransaction transaction,Guid sessionId,CapturedShot shot)
+        {
+            if(shot==null||string.IsNullOrWhiteSpace(shot.Id))throw new ArgumentException("Captured shot identity is required.");
+            int currentSequence;int currentAttempt;
+            using(var current=connection.CreateCommand())
+            {
+                current.Transaction=transaction;current.CommandText="SELECT Sequence,AttemptNumber FROM CaptureAttempts WHERE Id=$id AND BoothSessionId=$session";
+                current.Parameters.AddWithValue("$id",shot.Id);current.Parameters.AddWithValue("$session",sessionId.ToString());
+                using(var reader=current.ExecuteReader()){if(!reader.Read())throw new InvalidOperationException("Capture attempt was not recorded before replacement.");currentSequence=reader.GetInt32(0);currentAttempt=reader.GetInt32(1);}
+            }
+            using(var deselect=connection.CreateCommand()){deselect.Transaction=transaction;deselect.CommandText="UPDATE CaptureAttempts SET IsSelected=0 WHERE BoothSessionId=$session AND Sequence=$sequence AND IsSelected=1";deselect.Parameters.AddWithValue("$session",sessionId.ToString());deselect.Parameters.AddWithValue("$sequence",shot.Sequence);deselect.ExecuteNonQuery();}
+            var attemptNumber=currentAttempt;
+            if(currentSequence!=shot.Sequence)
+            {
+                using(var next=connection.CreateCommand()){next.Transaction=transaction;next.CommandText="SELECT COALESCE(MAX(AttemptNumber),0)+1 FROM CaptureAttempts WHERE BoothSessionId=$session AND Sequence=$sequence";next.Parameters.AddWithValue("$session",sessionId.ToString());next.Parameters.AddWithValue("$sequence",shot.Sequence);attemptNumber=Convert.ToInt32(next.ExecuteScalar());}
+            }
+            using(var select=connection.CreateCommand())
+            {
+                select.Transaction=transaction;select.CommandText="UPDATE CaptureAttempts SET Sequence=$sequence,AttemptNumber=$attempt,IsSelected=1 WHERE Id=$id AND BoothSessionId=$session";
+                select.Parameters.AddWithValue("$sequence",shot.Sequence);select.Parameters.AddWithValue("$attempt",attemptNumber);select.Parameters.AddWithValue("$id",shot.Id);select.Parameters.AddWithValue("$session",sessionId.ToString());
+                if(select.ExecuteNonQuery()!=1)throw new InvalidOperationException("Capture attempt could not be selected as the replacement.");
+            }
+        }
+
         Session ReadEvent(SqliteConnection connection,Guid id)
-        {using(var command=connection.CreateCommand()){command.CommandText="SELECT Id,PresetId,Name,OutputDirectory,IsDefault,SessionNumber,CreatedAtUtc,UpdatedAtUtc,RemoteEventId FROM Events WHERE Id=$id";command.Parameters.AddWithValue("$id",id.ToString());using(var reader=command.ExecuteReader())return reader.Read()?ReadEvent(reader):null;}}
-        static Session ReadEvent(SqliteDataReader reader)=>new Session{Id=Guid.Parse(reader.GetString(0)),PresetId=GuidValue(reader,1),SessionName=reader.GetString(2),OutputDirectory=reader.GetString(3),IsDefault=reader.GetInt32(4)!=0,SessionNumber=reader.GetInt32(5),StartedAtUtc=Parse(reader.GetString(6)),UpdatedAtUtc=Parse(reader.GetString(7)),RemoteEventId=Text(reader,8),Kind=SessionKinds.Event,Status=BoothSessionStates.Active,CapturedShots=new CapturedShot[0],CapturedFiles=new string[0],CapturedVideoFiles=new string[0],CapturedImageIds=new string[0]};
+        {using(var command=connection.CreateCommand()){command.CommandText=EventSelect+" WHERE e.Id=$id";command.Parameters.AddWithValue("$id",id.ToString());using(var reader=command.ExecuteReader())return reader.Read()?ReadEvent(reader):null;}}
+        static Session ReadEvent(SqliteDataReader reader)=>new Session{Id=Guid.Parse(reader.GetString(0)),PresetId=GuidValue(reader,1),SessionName=reader.GetString(2),OutputDirectory=reader.GetString(3),IsDefault=reader.GetInt32(4)!=0,SessionNumber=reader.GetInt32(5),StartedAtUtc=Parse(reader.GetString(6)),UpdatedAtUtc=Parse(reader.GetString(7)),RemoteEventId=Text(reader,8),EventLifecycleState=reader.GetString(9),EventScheduledStartAtUtc=DateValue(reader,10),EventScheduledEndAtUtc=DateValue(reader,11),EventOpenedAtUtc=DateValue(reader,12),EventClosedAtUtc=DateValue(reader,13),EventDeliveredAtUtc=DateValue(reader,14),EventArchivedAtUtc=DateValue(reader,15),Kind=SessionKinds.Event,Status=BoothSessionStates.Active,CapturedShots=new CapturedShot[0],CapturedFiles=new string[0],CapturedVideoFiles=new string[0],CapturedImageIds=new string[0]};
 
         Session ReadBoothSession(SqliteConnection connection,Guid id)
         {using(var command=connection.CreateCommand()){command.CommandText=BoothSelect+" WHERE b.Id=$id";command.Parameters.AddWithValue("$id",id.ToString());using(var reader=command.ExecuteReader())return reader.Read()?ReadBoothSession(reader):null;}}
         Session ReadBoothSession(SqliteDataReader reader)
-        {var relative=reader.GetString(16);return new BoothSession{Id=Guid.Parse(reader.GetString(0)),EventId=Guid.Parse(reader.GetString(1)),PresetId=GuidValue(reader,2),DisplayCode=Text(reader,3),BasePriceMinor=reader.GetInt64(4),AdditionalPrintPriceMinor=reader.GetInt64(5),Currency=reader.GetString(6),Status=reader.GetString(7),StateVersion=reader.GetInt64(8),CaptureIndex=reader.GetInt32(9),FrameIndex=reader.GetInt32(10),StartedAtUtc=Parse(reader.GetString(11)),UpdatedAtUtc=Parse(reader.GetString(12)),CompletedAtUtc=DateValue(reader,13),TerminalReason=Text(reader,14),FinalImageId=Text(reader,15),OutputDirectory=ToFullPath(relative),FinalImagePath=reader.IsDBNull(17)?null:ToFullPath(reader.GetString(17)),Kind=SessionKinds.Booth};}
-        const string BoothSelect="SELECT b.Id,b.EventId,b.PresetId,b.DisplayCode,b.BasePriceMinor,b.AdditionalPrintPriceMinor,b.Currency,b.State,b.StateVersion,b.CaptureIndex,b.FrameIndex,b.StartedAtUtc,b.UpdatedAtUtc,b.CompletedAtUtc,b.TerminalReason,b.FinalImageAssetId,b.StorageRootRelativePath,(SELECT RelativePath FROM MediaAssets WHERE Id=b.FinalImageAssetId AND State<>'Deleted') FROM BoothSessions b";
+        {var relative=reader.GetString(16);return new BoothSession{Id=Guid.Parse(reader.GetString(0)),EventId=Guid.Parse(reader.GetString(1)),PresetId=GuidValue(reader,2),DisplayCode=Text(reader,3),BasePriceMinor=reader.GetInt64(4),AdditionalPrintPriceMinor=reader.GetInt64(5),Currency=reader.GetString(6),Status=reader.GetString(7),StateVersion=reader.GetInt64(8),CaptureIndex=reader.GetInt32(9),FrameIndex=reader.GetInt32(10),StartedAtUtc=Parse(reader.GetString(11)),UpdatedAtUtc=Parse(reader.GetString(12)),CompletedAtUtc=DateValue(reader,13),TerminalReason=Text(reader,14),FinalImageId=Text(reader,15),OutputDirectory=ToFullPath(relative),FinalImagePath=reader.IsDBNull(17)?null:ToFullPath(reader.GetString(17)),ConfigurationVersionId=reader.GetString(18),RemoteEventId=Text(reader,19),Kind=SessionKinds.Booth};}
+        const string EventSelect="SELECT e.Id,e.PresetId,e.Name,e.OutputDirectory,CASE WHEN r.SelectedEventId=e.Id THEN 1 ELSE 0 END,e.SessionNumber,e.CreatedAtUtc,e.UpdatedAtUtc,e.RemoteEventId,e.LifecycleState,e.ScheduledStartAtUtc,e.ScheduledEndAtUtc,e.OpenedAtUtc,e.ClosedAtUtc,e.DeliveredAtUtc,e.ArchivedAtUtc FROM Events e LEFT JOIN DeviceRuntimeState r ON r.Id=1";
+        const string BoothSelect="SELECT b.Id,b.EventId,b.PresetId,b.DisplayCode,b.BasePriceMinor,b.AdditionalPrintPriceMinor,b.Currency,b.State,b.StateVersion,b.CaptureIndex,b.FrameIndex,b.StartedAtUtc,b.UpdatedAtUtc,b.CompletedAtUtc,b.TerminalReason,b.FinalImageAssetId,b.StorageRootRelativePath,(SELECT RelativePath FROM MediaAssets WHERE Id=b.FinalImageAssetId AND State<>'Deleted'),b.ConfigurationVersionId,b.RemoteEventId FROM BoothSessions b";
 
         void LoadShots(SqliteConnection connection,Session session)
         {

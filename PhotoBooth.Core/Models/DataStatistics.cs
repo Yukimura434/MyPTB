@@ -73,6 +73,11 @@ namespace PhotoBooth.Core.Models
     public sealed class CaptureLibrarySnapshot
     {
         public long CaptureCount { get; set; }
+        public long ReadyShareCount { get; set; }
+        public long PendingShareCount { get; set; }
+        public long FailedShareCount { get; set; }
+        public long LocalOnlyShareCount { get; set; }
+        public long RecoverableShareCount { get; set; }
         public long PrintedPhotoCount { get; set; }
         public long ExtraPrintCount { get; set; }
         public decimal RevenueAmount { get; set; }
@@ -95,8 +100,13 @@ namespace PhotoBooth.Core.Models
         public int GifCount { get; set; }
         public int PrintedPhotoCount { get; set; }
         public int ExtraPrintCount { get; set; }
+        public decimal RevenueAmount { get; set; }
         public string ThumbnailPath { get; set; }
         public string ThumbnailManagedRelativePath { get; set; }
+        public int PendingSyncCount { get; set; }
+        public int FailedSyncCount { get; set; }
+        public string LastSyncError { get; set; }
+        public string GalleryUrl { get; set; }
     }
 
     public sealed class CaptureLibraryMedia

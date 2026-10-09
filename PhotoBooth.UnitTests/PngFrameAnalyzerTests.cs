@@ -46,6 +46,24 @@ namespace PhotoBooth.UnitTests
             }
         }
 
+        [Fact]
+        public void Analyze_orders_slots_by_visual_position_instead_of_area()
+        {
+            using (var image = OpaqueImage(300, 300))
+            {
+                Clear(image, 20, 20, 80, 80);
+                Clear(image, 170, 20, 70, 80);
+                Clear(image, 20, 150, 100, 100);
+                Clear(image, 170, 150, 110, 110);
+                var frame = Analyze(image, new FrameAnalysisOptions { MinimumArea = 100, MinimumWidth = 10, MinimumHeight = 10 });
+                Assert.Collection(frame.Slots,
+                    slot => { Assert.Equal(20, slot.X); Assert.Equal(20, slot.Y); },
+                    slot => { Assert.Equal(170, slot.X); Assert.Equal(20, slot.Y); },
+                    slot => { Assert.Equal(20, slot.X); Assert.Equal(150, slot.Y); },
+                    slot => { Assert.Equal(170, slot.X); Assert.Equal(150, slot.Y); });
+            }
+        }
+
         private static Frame Analyze(Bitmap image, FrameAnalysisOptions options)
         {
             using (var stream = new MemoryStream()) { image.Save(stream, ImageFormat.Png); stream.Position = 0; return new PngFrameAnalyzer().Analyze(stream, "test.png", options); }

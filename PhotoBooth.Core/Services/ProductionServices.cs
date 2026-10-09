@@ -43,7 +43,7 @@ namespace PhotoBooth.Core.Services
     public interface IHealthStatusService { Task<HealthSnapshot> GetSnapshotAsync(CancellationToken token); }
     public interface IRecoveryService { Task StartAsync(CancellationToken token); Task StopAsync(CancellationToken token); }
     public interface ISettingsTransferService { Task ExportAsync(string path, CancellationToken token); Task ImportAsync(string path, CancellationToken token); }
-    public interface IUpdateService { Task<bool> IsUpdateAvailableAsync(CancellationToken token); Task<string> GetAvailableVersionAsync(CancellationToken token); }
+    public interface IUpdateService { Task<bool> IsUpdateAvailableAsync(CancellationToken token); Task<string> GetAvailableVersionAsync(CancellationToken token); Task<string> DownloadUpdateAsync(CancellationToken token); }
     public interface IFeatureFlagService { Task<bool> IsEnabledAsync(string feature, CancellationToken token); }
     public interface IPasswordService { string Hash(string password); bool Verify(string password, string encodedHash); }
     public interface ILocalizationService { string Culture { get; } string Get(string key); void SetCulture(string culture); }

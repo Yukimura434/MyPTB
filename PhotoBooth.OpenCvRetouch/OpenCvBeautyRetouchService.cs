@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
@@ -15,16 +13,17 @@ namespace PhotoBooth.OpenCvRetouch
     public sealed class OpenCvBeautyRetouchService : IBeautyRetouchService, IDisposable
     {
         readonly SemaphoreSlim gate = new SemaphoreSlim(1, 1);
-        readonly string cascadePath;
+        readonly string detectorPath;
         readonly string modelPath;
-        CascadeClassifier detector;
+        YuNetFaceDetector detector;
         FacemarkLBF facemark;
         bool disposed;
 
         public OpenCvBeautyRetouchService() : this(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Beauty")) { }
         public OpenCvBeautyRetouchService(string assetsDirectory)
         {
-            cascadePath = Path.Combine(assetsDirectory, "frontface.xml");
+            BeautyRuntime.EnsureConfigured();
+            detectorPath = Path.Combine(assetsDirectory, YuNetFaceDetector.ModelFileName);
             modelPath = Path.Combine(assetsDirectory, "lbfmodel.yaml");
         }
 
@@ -33,6 +32,7 @@ namespace PhotoBooth.OpenCvRetouch
             if (string.IsNullOrWhiteSpace(inputPath)) throw new ArgumentException("Input image path is required.", nameof(inputPath));
             if (string.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("Output image path is required.", nameof(outputPath));
             settings = settings?.Clone() ?? new BeautySettings();
+            settings.ClampStrengths();
             if (!settings.HasEffect) { if (!Same(inputPath, outputPath)) File.Copy(inputPath, outputPath, true); return new BeautyRetouchResult(); }
             await gate.WaitAsync(token).ConfigureAwait(false);
             try { return await Task.Run(() => ProcessCore(inputPath, outputPath, settings, token), token).ConfigureAwait(false); }
@@ -49,24 +49,25 @@ namespace PhotoBooth.OpenCvRetouch
                 using(var gray=new Mat())
                 {
                     Cv2.CvtColor(analysis,gray,ColorConversionCodes.BGR2GRAY);Cv2.EqualizeHist(gray,gray);
-                    var faces=detector.DetectMultiScale(gray,1.1,3,HaarDetectionTypes.ScaleImage,new Size(40,40));
+                    var faces=detector.Detect(analysis);
                     if(faces.Length==0){WriteValidated(inputPath,outputPath,null,token);return new BeautyRetouchResult{ElapsedMilliseconds=watch.ElapsedMilliseconds};}
                     Point2f[][] points; using(var faceMat=Mat.FromArray(faces)) if(!facemark.Fit(gray,faceMat,out points)) throw new InvalidOperationException("FacemarkLBF failed to fit detected faces.");
                     token.ThrowIfCancellationRequested();
-                    using(var skin=Mat.Zeros(original.Size(),MatType.CV_8UC1))
-                    using(var feature=Mat.Zeros(original.Size(),MatType.CV_8UC1))
+                    // Own concrete buffers: Mat.Zeros returns a lazy MatExpr, whose
+                    // implicit conversions would discard the masks written below.
+                    using(var skin=new Mat(original.Size(),MatType.CV_8UC1,Scalar.Black))
+                    using(var feature=new Mat(original.Size(),MatType.CV_8UC1,Scalar.Black))
+                    using(var underEye=new Mat(original.Size(),MatType.CV_8UC1,Scalar.Black))
                     {
-                        for(var i=0;i<points.Length;i++) BuildMasks(points[i],scale,skin,feature);
-                        using(var featheredSkin=new Mat()) using(var featheredFeature=new Mat())
+                        FaceSkinMaskBuilder.Build(original,points,scale,skin,feature,underEye);
+                        using(var result=original.Clone())
                         {
-                            Cv2.GaussianBlur(skin,featheredSkin,new Size(0,0),Math.Max(2,original.Width/500d));
-                            Cv2.GaussianBlur(feature,featheredFeature,new Size(0,0),Math.Max(1,original.Width/900d));
-                            using(var result=original.Clone())
-                            {
-                                ApplyEffects(original,result,featheredSkin,featheredFeature,settings,token);
-                                if(settings.EyeSize>0||settings.SlimFace>0) foreach(var facePoints in points){token.ThrowIfCancellationRequested();ApplyGeometry(result,facePoints,scale,settings);}
-                                WriteValidated(inputPath,outputPath,result,token);
-                            }
+                            ApplyBlemishRemoval(result,skin,settings.BlemishRemoval);
+                            token.ThrowIfCancellationRequested();
+                            ApplyEffects(result,result,skin,feature,settings,token);
+                            FaceGeometry.Apply(result, points, scale, settings, token);
+                            token.ThrowIfCancellationRequested();
+                            WriteValidated(inputPath,outputPath,result,token);
                         }
                     }
                     return new BeautyRetouchResult{Applied=true,FacesDetected=points.Length,ElapsedMilliseconds=watch.ElapsedMilliseconds};
@@ -74,12 +75,53 @@ namespace PhotoBooth.OpenCvRetouch
             }
         }
 
+        internal static void ApplyBlemishRemoval(Mat image,Mat skinMask,int amount)
+        {
+            if(amount<=0||skinMask==null)return;
+            using(var gray=new Mat())using(var baseTone=new Mat())using(var texture=new Mat())using(var redness=new Mat())using(var averageBg=new Mat())using(var candidates=new Mat())using(var skinBinary=new Mat())using(var repaired=new Mat())
+            {
+                Cv2.CvtColor(image,gray,ColorConversionCodes.BGR2GRAY);Cv2.GaussianBlur(gray,baseTone,new Size(0,0),2.4);
+                // Signed dark contrast selects the spot itself, not the bright blur
+                // halo around it, which would join small spots into large repairs.
+                Cv2.Subtract(baseTone,gray,texture);Cv2.Threshold(texture,candidates,Math.Max(4,15-amount*.1),255,ThresholdTypes.Binary);
+                var channels=image.Split();try{Cv2.AddWeighted(channels[0],.5,channels[1],.5,0,averageBg);Cv2.Subtract(channels[2],averageBg,redness);using(var localRed=new Mat()){Cv2.GaussianBlur(redness,localRed,new Size(0,0),3.4);Cv2.Subtract(redness,localRed,redness);}Cv2.Threshold(redness,redness,Math.Max(7,22-amount*.15),255,ThresholdTypes.Binary);Cv2.BitwiseOr(candidates,redness,candidates);}finally{foreach(var channel in channels)channel.Dispose();}
+                Cv2.Threshold(skinMask,skinBinary,80,255,ThresholdTypes.Binary);Cv2.BitwiseAnd(candidates,skinBinary,candidates);
+                using(var kernel=Cv2.GetStructuringElement(MorphShapes.Ellipse,new Size(3,3))){Cv2.MorphologyEx(candidates,candidates,MorphTypes.Open,kernel);KeepSmallBlemishes(candidates,Math.Min(400,Math.Max(16,Cv2.CountNonZero(skinBinary)*.0008)));Cv2.Dilate(candidates,candidates,kernel,iterations:amount>=60?2:1);}
+                // Dilation must not regrow repairs over eyes, lips, hair or outside skin.
+                Cv2.Min(candidates,skinMask,candidates);
+                if(Cv2.CountNonZero(candidates)==0)return;
+                Cv2.Inpaint(image,candidates,repaired,Math.Max(2,2+amount*.035),InpaintMethod.Telea);
+                // A broad cheek/lighting region is not a blemish. Also bound any
+                // isolated repair's color excursion before blending it into skin.
+                using(var low=new Mat())using(var high=new Mat())
+                {Cv2.Subtract(image,Scalar.All(24),low);Cv2.Add(image,Scalar.All(24),high);Cv2.Max(repaired,low,repaired);Cv2.Min(repaired,high,repaired);}
+                BlendMasked(image,repaired,candidates,Math.Min(1,.4+amount*.006));
+            }
+        }
+
+        static unsafe void KeepSmallBlemishes(Mat mask,double maxArea)
+        {
+            using(var labels=new Mat())using(var stats=new Mat())using(var centers=new Mat())
+            {
+                int count=Cv2.ConnectedComponentsWithStats(mask,labels,stats,centers);
+                var keep=new bool[count];
+                for(int i=1;i<count;i++)keep[i]=stats.At<int>(i,4)<=maxArea&&stats.At<int>(i,2)<=Math.Sqrt(maxArea)*2&&stats.At<int>(i,3)<=Math.Sqrt(maxArea)*2;
+                for(int y=0;y<mask.Height;y++){var row=(byte*)mask.Ptr(y);var ids=(int*)labels.Ptr(y);for(int x=0;x<mask.Width;x++)if(!keep[ids[x]])row[x]=0;}
+            }
+        }
+
+        internal static void ApplyDarkCircleReduction(Mat image,Mat mask,int amount)
+        {
+            if(amount<=0||mask==null||Cv2.CountNonZero(mask)==0)return;
+            using(var changed=new Mat()){Cv2.Add(image,new Scalar(4+amount*.25,4+amount*.25,4+amount*.25),changed);BlendMasked(image,changed,mask,Math.Min(.9,amount*.009));}
+        }
+
         internal static void ApplyEffects(Mat original,Mat result,Mat skinMask,Mat featureMask,BeautySettings s,CancellationToken token)
         {
-            if(s.SmoothSkin>0&&skinMask!=null){using(var filtered=new Mat()) {var sigma=15+s.SmoothSkin*.55;Cv2.BilateralFilter(original,filtered,7,sigma,sigma*.6);BlendMasked(result,filtered,skinMask,s.SmoothSkin*.0075);}}
+            if(s.SmoothSkin>0&&skinMask!=null){using(var filtered=new Mat()) {var diameter=Math.Max(7,Math.Min(13,(Math.Min(original.Width,original.Height)/180)|1));var sigma=20+s.SmoothSkin*.75;Cv2.BilateralFilter(original,filtered,diameter,sigma,sigma*.65);BlendMasked(result,filtered,skinMask,Math.Min(.92,s.SmoothSkin*.009));}}
             token.ThrowIfCancellationRequested();
-            if(s.BrightenSkin>0&&skinMask!=null){using(var bright=new Mat()){result.ConvertTo(bright,-1,1,2+s.BrightenSkin*.18);BlendMasked(result,bright,skinMask,s.BrightenSkin/100d);}}
-            if(s.SkinTone>0&&skinMask!=null){using(var toned=result.Clone()){var warm=s.SkinTone/100d;Cv2.Add(toned,new Scalar(-4*warm,1*warm,7*warm),toned);BlendMasked(result,toned,skinMask,.75);}}
+            if(s.BrightenSkin>0&&skinMask!=null){using(var bright=new Mat()){result.ConvertTo(bright,-1,1,3+s.BrightenSkin*.28);BlendMasked(result,bright,skinMask,s.BrightenSkin/100d);}}
+            if(s.SkinTone>0&&skinMask!=null){using(var toned=result.Clone()){var warm=s.SkinTone/100d;Cv2.Add(toned,new Scalar(-7*warm,2*warm,12*warm),toned);BlendMasked(result,toned,skinMask,.75);}}
             token.ThrowIfCancellationRequested();
             if(s.Sharpen>0&&featureMask!=null){using(var blur=new Mat())using(var sharp=new Mat()){Cv2.GaussianBlur(result,blur,new Size(0,0),1.1);Cv2.AddWeighted(result,1+s.Sharpen*.008,blur,-s.Sharpen*.008,0,sharp);BlendMasked(result,sharp,featureMask,Math.Min(.85,s.Sharpen/100d));}}
         }
@@ -121,43 +163,8 @@ namespace PhotoBooth.OpenCvRetouch
             }
         }
 
-        internal static void BuildMasks(Point2f[] source,double scale,Mat skin,Mat feature)
-        {
-            if(source==null||source.Length!=68)return;Func<int,Point> p=i=>new Point(Math.Round(source[i].X/scale),Math.Round(source[i].Y/scale));
-            var face=new List<Point>();for(var i=0;i<=16;i++)face.Add(p(i));for(var i=26;i>=17;i--)face.Add(p(i));
-            if(skin!=null){Cv2.FillConvexPoly(skin,face.ToArray(),Scalar.White,LineTypes.AntiAlias);Exclude(skin,Enumerable.Range(36,6).Select(p).ToArray());Exclude(skin,Enumerable.Range(42,6).Select(p).ToArray());Exclude(skin,Enumerable.Range(48,12).Select(p).ToArray());}
-            if(feature!=null){Cv2.FillConvexPoly(feature,Enumerable.Range(36,6).Select(p).ToArray(),Scalar.White,LineTypes.AntiAlias);Cv2.FillConvexPoly(feature,Enumerable.Range(42,6).Select(p).ToArray(),Scalar.White,LineTypes.AntiAlias);Cv2.Polylines(feature,new[]{face.ToArray()},true,Scalar.White,Math.Max(3,feature.Width/300),LineTypes.AntiAlias);}
-        }
-        static void Exclude(Mat mask,Point[] polygon)=>Cv2.FillConvexPoly(mask,polygon,Scalar.Black,LineTypes.AntiAlias);
-        internal static unsafe void ApplyGeometry(Mat image,Point2f[] source,double scale,BeautySettings settings)
-        {
-            if(source==null||source.Length!=68)return;
-            var points=source.Select(v=>new Point2f((float)(v.X/scale),(float)(v.Y/scale))).ToArray();
-            var minX=points.Take(27).Min(v=>v.X);var maxX=points.Take(27).Max(v=>v.X);var minY=points.Take(27).Min(v=>v.Y);var maxY=points.Take(27).Max(v=>v.Y);
-            var padX=(maxX-minX)*.18f;var padY=(maxY-minY)*.18f;
-            var left=Math.Max(0,(int)Math.Floor(minX-padX));var top=Math.Max(0,(int)Math.Floor(minY-padY));var right=Math.Min(image.Width,(int)Math.Ceiling(maxX+padX));var bottom=Math.Min(image.Height,(int)Math.Ceiling(maxY+padY));
-            if(right-left<4||bottom-top<4)return;var roi=new Rect(left,top,right-left,bottom-top);
-            using(var view=new Mat(image,roi))using(var input=view.Clone())using(var output=new Mat())using(var mapX=new Mat(roi.Height,roi.Width,MatType.CV_32FC1))using(var mapY=new Mat(roi.Height,roi.Width,MatType.CV_32FC1))
-            {
-                var mx=(float*)mapX.DataPointer;var my=(float*)mapY.DataPointer;
-                var faceCx=points[30].X;var browY=(points[19].Y+points[24].Y)*.5f;var faceRx=Math.Max(1,(points[16].X-points[0].X)*.5f);var faceRy=Math.Max(1,points[8].Y-browY);
-                var leftEye=Center(points,36,42);var rightEye=Center(points,42,48);var eyeRadius=Math.Max(4,(Distance(points[36],points[39])+Distance(points[42],points[45]))*.65f);
-                var slim=settings.SlimFace/100f*.13f;var enlarge=settings.EyeSize/100f*.16f;
-                for(var y=0;y<roi.Height;y++)for(var x=0;x<roi.Width;x++)
-                {
-                    var gx=x+left;var gy=y+top;var sx=(float)gx;var sy=(float)gy;
-                    if(slim>0&&gy>browY){var nx=(gx-faceCx)/faceRx;var ny=(gy-browY)/faceRy;var d=nx*nx+ny*ny;if(d<1.25f){var fall=(float)Math.Max(0,1-d/1.25f);sx=faceCx+(gx-faceCx)*(1+slim*fall);}}
-                    if(enlarge>0){ApplyEyeInverse(ref sx,ref sy,gx,gy,leftEye,eyeRadius,enlarge);ApplyEyeInverse(ref sx,ref sy,gx,gy,rightEye,eyeRadius,enlarge);}
-                    var index=y*roi.Width+x;mx[index]=sx-left;my[index]=sy-top;
-                }
-                Cv2.Remap(input,output,mapX,mapY,InterpolationFlags.Linear,BorderTypes.Reflect101);output.CopyTo(view);
-            }
-        }
-        static Point2f Center(Point2f[] p,int start,int end){float x=0,y=0;for(var i=start;i<end;i++){x+=p[i].X;y+=p[i].Y;}var n=end-start;return new Point2f(x/n,y/n);}
-        static float Distance(Point2f a,Point2f b){var x=a.X-b.X;var y=a.Y-b.Y;return (float)Math.Sqrt(x*x+y*y);}
-        static void ApplyEyeInverse(ref float sx,ref float sy,float x,float y,Point2f center,float radius,float amount){var dx=x-center.X;var dy=y-center.Y;var d=(float)Math.Sqrt(dx*dx+dy*dy);var limit=radius*2.2f;if(d>=limit)return;var fall=1-d/limit;var factor=1-amount*fall*fall;sx=center.X+(sx-center.X)*factor;sy=center.Y+(sy-center.Y)*factor;}
         static Mat ResizeForAnalysis(Mat source,int max,out double scale){scale=Math.Min(1d,max/(double)Math.Max(source.Width,source.Height));if(scale>=.999)return source.Clone();var output=new Mat();Cv2.Resize(source,output,new Size(0,0),scale,scale,InterpolationFlags.Area);return output;}
-        void EnsureLoaded(){if(disposed)throw new ObjectDisposedException(nameof(OpenCvBeautyRetouchService));if(detector!=null)return;if(!File.Exists(cascadePath))throw new FileNotFoundException("Beauty face detector is missing.",cascadePath);if(!File.Exists(modelPath))throw new FileNotFoundException("Beauty landmark model is missing.",modelPath);detector=new CascadeClassifier(cascadePath);if(detector.Empty())throw new InvalidDataException("Beauty face detector cannot be loaded.");facemark=FacemarkLBF.Create();facemark.LoadModel(modelPath);}
+        void EnsureLoaded(){if(disposed)throw new ObjectDisposedException(nameof(OpenCvBeautyRetouchService));if(detector!=null)return;if(!File.Exists(detectorPath))throw new FileNotFoundException("Beauty face detector is missing.",detectorPath);if(!File.Exists(modelPath))throw new FileNotFoundException("Beauty landmark model is missing.",modelPath);var loaded=FacemarkLBF.Create();try{loaded.LoadModel(modelPath);var detected=new YuNetFaceDetector(detectorPath);facemark=loaded;detector=detected;}catch{loaded.Dispose();throw;}}
         static void WriteValidated(string input,string output,Mat image,CancellationToken token){var full=Path.GetFullPath(output);var dir=Path.GetDirectoryName(full);Directory.CreateDirectory(dir);var temp=Path.Combine(dir,Path.GetFileName(full)+"."+Guid.NewGuid().ToString("N")+".tmp.jpg");try{if(image==null)File.Copy(input,temp,true);else if(!Cv2.ImWrite(temp,image))throw new IOException("Unable to encode Beauty output.");token.ThrowIfCancellationRequested();using(var check=Cv2.ImRead(temp,ImreadModes.Color))if(check.Empty())throw new InvalidDataException("Beauty output validation failed.");if(File.Exists(full))File.Delete(full);File.Move(temp,full);}finally{try{if(File.Exists(temp))File.Delete(temp);}catch{}}}
         static bool Same(string a,string b)=>string.Equals(Path.GetFullPath(a),Path.GetFullPath(b),StringComparison.OrdinalIgnoreCase);
         public void Dispose(){if(disposed)return;disposed=true;facemark?.Dispose();detector?.Dispose();gate.Dispose();}

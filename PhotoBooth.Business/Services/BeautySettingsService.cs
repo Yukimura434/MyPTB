@@ -21,11 +21,8 @@ namespace PhotoBooth.Business.Services
         static BeautySettings Normalize(BeautySettings value)
         {
             value = value?.Clone() ?? new BeautySettings();
-            value.SmoothSkin = Clamp(value.SmoothSkin); value.BrightenSkin = Clamp(value.BrightenSkin);
-            value.SkinTone = Clamp(value.SkinTone); value.Sharpen = Clamp(value.Sharpen);
-            value.EyeSize = Clamp(value.EyeSize); value.SlimFace = Clamp(value.SlimFace);
+            value.ClampStrengths();
             return value;
         }
-        static int Clamp(int value) => Math.Max(0, Math.Min(100, value));
     }
 }

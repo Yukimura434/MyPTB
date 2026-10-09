@@ -20,9 +20,18 @@ namespace PhotoBooth.Color.D3D11
         public event EventHandler FramePresented;
         public static readonly DependencyProperty FrameDataProperty = DependencyProperty.Register(
             nameof(FrameData), typeof(object), typeof(LatestJpegImage), new PropertyMetadata(null, OnFrame));
+        public static readonly DependencyProperty ColorPresetProperty = DependencyProperty.Register(
+            nameof(ColorPreset), typeof(LivePreviewLut), typeof(LatestJpegImage), new PropertyMetadata(null, OnPreset));
+        public LivePreviewLut ColorPreset { get => (LivePreviewLut)GetValue(ColorPresetProperty); set => SetValue(ColorPresetProperty, value); }
+        static void OnPreset(DependencyObject value, DependencyPropertyChangedEventArgs args)
+        {
+            var image = (LatestJpegImage)value;
+            image.Publish(image.FrameData);
+        }
 
         readonly ConcurrentBag<byte[]> buffers = new ConcurrentBag<byte[]>();
-        byte[] pending;
+        PendingInput pending;
+        long inputVersion;
         DecodedFrame ready;
         int decoding;
         int presenting;
@@ -44,18 +53,19 @@ namespace PhotoBooth.Color.D3D11
 
         static void OnFrame(DependencyObject value, DependencyPropertyChangedEventArgs args)
         {
-            ((LatestJpegImage)value).Publish(args.NewValue as byte[]);
+            ((LatestJpegImage)value).Publish(args.NewValue);
         }
 
         void OnLoaded(object sender, RoutedEventArgs args)
         {
             Volatile.Write(ref active, IsVisible ? 1 : 0);
-            Publish(FrameData as byte[]);
+            Publish(FrameData);
         }
 
         void OnUnloaded(object sender, RoutedEventArgs args)
         {
             Volatile.Write(ref active, 0);
+            Interlocked.Increment(ref inputVersion);
             Interlocked.Exchange(ref pending, null);
             var frame = Interlocked.Exchange(ref ready, null);
             if (frame != null) Return(frame.Pixels);
@@ -64,7 +74,7 @@ namespace PhotoBooth.Color.D3D11
         void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs args)
         {
             Volatile.Write(ref active, IsLoaded && IsVisible ? 1 : 0);
-            if (Volatile.Read(ref active) != 0) Publish(FrameData as byte[]);
+            if (Volatile.Read(ref active) != 0) Publish(FrameData);
             else
             {
                 Interlocked.Exchange(ref pending, null);
@@ -73,10 +83,12 @@ namespace PhotoBooth.Color.D3D11
             }
         }
 
-        void Publish(byte[] jpeg)
+        void Publish(object value)
         {
-            if (jpeg == null || jpeg.Length == 0 || Volatile.Read(ref active) == 0) return;
-            Interlocked.Exchange(ref pending, jpeg);
+            long version = Interlocked.Increment(ref inputVersion);
+            if (value == null) { Interlocked.Exchange(ref pending, null); var old = Interlocked.Exchange(ref ready, null); if (old != null) Return(old.Pixels); Source = null; bitmap = null; return; }
+            if (Volatile.Read(ref active) == 0) return;
+            Interlocked.Exchange(ref pending, new PendingInput { Value = value, Version = version, Preset = ColorPreset });
             StartDecoder();
         }
 
@@ -95,9 +107,11 @@ namespace PhotoBooth.Color.D3D11
                     var jpeg = Interlocked.Exchange(ref pending, null);
                     if (jpeg == null) break;
                     DecodedFrame decoded = null;
-                    try { decoded = Decode(jpeg); }
+                    try { decoded = DecodeInput(jpeg.Value, jpeg.Preset); }
                     catch { }
                     if (decoded == null) continue;
+                    decoded.Version = jpeg.Version;
+                    if (jpeg.Version != Interlocked.Read(ref inputVersion)) { Return(decoded.Pixels); continue; }
                     if (Volatile.Read(ref active) == 0) { Return(decoded.Pixels); continue; }
                     var old = Interlocked.Exchange(ref ready, decoded);
                     if (old != null) Return(old.Pixels);
@@ -125,7 +139,8 @@ namespace PhotoBooth.Color.D3D11
                 if (frame == null) return;
                 try
                 {
-                    if (Volatile.Read(ref active) == 0) return;
+                    if (Volatile.Read(ref active) == 0 || frame.Version != Interlocked.Read(ref inputVersion)) return;
+                    if (frame.Source != null) { bitmap = null; Source = frame.Source; FramePresented?.Invoke(this, EventArgs.Empty); return; }
                     if (bitmap == null || bitmap.PixelWidth != frame.Width || bitmap.PixelHeight != frame.Height)
                     {
                         bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
@@ -143,22 +158,44 @@ namespace PhotoBooth.Color.D3D11
             }
         }
 
-        DecodedFrame Decode(byte[] jpeg)
+        DecodedFrame DecodeInput(object value, LivePreviewLut preset)
         {
-            BitmapSource source;
-            using (var stream = new MemoryStream(jpeg, false))
+            var source = value as BitmapSource;
+            if (source != null && preset == null) return new DecodedFrame(source);
+            if (source == null)
             {
-                var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                source = decoder.Frames[0];
+                using (var stream = new MemoryStream((byte[])value, false))
+                {
+                    var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    source = decoder.Frames[0];
+                }
             }
+            // Bound preview cost only. Camera JPEG, Beauty input and captured files stay intact.
+            var scale = preset == null ? 1d : Math.Min(1d, 640d / Math.Max(source.PixelWidth, source.PixelHeight));
+            if (scale < 1) source = new TransformedBitmap(source, new ScaleTransform(scale, scale));
             if (source.Format != PixelFormats.Bgra32)
                 source = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
 
             var stride = checked(source.PixelWidth * 4);
             var length = checked(stride * source.PixelHeight);
             var pixels = Rent(length);
-            source.CopyPixels(pixels, stride, 0);
-            return new DecodedFrame(source.PixelWidth, source.PixelHeight, stride, pixels);
+            try
+            {
+                source.CopyPixels(pixels, stride, 0);
+                try { preset?.Apply(pixels, source.PixelWidth, source.PixelHeight, stride, CancellationToken.None); }
+                catch { source.CopyPixels(pixels, stride, 0); } // Present original preview if coloring fails.
+                if (preset != null)
+                {
+                    // Publish an immutable image like the Beauty path. WritePixels can
+                    // block the UI behind the compositor's write lock for a live surface.
+                    var colored = BitmapSource.Create(source.PixelWidth, source.PixelHeight, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
+                    colored.Freeze();
+                    Return(pixels);
+                    return new DecodedFrame(colored);
+                }
+                return new DecodedFrame(source.PixelWidth, source.PixelHeight, stride, pixels);
+            }
+            catch { Return(pixels); throw; }
         }
 
         byte[] Rent(int length)
@@ -172,8 +209,13 @@ namespace PhotoBooth.Color.D3D11
             if (value != null && buffers.Count < 3) buffers.Add(value);
         }
 
+        sealed class PendingInput { internal object Value; internal long Version; internal LivePreviewLut Preset; }
+
         sealed class DecodedFrame
         {
+            internal DecodedFrame(BitmapSource source) { Source = source; }
+            internal BitmapSource Source { get; }
+            internal long Version { get; set; }
             internal DecodedFrame(int width, int height, int stride, byte[] pixels)
             {
                 Width = width; Height = height; Stride = stride; Pixels = pixels;

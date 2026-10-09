@@ -2,7 +2,7 @@
  <Grid Margin="28,24,28,28">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
   <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel><TextBlock Text="Đánh số thứ tự ô ảnh" Style="{StaticResource PageTitle}"/><TextBlock Text="Nhấn vào từng ô theo đúng thứ tự ảnh sẽ được chụp và ghép vào frame." Style="{StaticResource PageSubtitle}"/></StackPanel>
+   <StackPanel><TextBlock Text="Đánh số thứ tự ô ảnh" Style="{StaticResource PageTitle}"/><TextBlock Text="Nhấn vào từng ô theo đúng thứ tự ảnh sẽ được chụp và ghép vào frame." TextWrapping="Wrap" Style="{StaticResource PageSubtitle}"/></StackPanel>
    <Border Grid.Column="1" Background="#263D64" CornerRadius="15" Padding="13,7" VerticalAlignment="Center"><TextBlock Text="{Binding ProgressText}" Foreground="#BDD4FF" FontWeight="SemiBold"/></Border>
   </Grid>
   <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="320"/></Grid.ColumnDefinitions>
@@ -21,7 +21,7 @@
            <Border x:Name="NumberBadge" Width="56" Height="56" CornerRadius="28" Background="#B9242933" BorderBrush="#8BB1FF" BorderThickness="3" HorizontalAlignment="Center" VerticalAlignment="Center"><TextBlock Text="{Binding NumberText}" Foreground="#D8E6FF" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
           </Grid><ControlTemplate.Triggers>
            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="SlotBorder" Property="Background" Value="#3D5B8DEF"/><Setter TargetName="SlotBorder" Property="BorderBrush" Value="#C8D9FF"/></Trigger>
-           <DataTrigger Binding="{Binding IsNumbered}" Value="True"><Setter TargetName="SlotBorder" Property="Background" Value="#245B8DEF"/><Setter TargetName="NumberBadge" Property="Background" Value="#F15B8DEF"/><Setter TargetName="NumberBadge" Property="BorderBrush" Value="White"/></DataTrigger>
+           <DataTrigger Binding="{Binding IsNumbered}" Value="True"><Setter TargetName="SlotBorder" Property="Background" Value="#245B8DEF"/><Setter TargetName="NumberBadge" Property="Background" Value="#F12A4F95"/><Setter TargetName="NumberBadge" Property="BorderBrush" Value="White"/></DataTrigger>
           </ControlTemplate.Triggers></ControlTemplate></Button.Template>
          </Button>
         </DataTemplate></ItemsControl.ItemTemplate>

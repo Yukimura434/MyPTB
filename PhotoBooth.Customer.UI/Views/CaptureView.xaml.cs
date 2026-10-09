@@ -12,6 +12,7 @@ namespace PhotoBooth.Customer.UI.Views
     {
         INotifyPropertyChanged subscribedViewModel;
         bool viewLoaded;
+        bool? reviewPortrait;
 
         public CaptureView()
         {
@@ -52,66 +53,48 @@ namespace PhotoBooth.Customer.UI.Views
 
         void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName != nameof(CaptureViewModel.LiveViewRotation)) return;
+            if (e.PropertyName != nameof(CaptureViewModel.LiveViewRotation) && e.PropertyName != nameof(CaptureViewModel.IsModeSelection) && e.PropertyName != nameof(CaptureViewModel.IsPreview)) return;
             if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new System.Action(ApplyOrientation)); return; }
             ApplyOrientation();
         }
 
         void ApplyOrientation()
         {
-            var portrait = ActualHeight > ActualWidth * 1.08;
-            var viewModel = DataContext as CaptureViewModel;
-            var rotation = NormalizeRotation(viewModel?.LiveViewRotation ?? 0d);
-            var quarterTurn = rotation == 90d || rotation == -90d;
-            // Fit a fixed 4:3 landscape or 3:4 portrait viewport inside the
-            // screen and keep its centre locked to the screen centre.
-            var aspect = quarterTurn ? 3d / 4d : 4d / 3d;
+            var portrait = ActualHeight > ActualWidth;
             var availableWidth = System.Math.Max(1d, ActualWidth);
             var availableHeight = System.Math.Max(1d, ActualHeight);
-            var width = availableWidth;
-            var height = width / aspect;
-            if (height > availableHeight) { height = availableHeight; width = height * aspect; }
+
+            // Live View is always full-bleed. The inner Viewbox uses
+            // UniformToFill, therefore the camera frame is cropped at the
+            // viewport edge instead of being stretched or deformed.
+            LiveViewPanel.Width = availableWidth;
+            LiveViewPanel.Height = availableHeight;
+            LiveViewPanel.VerticalAlignment = VerticalAlignment.Stretch;
+            LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
+            LiveViewPanel.Margin = new Thickness(0);
+
+            RecentCapturesPanel.VerticalAlignment = VerticalAlignment.Bottom;
+            RecentCapturesPanel.HorizontalAlignment = HorizontalAlignment.Center;
+            RecentCapturesPanel.Width = portrait
+                ? System.Math.Max(1d, availableWidth - 48d)
+                : System.Math.Min(1000d, System.Math.Max(1d, availableWidth - 80d));
+            RecentCapturesPanel.Height = portrait ? 220d : double.NaN;
+            RecentCapturesPanel.Margin = portrait
+                ? new Thickness(24, 0, 24, 132)
+                : new Thickness(40, 0, 40, 132);
+            var capture = DataContext as CaptureViewModel;
+            RecentCapturesPanel.Visibility = portrait && capture != null && !capture.IsModeSelection && !capture.IsPreview ? Visibility.Visible : Visibility.Collapsed;
 
             if (portrait)
             {
-                const double sideInset = 40d;
-                const double minimumTop = 82d;
-                const double liveToRecentGap = 20d;
-                const double bottomActionReserve = 112d;
-                var recentHeight = quarterTurn ? 356d : 220d;
-                var contentBottom = System.Math.Max(minimumTop + 1d, availableHeight - bottomActionReserve);
-                var maximumWidth = System.Math.Max(1d, availableWidth - sideInset * 2d);
-                width = maximumWidth;
-                height = width / aspect;
-                var maximumLiveHeight = System.Math.Max(1d, contentBottom - minimumTop - liveToRecentGap - recentHeight);
-                if (height > maximumLiveHeight) { height = maximumLiveHeight; width = height * aspect; }
-                var groupHeight = height + liveToRecentGap + recentHeight;
-                var top = System.Math.Max(minimumTop, (contentBottom - groupHeight) / 2d);
+                ModeFirstColumn.Width = new GridLength(System.Math.Max(1d, availableWidth - 72d));
+                ModeColumnGap.Width = new GridLength(0);
+                ModeSecondColumn.Width = new GridLength(0);
+                ModeRowGap.Height = new GridLength(16);
+                Grid.SetRow(ManualModeButton, 2);
+                Grid.SetColumn(ManualModeButton, 0);
+                ModeSelectionGrid.Margin = new Thickness(0, -190, 0, 0);
 
-                LiveViewPanel.Width = width;
-                LiveViewPanel.Height = height;
-                LiveViewPanel.VerticalAlignment = VerticalAlignment.Top;
-                LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
-                LiveViewPanel.Margin = new Thickness(0, top, 0, 0);
-                RecentCapturesPanel.Width = maximumWidth;
-                RecentCapturesPanel.Height = recentHeight;
-                RecentCapturesPanel.Margin = new Thickness(0, top + height + liveToRecentGap, 0, 0);
-            }
-            else
-            {
-                LiveViewPanel.Width = width;
-                LiveViewPanel.Height = height;
-                LiveViewPanel.VerticalAlignment = VerticalAlignment.Center;
-                LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
-                LiveViewPanel.Margin = new Thickness(0);
-                RecentCapturesPanel.ClearValue(FrameworkElement.HeightProperty);
-                RecentCapturesPanel.Width = 1000d;
-                RecentCapturesPanel.Margin = new Thickness(0, 870, 0, 0);
-            }
-            RecentCapturesPanel.Visibility = portrait ? Visibility.Visible : Visibility.Collapsed;
-
-            if (portrait)
-            {
                 ReviewImageColumn.Width = new GridLength(1, GridUnitType.Star);
                 ReviewListColumn.Width = new GridLength(0);
                 ReviewImageRow.Height = new GridLength(1, GridUnitType.Star);
@@ -119,14 +102,25 @@ namespace PhotoBooth.Customer.UI.Views
                 Grid.SetRow(ReviewImagePanel, 0); Grid.SetColumn(ReviewImagePanel, 0); Grid.SetColumnSpan(ReviewImagePanel, 2);
                 ReviewImagePanel.Margin = new Thickness(0, 0, 0, 14);
                 Grid.SetRow(ReviewListPanel, 1); Grid.SetColumn(ReviewListPanel, 0); Grid.SetColumnSpan(ReviewListPanel, 2);
-                ReviewOverlay.Margin = new Thickness(32, 84, 32, 112);
-                SetItemsOrientation(ReviewPhotoList, Orientation.Horizontal);
+                ReviewOverlay.Margin = new Thickness(32, 112, 32, 250);
+                PreviewActions.Orientation = Orientation.Vertical;
+                RetakeButton.Width = System.Math.Max(1d, availableWidth - 72d);
+                SelectFrameButton.Width = System.Math.Max(1d, availableWidth - 72d);
+                if (reviewPortrait != true) SetItemsOrientation(ReviewPhotoList, Orientation.Horizontal);
                 ScrollViewer.SetVerticalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Disabled);
                 ScrollViewer.SetHorizontalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Auto);
                 ScrollViewer.SetPanningMode(ReviewPhotoList, PanningMode.HorizontalOnly);
             }
             else
             {
+                ModeFirstColumn.Width = new GridLength(System.Math.Min(520, System.Math.Max(1, (availableWidth - 96) / 2)));
+                ModeColumnGap.Width = new GridLength(24);
+                ModeSecondColumn.Width = new GridLength(System.Math.Min(520, System.Math.Max(1, (availableWidth - 96) / 2)));
+                ModeRowGap.Height = new GridLength(0);
+                Grid.SetRow(ManualModeButton, 0);
+                Grid.SetColumn(ManualModeButton, 2);
+                ModeSelectionGrid.Margin = new Thickness(0, -280, 0, 0);
+
                 ReviewImageColumn.Width = new GridLength(1, GridUnitType.Star);
                 ReviewListColumn.Width = new GridLength(230);
                 ReviewImageRow.Height = new GridLength(1, GridUnitType.Star);
@@ -134,12 +128,16 @@ namespace PhotoBooth.Customer.UI.Views
                 Grid.SetRow(ReviewImagePanel, 0); Grid.SetColumn(ReviewImagePanel, 0); Grid.SetColumnSpan(ReviewImagePanel, 1);
                 ReviewImagePanel.Margin = new Thickness(0, 0, 12, 0);
                 Grid.SetRow(ReviewListPanel, 0); Grid.SetColumn(ReviewListPanel, 1); Grid.SetColumnSpan(ReviewListPanel, 1);
-                ReviewOverlay.Margin = new Thickness(28, 28, 28, 104);
-                SetItemsOrientation(ReviewPhotoList, Orientation.Vertical);
+                ReviewOverlay.Margin = new Thickness(28, 112, 28, 104);
+                PreviewActions.Orientation = Orientation.Horizontal;
+                RetakeButton.Width = double.NaN;
+                SelectFrameButton.Width = double.NaN;
+                if (reviewPortrait != false) SetItemsOrientation(ReviewPhotoList, Orientation.Vertical);
                 ScrollViewer.SetVerticalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Auto);
                 ScrollViewer.SetHorizontalScrollBarVisibility(ReviewPhotoList, ScrollBarVisibility.Disabled);
                 ScrollViewer.SetPanningMode(ReviewPhotoList, PanningMode.VerticalOnly);
             }
+            reviewPortrait = portrait;
         }
 
         static double NormalizeRotation(double value)

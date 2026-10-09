@@ -1,100 +1,94 @@
 <Window x:Class="PhotoBooth.Admin.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PhotoBooth Admin" Width="1440" Height="900" MinWidth="1100" MinHeight="700"
-        Icon="/PhotoBooth.Admin.UI;component/Assets/photobooth.ico"
-        WindowStartupLocation="CenterScreen" Background="{StaticResource BackgroundBrush}">
+        Title="MiuPhotoBooth" Width="1440" Height="900" MinWidth="{Binding MinimumWindowWidth,FallbackValue=1000}" MinHeight="{Binding MinimumWindowHeight,FallbackValue=700}"
+        Icon="Assets/photobooth.ico" WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BackgroundBrush}">
     <Window.Resources>
-        <Style x:Key="HomeNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="home"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="EventsNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="events"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger><DataTrigger Binding="{Binding CurrentRoute}" Value="event-frame-picker"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger><DataTrigger Binding="{Binding CurrentRoute}" Value="event-preset-picker"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="FramesNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="frames"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger><DataTrigger Binding="{Binding CurrentRoute}" Value="frame-slot-order"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="PresetsNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="presets"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="PrintersNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="printers"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="DataNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="data"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="ShareNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="share"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="BeautyNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="beauty"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="InterfaceNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="interface"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
-        <Style x:Key="AboutNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="about"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#43659B"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="SelectedNavBase" TargetType="Button" BasedOn="{StaticResource MenuButton}">
+            <Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/>
+            <Setter Property="BorderBrush" Value="#436FAF"/>
+            <Setter Property="Foreground" Value="#EAF2FF"/>
+        </Style>
+        <Style x:Key="HomeNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="home"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="EventsNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="events"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger><DataTrigger Binding="{Binding CurrentRoute}" Value="event-frame-picker"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger><DataTrigger Binding="{Binding CurrentRoute}" Value="event-preset-picker"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="BoothAccessNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="booth-access"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="FramesNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="frames"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger><DataTrigger Binding="{Binding CurrentRoute}" Value="frame-slot-order"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="PresetsNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="presets"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="InterfaceNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="interface"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="BeautyNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="beauty"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="DeviceNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="device"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="PrintersNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="printers"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="ShareNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="share"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="ShareSettingsNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="share-settings"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="AnalyticsNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="data"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
+        <Style x:Key="AboutNav" TargetType="Button" BasedOn="{StaticResource MenuButton}"><Style.Triggers><DataTrigger Binding="{Binding CurrentRoute}" Value="about"><Setter Property="Background" Value="{StaticResource AccentSubtleBrush}"/><Setter Property="BorderBrush" Value="#436FAF"/><Setter Property="Foreground" Value="#EAF2FF"/></DataTrigger></Style.Triggers></Style>
     </Window.Resources>
 
     <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-
-        <Border Width="{Binding MenuWidth}" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+        <Border Width="{Binding MenuWidth}" Background="#111825" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
-                <Grid DockPanel.Dock="Top" Height="62" Margin="6,4">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Button Style="{StaticResource MenuButton}" Command="{Binding ToggleMenuCommand}" Content="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="20" Width="48" Padding="0" Margin="2" HorizontalContentAlignment="Center" ToolTip="Thu gọn / mở rộng menu"/>
+                <Grid DockPanel.Dock="Top" Height="72" Margin="8,6">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="50"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Button Style="{StaticResource MenuButton}" Command="{Binding ToggleMenuCommand}" Width="44" Height="44" Padding="0" Margin="2" HorizontalContentAlignment="Center" ToolTip="Thu gọn hoặc mở rộng menu">
+                        <Path Data="{StaticResource Icon.Menu}" Style="{StaticResource ButtonVectorIcon}" Width="21" Height="21" Margin="0"/>
+                    </Button>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Visibility="{Binding MenuTextVisibility}">
-                        <Image Source="/PhotoBooth.Admin.UI;component/Assets/fox-logo.png" Width="38" Height="38" Margin="0,0,10,0" SnapsToDevicePixels="True"/>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="PHOTOBOOTH" FontSize="14" FontWeight="Bold"/>
-                            <TextBlock Text="Bảng điều khiển" FontSize="11" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,0"/>
-                        </StackPanel>
+                        <Image Source="Assets/fox-logo.png" Width="42" Height="42" Margin="0,0,10,0" SnapsToDevicePixels="True"/>
+                        <StackPanel VerticalAlignment="Center"><TextBlock Text="MiuPhotoBooth" FontSize="15" FontWeight="Bold"/><TextBlock Text="Quản lý booth" FontSize="11" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,0"/></StackPanel>
                     </StackPanel>
                 </Grid>
 
-                <Button DockPanel.Dock="Top" Style="{StaticResource MenuButton}" Command="{Binding StartCustomerCommand}"
-                        Background="{StaticResource AccentSubtleBrush}" BorderBrush="#43659B" Foreground="White" Margin="8,4,8,8" ToolTip="Mở giao diện dành cho khách">
-                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE768;" Style="{StaticResource IconText}"/><TextBlock Text="Mở chế độ khách" FontWeight="SemiBold" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                </Button>
-
-                <Button DockPanel.Dock="Bottom" Style="{StaticResource AboutNav}" Command="{Binding NavigateCommand}" CommandParameter="about">
-                    <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE946;" Style="{StaticResource IconText}"/><TextBlock Text="Giới thiệu" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
+                <Button DockPanel.Dock="Bottom" Style="{StaticResource AboutNav}" Command="{Binding NavigateCommand}" CommandParameter="about" Margin="6,4,6,12">
+                    <StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Info}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Giới thiệu" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
                 </Button>
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="0,0,0,10">
                         <TextBlock Text="VẬN HÀNH" Style="{StaticResource NavSectionLabel}" Visibility="{Binding MenuTextVisibility}"/>
-                        <Button Style="{StaticResource HomeNav}" Command="{Binding NavigateCommand}" CommandParameter="home">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE80F;" Style="{StaticResource IconText}"/><TextBlock Text="Tổng quan" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource EventsNav}" Command="{Binding NavigateCommand}" CommandParameter="events">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE787;" Style="{StaticResource IconText}"/><TextBlock Text="Sự kiện" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
+                        <Button Style="{StaticResource HomeNav}" Command="{Binding NavigateCommand}" CommandParameter="home"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Home}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Tổng quan" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
 
                         <TextBlock Text="NỘI DUNG" Style="{StaticResource NavSectionLabel}" Visibility="{Binding MenuTextVisibility}"/>
-                        <Button Style="{StaticResource FramesNav}" Command="{Binding NavigateCommand}" CommandParameter="frames">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE91B;" Style="{StaticResource IconText}"/><TextBlock Text="Khung ảnh" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource PresetsNav}" Command="{Binding NavigateCommand}" CommandParameter="presets">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE790;" Style="{StaticResource IconText}"/><TextBlock Text="Preset màu" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource InterfaceNav}" Command="{Binding NavigateCommand}" CommandParameter="interface">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE771;" Style="{StaticResource IconText}"/><TextBlock Text="Giao diện khách" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource BeautyNav}" Command="{Binding NavigateCommand}" CommandParameter="beauty">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE945;" Style="{StaticResource IconText}"/><TextBlock Text="Làm đẹp" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
+                        <Button Style="{StaticResource FramesNav}" Command="{Binding NavigateCommand}" CommandParameter="frames" Visibility="{Binding ConfigurationVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Frame}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Khung ảnh" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+                        <Button Style="{StaticResource PresetsNav}" Command="{Binding NavigateCommand}" CommandParameter="presets" Visibility="{Binding ConfigurationVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Palette}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Preset màu" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+                        <Button Style="{StaticResource InterfaceNav}" Command="{Binding NavigateCommand}" CommandParameter="interface" Visibility="{Binding DeviceConfigurationVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Monitor}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Giao diện khách" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+                        <Button Style="{StaticResource BeautyNav}" Command="{Binding NavigateCommand}" CommandParameter="beauty" Visibility="{Binding DeviceConfigurationVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Beauty}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Làm đẹp" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
 
-                        <TextBlock Text="THIẾT BỊ &amp; HỆ THỐNG" Style="{StaticResource NavSectionLabel}" Visibility="{Binding MenuTextVisibility}"/>
-                        <Button Style="{StaticResource PrintersNav}" Command="{Binding NavigateCommand}" CommandParameter="printers">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE749;" Style="{StaticResource IconText}"/><TextBlock Text="Máy in" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource ShareNav}" Command="{Binding NavigateCommand}" CommandParameter="share">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE71B;" Style="{StaticResource IconText}"/><TextBlock Text="Chia sẻ nội bộ" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource DataNav}" Command="{Binding NavigateCommand}" CommandParameter="data">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE9D2;" Style="{StaticResource IconText}"/><TextBlock Text="Dữ liệu &amp; thống kê" Visibility="{Binding MenuTextVisibility}"/></StackPanel>
-                        </Button>
+                        <TextBlock Text="THIẾT BỊ" Style="{StaticResource NavSectionLabel}" Visibility="{Binding MenuTextVisibility}"/>
+                        <Button Style="{StaticResource DeviceNav}" Command="{Binding NavigateCommand}" CommandParameter="device" Visibility="{Binding ConfigurationVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.User}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Xác thực thiết bị" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+                        <Button Style="{StaticResource PrintersNav}" Command="{Binding NavigateCommand}" CommandParameter="printers" Visibility="{Binding DeviceConfigurationVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Printer}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Máy in" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+
+                        <TextBlock Text="ẢNH &amp; DỮ LIỆU" Style="{StaticResource NavSectionLabel}" Visibility="{Binding MenuTextVisibility}"/>
+                        <Button Style="{StaticResource ShareNav}" Command="{Binding NavigateCommand}" CommandParameter="share" Visibility="{Binding LibraryVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Library}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Ảnh &amp; mã QR" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+                        <Button Style="{StaticResource ShareSettingsNav}" Command="{Binding NavigateCommand}" CommandParameter="share-settings" Visibility="{Binding LibraryVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Share}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Kênh chia sẻ" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
+                        <Button Style="{StaticResource AnalyticsNav}" Command="{Binding NavigateCommand}" CommandParameter="data" Visibility="{Binding LibraryVisibility}"><StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Analytics}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Phân tích &amp; báo cáo" Visibility="{Binding MenuTextVisibility}"/></StackPanel></Button>
                     </StackPanel>
                 </ScrollViewer>
             </DockPanel>
         </Border>
 
         <Grid Grid.Column="1" Background="{StaticResource BackgroundBrush}">
-            <ContentControl Content="{Binding CurrentPage,NotifyOnTargetUpdated=True}" Opacity="1">
-                <ContentControl.RenderTransform><TranslateTransform/></ContentControl.RenderTransform>
-                <ContentControl.Triggers><EventTrigger RoutedEvent="Binding.TargetUpdated"><BeginStoryboard><Storyboard>
-                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.18"/>
-                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" From="12" To="0" Duration="0:0:0.18"/>
-                </Storyboard></BeginStoryboard></EventTrigger></ContentControl.Triggers>
-            </ContentControl>
-            <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Background="{StaticResource SurfaceRaisedBrush}"
-                    BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1" CornerRadius="8" Padding="16,9" Margin="20"
-                    Visibility="{Binding HasMessage,Converter={StaticResource BoolVisibility}}">
-                <TextBlock Text="{Binding Message}" Foreground="{StaticResource TextBrush}"/>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Border Grid.Row="0" Visibility="{Binding StandardShellVisibility}" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="20,11">
+                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center" Margin="0,0,16,0"><TextBlock TextTrimming="CharacterEllipsis" Text="{Binding SessionDisplayName}" FontWeight="SemiBold"/><TextBlock TextTrimming="CharacterEllipsis" Text="{Binding SessionModeLabel}" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="0,3,0,0"/></StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Height="42" VerticalContentAlignment="Center" Command="{Binding StartCustomerCommand}" Margin="0,0,10,0" Padding="14,8">
+                            <StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Play}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="{Binding CustomerModeActionText}" FontWeight="SemiBold"/></StackPanel>
+                        </Button>
+                        <Border Height="42" Background="{StaticResource AccentSubtleBrush}" BorderBrush="#7596C9" BorderThickness="1" CornerRadius="7" Padding="10,6" Margin="0,0,10,0"><TextBlock VerticalAlignment="Center" Text="{Binding SessionRoleDisplayName}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold"/></Border>
+                        <Button Height="42" VerticalContentAlignment="Center" Command="{Binding SignOutCommand}" Padding="12,7" Style="{StaticResource AdminSecondaryButton}" Margin="0">
+                            <StackPanel Orientation="Horizontal"><Path Data="{StaticResource Icon.Logout}" Style="{StaticResource ButtonVectorIcon}"/><TextBlock Text="Đăng xuất"/></StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
             </Border>
+            <ContentControl Grid.Row="1" Content="{Binding CurrentPage,NotifyOnTargetUpdated=True}" Opacity="1">
+                <ContentControl.RenderTransform><TranslateTransform/></ContentControl.RenderTransform>
+                <ContentControl.Triggers><EventTrigger RoutedEvent="Binding.TargetUpdated"><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.18"/><DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" From="12" To="0" Duration="0:0:0.18"/></Storyboard></BeginStoryboard></EventTrigger></ContentControl.Triggers>
+            </ContentControl>
+            <Border Grid.Row="1" VerticalAlignment="Bottom" HorizontalAlignment="Center" Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1" CornerRadius="8" Padding="16,9" Margin="20" Visibility="{Binding HasMessage,Converter={StaticResource BoolVisibility}}"><TextBlock Text="{Binding Message}" Foreground="{StaticResource TextBrush}"/></Border>
         </Grid>
     </Grid>
 </Window>

@@ -23,11 +23,15 @@ namespace PhotoBooth.Customer.UI.Controls
         public MediaSlotControl()
         {
             ClipToBounds = true; Background = Brushes.Transparent; Cursor = Cursors.Hand;
+            IsManipulationEnabled = true;
             video.MediaOpened += (s, e) => { naturalWidth = video.NaturalVideoWidth; naturalHeight = video.NaturalVideoHeight; video.Play(); Render(); };
             video.MediaEnded += (s, e) => { video.Position = TimeSpan.Zero; video.Play(); };
             SizeChanged += (s, e) => Render();
             MouseLeftButtonDown += Down; MouseMove += Move; MouseLeftButtonUp += Up; LostMouseCapture += (s, e) => dragging = false;
             MouseWheel += Wheel;
+            PreviewTouchDown += (s, e) => SelectCommand?.Execute(SelectCommandParameter);
+            ManipulationStarting += StartManipulation;
+            ManipulationDelta += ApplyManipulation;
             Loaded += (s, e) => { if (IsVideo && video.Source != null) video.Play(); };
             Unloaded += (s, e) => video.Stop();
         }
@@ -110,6 +114,32 @@ namespace PhotoBooth.Customer.UI.Controls
             CenterX = (ActualWidth / 2d - (point.X - mediaX * next.Scale)) / Math.Max(1, next.Width);
             CenterY = (ActualHeight / 2d - (point.Y - mediaY * next.Scale)) / Math.Max(1, next.Height);
             NormalizeAndRender(); e.Handled = true;
+        }
+
+        void StartManipulation(object sender, ManipulationStartingEventArgs e)
+        {
+            e.ManipulationContainer = this;
+            e.Mode = ManipulationModes.Translate | ManipulationModes.Scale;
+            e.Handled = true;
+        }
+
+        void ApplyManipulation(object sender, ManipulationDeltaEventArgs e)
+        {
+            if (naturalWidth <= 0 || naturalHeight <= 0) return;
+
+            var current = Layout();
+            var translation = e.DeltaManipulation.Translation;
+            CenterX = (ActualWidth / 2d - (current.Left + translation.X)) / Math.Max(1, current.Width);
+            CenterY = (ActualHeight / 2d - (current.Top + translation.Y)) / Math.Max(1, current.Height);
+
+            // One scalar zoom value is shared by both axes. This intentionally
+            // rejects non-uniform touch scale so media can never be distorted.
+            var scaleX = Math.Abs(e.DeltaManipulation.Scale.X);
+            var scaleY = Math.Abs(e.DeltaManipulation.Scale.Y);
+            var uniformScale = Math.Sqrt(Math.Max(0.000001d, scaleX * scaleY));
+            Zoom = MediaTransformGeometry.Clamp(Zoom * uniformScale, 1d, 2d);
+            NormalizeAndRender();
+            e.Handled = true;
         }
 
         MediaLayout Layout() => MediaTransformGeometry.Calculate(naturalWidth, naturalHeight, ActualWidth, ActualHeight, Zoom, CenterX, CenterY);

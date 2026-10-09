@@ -5,7 +5,8 @@ namespace PhotoBooth.Core.Services
 {
     public interface ILiveBeautyPreviewService
     {
-        Task<byte[]> ProcessAsync(byte[] jpegData, BeautySettings settings, CancellationToken token);
+        // Null means use the original JPEG (disabled, cancelled or unavailable).
+        Task<LiveBeautyPixels> ProcessAsync(byte[] jpegData, BeautySettings settings, CancellationToken token);
         void Reset();
     }
 }

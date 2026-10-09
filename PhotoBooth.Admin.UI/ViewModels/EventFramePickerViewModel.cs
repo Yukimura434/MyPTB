@@ -59,7 +59,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public string Message { get => message; private set { if (Set(ref message, value)) Raise(nameof(HasMessage)); } }
         public bool HasMessage => !string.IsNullOrWhiteSpace(Message);
         public int SelectedCount => all.Count(x => x.IsSelected);
-        public string SelectionSummary => SelectedCount + " / 10 frame đã chọn";
+        public string SelectionSummary => SelectedCount + " frame đã chọn";
         public ICommand ToggleCommand { get; }
         public ICommand AddAllCategoryCommand { get; }
         public ICommand ApplyCommand { get; }
@@ -91,7 +91,6 @@ namespace PhotoBooth.Admin.UI.ViewModels
         {
             var item = parameter as SelectableEventFrame;
             if (item == null) return;
-            if (!item.IsSelected && SelectedCount >= 10) { Message = "Mỗi event chỉ được chọn tối đa 10 frame."; return; }
             item.IsSelected = !item.IsSelected;
             if (item.IsSelected) item.SelectionOrder = nextOrder++;
             Message = null; RaiseSelection();
@@ -100,9 +99,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
         void AddAllCategory()
         {
             var candidates = Filtered().Where(x => !x.IsSelected).ToList();
-            var capacity = 10 - SelectedCount;
-            foreach (var item in candidates.Take(capacity)) { item.IsSelected = true; item.SelectionOrder = nextOrder++; }
-            Message = candidates.Count > capacity ? "Đã thêm đủ 10 frame; các frame còn lại không được chọn." : "Đã thêm toàn bộ frame trong nhóm đang xem.";
+            foreach (var item in candidates) { item.IsSelected = true; item.SelectionOrder = nextOrder++; }
+            Message = "Đã thêm toàn bộ frame trong nhóm đang xem.";
             RaiseSelection();
         }
 

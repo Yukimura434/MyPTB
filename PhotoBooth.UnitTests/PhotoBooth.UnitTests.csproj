@@ -14,10 +14,13 @@
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
     <Reference Include="PresentationCore" />
     <Reference Include="WindowsBase" />
     <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\TestImages\harry-potter.jpg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\PhotoBooth.Admin.UI\Assets\beauty-model.png" Link="Assets\TestImages\beauty-model.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\PhotoBooth.Admin.UI\Assets\model.png" Link="Assets\TestImages\model.png" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)\sqlitepclraw.lib.e_sqlite3\2.1.4\runtimes\win-x64\native\e_sqlite3.dll" Link="runtimes\win-x64\native\e_sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)\sqlitepclraw.lib.e_sqlite3\2.1.4\runtimes\win-x86\native\e_sqlite3.dll" Link="runtimes\win-x86\native\e_sqlite3.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -12,7 +12,10 @@ namespace PhotoBooth.Core.Services
         Task<ColorLutData> GetLiveAsync(Guid presetId, CancellationToken token);
         Task ApplyCaptureAsync(Guid presetId, string imagePath, CancellationToken token);
         Task ApplyToFileAsync(Guid presetId, string sourcePath, string destinationPath, float strength, CancellationToken token);
+        Task ApplyAssetToFileAsync(Guid assetId, string sourcePath, string destinationPath, float strength, CancellationToken token);
+        Task ApplySnapshotToFileAsync(string lutFilePath, string sourcePath, string destinationPath, float strength, CancellationToken token);
         Task<byte[]> RenderPreviewAsync(Guid assetId, string imagePath, float strength, CancellationToken token);
+        Task<byte[]> RenderSnapshotPreviewAsync(string lutFilePath, string imagePath, float strength, CancellationToken token);
         Task<ColorLutImportResult> ImportAsync(string sourcePath, string displayName, CancellationToken token);
         Task AttachAsync(Guid presetId, Guid assetId, CancellationToken token);
         Task DetachAsync(Guid presetId, CancellationToken token);

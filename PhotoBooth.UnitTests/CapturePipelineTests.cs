@@ -267,6 +267,28 @@ namespace PhotoBooth.UnitTests
         }
 
         [Fact]
+        public async Task ProcessPendingAsync_prefers_run_scoped_lut_file_over_mutable_preset_mapping()
+        {
+            var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+            try
+            {
+                var events=new List<string>();var lut=new OrderedLutService(events);var assetId=Guid.NewGuid();var snapshot=Path.Combine(root,"run-lut.cube");File.WriteAllText(snapshot,"snapshot");
+                var sessions=new FakeSessionRepository(new Session{Id=Guid.NewGuid(),PresetId=Guid.NewGuid(),SessionNumber=12,OutputDirectory=root,StartedAtUtc=DateTime.UtcNow});
+                var pipeline=new CapturePipeline(new CapturingCamera(),sessions,new FakeSettingsService(new Settings()),new FakeVideoService(),lut);
+                var pending=await pipeline.CapturePendingAsync(sessions.Session.Id,"cam",root,false,3,CancellationToken.None);
+                pending.ColorLutAssetId=assetId;
+                pending.ColorLutSnapshotPath=snapshot;
+
+                await pipeline.ProcessPendingAsync(pending,CancellationToken.None);
+
+                Assert.Equal(snapshot,lut.AppliedSnapshotPath);
+                Assert.Equal(new[]{"snapshot-lut"},events);
+                Assert.True(File.Exists(pending.PicturePath));
+            }
+            finally{Directory.Delete(root,true);}
+        }
+
+        [Fact]
         public async Task DiscardPendingAsync_removes_unprocessed_capture_without_committing_session()
         {
             var root=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
@@ -397,11 +419,16 @@ namespace PhotoBooth.UnitTests
         sealed class OrderedLutService:IColorLutService
         {
             readonly List<string> events;public OrderedLutService(List<string> value){events=value;}
+            public Guid? AppliedAssetId{get;private set;}
+            public string AppliedSnapshotPath{get;private set;}
             public Task ApplyCaptureAsync(Guid id,string path,CancellationToken t){events.Add("lut");using(var image=new Bitmap(path))AssertNear(Color.Red,image.GetPixel(0,0));return Task.CompletedTask;}
             public Task ApplyToFileAsync(Guid id,string source,string destination,float strength,CancellationToken t){File.Copy(source,destination,true);return Task.CompletedTask;}
+            public Task ApplyAssetToFileAsync(Guid id,string source,string destination,float strength,CancellationToken t){AppliedAssetId=id;events.Add("asset-lut");File.Copy(source,destination,true);return Task.CompletedTask;}
+            public Task ApplySnapshotToFileAsync(string lut,string source,string destination,float strength,CancellationToken t){AppliedSnapshotPath=lut;events.Add("snapshot-lut");File.Copy(source,destination,true);return Task.CompletedTask;}
             public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken t)=>Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
             public Task<ColorLutData> GetLiveAsync(Guid id,CancellationToken t)=>Task.FromResult<ColorLutData>(null);
             public Task<byte[]> RenderPreviewAsync(Guid id,string path,float strength,CancellationToken t)=>Task.FromResult<byte[]>(null);
+            public Task<byte[]> RenderSnapshotPreviewAsync(string lut,string path,float strength,CancellationToken t)=>Task.FromResult<byte[]>(null);
             public Task<ColorLutImportResult> ImportAsync(string p,string n,CancellationToken t)=>Task.FromResult<ColorLutImportResult>(null);
             public Task AttachAsync(Guid p,Guid l,CancellationToken t)=>Task.CompletedTask;
             public Task DetachAsync(Guid p,CancellationToken t)=>Task.CompletedTask;
@@ -413,9 +440,12 @@ namespace PhotoBooth.UnitTests
         {
             public Task ApplyCaptureAsync(Guid presetId, string imagePath, CancellationToken token) { using (var image = new Bitmap(4, 2)) { using (var graphics = Graphics.FromImage(image)) graphics.Clear(Color.Lime); image.Save(imagePath, ImageFormat.Jpeg); } return Task.CompletedTask; }
             public Task ApplyToFileAsync(Guid presetId,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
+            public Task ApplyAssetToFileAsync(Guid assetId,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
+            public Task ApplySnapshotToFileAsync(string lutFilePath,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
             public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
             public Task<ColorLutData> GetLiveAsync(Guid presetId, CancellationToken token) => Task.FromResult<ColorLutData>(null);
             public Task<byte[]> RenderPreviewAsync(Guid assetId,string imagePath,float strength,CancellationToken token)=>Task.FromResult<byte[]>(null);
+            public Task<byte[]> RenderSnapshotPreviewAsync(string lutFilePath,string imagePath,float strength,CancellationToken token)=>Task.FromResult<byte[]>(null);
             public Task<ColorLutImportResult> ImportAsync(string sourcePath, string displayName, CancellationToken token) => Task.FromResult<ColorLutImportResult>(null);
             public Task AttachAsync(Guid presetId, Guid assetId, CancellationToken token) => Task.CompletedTask;
             public Task DetachAsync(Guid presetId, CancellationToken token) => Task.CompletedTask;
@@ -428,9 +458,12 @@ namespace PhotoBooth.UnitTests
             int calls;
             public Task ApplyCaptureAsync(Guid presetId,string imagePath,CancellationToken token){if(++calls==2)throw new InvalidOperationException("expected second-image failure");return Task.CompletedTask;}
             public Task ApplyToFileAsync(Guid presetId,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
+            public Task ApplyAssetToFileAsync(Guid assetId,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
+            public Task ApplySnapshotToFileAsync(string lutFilePath,string sourcePath,string destinationPath,float strength,CancellationToken token){File.Copy(sourcePath,destinationPath,true);return Task.CompletedTask;}
             public Task<IReadOnlyList<ColorLutAsset>> GetAllAsync(CancellationToken token)=>Task.FromResult<IReadOnlyList<ColorLutAsset>>(new ColorLutAsset[0]);
             public Task<ColorLutData> GetLiveAsync(Guid presetId,CancellationToken token)=>Task.FromResult<ColorLutData>(null);
             public Task<byte[]> RenderPreviewAsync(Guid assetId,string imagePath,float strength,CancellationToken token)=>Task.FromResult<byte[]>(null);
+            public Task<byte[]> RenderSnapshotPreviewAsync(string lutFilePath,string imagePath,float strength,CancellationToken token)=>Task.FromResult<byte[]>(null);
             public Task<ColorLutImportResult> ImportAsync(string sourcePath,string displayName,CancellationToken token)=>Task.FromResult<ColorLutImportResult>(null);
             public Task AttachAsync(Guid presetId,Guid assetId,CancellationToken token)=>Task.CompletedTask;
             public Task DetachAsync(Guid presetId,CancellationToken token)=>Task.CompletedTask;

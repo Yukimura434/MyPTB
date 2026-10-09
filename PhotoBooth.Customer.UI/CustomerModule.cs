@@ -10,11 +10,11 @@ namespace PhotoBooth.Customer.UI
         {
             services.AddSingleton<CustomerWorkflowStateMachine>();
             services.AddSingleton<CustomerWorkflowContext>();
-            services.AddSingleton<PrinterConnectionViewModel>();
             services.AddSingleton<CaptureViewModel>();
             services.AddSingleton<FrameSelectionViewModel>();
             services.AddSingleton<CompleteViewModel>();
             services.AddSingleton<WaitingViewModel>();
+            services.AddSingleton<BoothLoginViewModel>();
             services.AddSingleton<CustomerShellViewModel>();
             services.AddTransient<MainWindow>();
             return services;

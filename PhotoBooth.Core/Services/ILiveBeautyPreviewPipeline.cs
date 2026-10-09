@@ -7,14 +7,16 @@ namespace PhotoBooth.Core.Services
 {
     public sealed class LiveBeautyPreviewFrameEventArgs : EventArgs
     {
-        public LiveBeautyPreviewFrameEventArgs(LiveViewFrame frame, bool beautyApplied, double processingMilliseconds)
+        public LiveBeautyPreviewFrameEventArgs(LiveViewFrame frame, bool beautyApplied, double processingMilliseconds, LiveBeautyPixels pixels = null)
         {
             Frame = frame;
             BeautyApplied = beautyApplied;
             ProcessingMilliseconds = processingMilliseconds;
+            Pixels = pixels;
         }
 
         public LiveViewFrame Frame { get; }
+        public LiveBeautyPixels Pixels { get; }
         public bool BeautyApplied { get; }
         public double ProcessingMilliseconds { get; }
     }

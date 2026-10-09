@@ -23,6 +23,7 @@ namespace PhotoBooth.Infrastructure
         public static IServiceCollection AddPhotoBoothInfrastructure(this IServiceCollection services, ApplicationOptions options)
         {
             services.AddSingleton(options);
+            services.AddSingleton<IUpdateService, GitHubInstallerUpdateService>();
             services.AddSingleton<CameraOperationGate>();
             services.AddSingleton(provider =>
             {
@@ -49,6 +50,8 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IPhotoBoothCameraAdapter, GenericCameraAdapter>();
             services.AddSingleton<CameraAdapterRegistry>();
             services.AddSingleton(provider => new SqliteDatabase(options.DatabasePath));
+            services.AddSingleton<IDeviceIdentityRepository, SqliteDeviceIdentityRepository>();
+            services.AddSingleton<IPcAccountRepository, SqlitePcAccountRepository>();
             services.AddSingleton<IPresetRepository, SqlitePresetRepository>();
             services.AddSingleton<IColorLutAssetRepository, SqliteColorLutAssetRepository>();
             services.AddSingleton<IPresetColorRepository, SqlitePresetColorRepository>();
@@ -62,7 +65,10 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IDeliverableRepository>(provider => provider.GetRequiredService<SqliteDeliverableRepository>());
             services.AddSingleton<ICaptureAttemptRepository, SqliteCaptureAttemptRepository>();
             services.AddSingleton<IMediaAssetRepository, SqliteMediaAssetRepository>();
+            services.AddSingleton<IMediaAssetReplicaRepository, SqliteMediaAssetReplicaRepository>();
             services.AddSingleton<IDurableOutputJobRepository, SqliteDurableOutputJobRepository>();
+            services.AddSingleton<IEventExportJobRepository, SqliteEventExportJobRepository>();
+            services.AddSingleton<IGalleryLinkCacheRepository, SqliteGalleryLinkCacheRepository>();
             services.AddSingleton<IFrameRepository, SqliteFrameRepository>();
             services.AddSingleton<IFrameEventRepository, SqliteFrameEventRepository>();
             services.AddSingleton<IPresetEventRepository, SqlitePresetEventRepository>();
@@ -72,6 +78,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IBeautySettingsRepository, SqliteBeautySettingsRepository>();
             services.AddSingleton<IInterfaceAssetRepository, SqliteInterfaceAssetRepository>();
             services.AddSingleton<IPrintJobRepository, SqlitePrintJobRepository>();
+            services.AddSingleton<IRevenueReportRepository, SqliteRevenueReportRepository>();
             services.AddSingleton<IStatsRepository, SqliteStatsRepository>();
             services.AddSingleton<IFrameAnalyzer, PngFrameAnalyzer>();
             services.AddSingleton<ICameraService, CameraService>();
@@ -87,6 +94,7 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IEventService>(provider => provider.GetRequiredService<BusinessWorkflowService>());
             services.AddSingleton<IBoothSessionService>(provider => provider.GetRequiredService<BusinessWorkflowService>());
             services.AddSingleton<IPhotoEventManagementService, PhotoEventManagementService>();
+            services.AddSingleton<DefaultEventBootstrapper>();
             services.AddSingleton<DeliverableService>();
             services.AddSingleton<ICaptureService>(provider => provider.GetRequiredService<DeliverableService>());
             services.AddSingleton<IDeliverableService>(provider => provider.GetRequiredService<DeliverableService>());
@@ -96,6 +104,9 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<INavigationService, NavigationService>();
             services.AddSingleton<IFileStorageService, FileStorageService>();
             services.AddSingleton<ISettingsService, SettingsService>();
+            services.AddSingleton<IDeviceIdentityService, DeviceIdentityService>();
+            services.AddSingleton<ICommercialEntitlementService, CommercialEntitlementService>();
+            services.AddSingleton<IDeviceConfigurationSyncService, DeviceConfigurationSyncService>();
             services.AddSingleton<IBeautySettingsService, BeautySettingsService>();
             services.AddSingleton<IBeautyRetouchService, OpenCvBeautyRetouchService>();
             services.AddSingleton<ILiveBeautyPreviewService, OpenCvLiveBeautyPreviewService>();
@@ -121,6 +132,12 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IStorageManager, StorageManager>();
             services.AddSingleton<IMediaThumbnailService, MediaThumbnailService>();
             services.AddSingleton<IUploadService, LocalUploadService>();
+            services.AddSingleton<IRemoteMediaDeliveryClient, RemoteMediaDeliveryClient>();
+            services.AddSingleton<IEventPrintAuthorizationService>(p => (RemoteMediaDeliveryClient)p.GetRequiredService<IRemoteMediaDeliveryClient>());
+            services.AddSingleton<IRemoteStorageConfigurationService, RemoteStorageConfigurationService>();
+            services.AddSingleton<IRemoteDeliveryQueue, RemoteDeliveryQueue>();
+            services.AddSingleton<IEventExportQueue, EventExportQueue>();
+            services.AddSingleton<IRevenueSyncService, RevenueSyncService>();
             services.AddSingleton<IQrCodeService, QrCodeService>();
             services.AddSingleton<IGifAnimationService, GifAnimationService>();
             services.AddSingleton<ILocalShareService, LocalShareService>();
@@ -129,6 +146,9 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<IHealthStatusService, HealthStatusService>();
             services.AddSingleton<IBackupService, BackupService>();
             services.AddSingleton<IPasswordService, PasswordService>();
+            services.AddSingleton<IPcAuthenticationService, PcAuthenticationService>();
+            services.AddSingleton<IBoothAccessService, BoothAccessService>();
+            services.AddSingleton<IPcSessionContext, PcSessionContext>();
             services.AddSingleton<ILocalizationService, LocalizationService>();
             services.AddSingleton<ISettingsTransferService, SettingsTransferService>();
             services.AddSingleton<ICaptureFocusService, CaptureFocusService>();
@@ -146,6 +166,7 @@ namespace PhotoBooth.Infrastructure
             if(string.IsNullOrWhiteSpace(settings.CaptureDirectory))settings.CaptureDirectory=System.IO.Path.Combine(provider.GetRequiredService<ApplicationOptions>().DataDirectory,"Captures");
             if(string.IsNullOrWhiteSpace(settings.AdminPasswordHash)){settings.AdminPasswordHash=provider.GetRequiredService<IPasswordService>().Hash("1~6");settingsService.SaveAsync(settings,System.Threading.CancellationToken.None).GetAwaiter().GetResult();}
             else settingsService.SaveAsync(settings,System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            provider.GetRequiredService<DefaultEventBootstrapper>().EnsureReadyAsync(System.Threading.CancellationToken.None).GetAwaiter().GetResult();
         }
 
         static void ReconcileInterruptedLocalWork(IServiceProvider provider)
@@ -159,6 +180,10 @@ namespace PhotoBooth.Infrastructure
             foreach(var session in sessions.GetActiveBoothSessionsAsync(token).GetAwaiter().GetResult())
                 sessions.MarkRecoveredFailedAsync(session.Id,"Application restarted before the booth session reached a terminal state.",token).GetAwaiter().GetResult();
             provider.GetRequiredService<IDurableOutputJobRepository>().ReconcileInterruptedAsync(token).GetAwaiter().GetResult();
+            provider.GetRequiredService<IEventExportJobRepository>().ReconcileInterruptedAsync(token).GetAwaiter().GetResult();
+            provider.GetRequiredService<IRemoteDeliveryQueue>().StartAsync(token).GetAwaiter().GetResult();
+            provider.GetRequiredService<IEventExportQueue>().StartAsync(token).GetAwaiter().GetResult();
+            provider.GetRequiredService<IRevenueSyncService>().SynchronizeAsync(token).GetAwaiter().GetResult();
         }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,53 +11,96 @@ namespace PhotoBooth.UnitTests
 {
     public sealed class OpenCvBeautyRetouchTests
     {
+        static string Source => Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","TestImages","beauty-model.png");
+        static string Assets => Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","Beauty");
+
         [Fact]
-        public async Task Process_detects_faces_and_preserves_dimensions()
+        public async Task Geometry_changes_still_image_and_is_capped_at_half_old_strength()
         {
-            if(IntPtr.Size!=4)return;
-            var source=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","TestImages","harry-potter.jpg");
-            var assets=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","Beauty");
-            var output=Path.Combine(Path.GetTempPath(),Guid.NewGuid().ToString("N")+".jpg");
+            Assert.Equal(4, IntPtr.Size);
+            var a=Path.GetTempFileName();var b=Path.GetTempFileName();var plain=Path.GetTempFileName();
             try
             {
-                using(var service=new OpenCvBeautyRetouchService(assets))
+                using(var service=new OpenCvBeautyRetouchService(Assets))
                 {
-                    var result=await service.ProcessAsync(source,output,new BeautySettings{Enabled=true,SmoothSkin=30,BrightenSkin=20,SkinTone=20,Sharpen=25,EyeSize=20,SlimFace=20},CancellationToken.None);
-                    Assert.True(result.Applied);Assert.True(result.FacesDetected>0);
+                    Assert.True((await service.ProcessAsync(Source,a,new BeautySettings{Enabled=true,EyeSize=50,SlimFace=50},CancellationToken.None)).Applied);
+                    await service.ProcessAsync(Source,b,new BeautySettings{Enabled=true,EyeSize=100,SlimFace=100},CancellationToken.None);
                 }
-                using(var before=Cv2.ImRead(source))using(var after=Cv2.ImRead(output)){Assert.Equal(before.Size(),after.Size());Assert.False(after.Empty());}
+                Assert.Equal(File.ReadAllBytes(a),File.ReadAllBytes(b));
+                using(var original=Cv2.ImRead(Source))using(var processed=Cv2.ImRead(a))
+                using(var baseline=Cv2.ImDecode(original.ImEncode(".jpg"),ImreadModes.Color))
+                {Assert.Equal(original.Size(),processed.Size());Assert.True(Cv2.Norm(baseline,processed,NormTypes.L1)>0);}
             }
-            finally { try{if(File.Exists(output))File.Delete(output);}catch{} }
+            finally{File.Delete(a);File.Delete(b);File.Delete(plain);}
         }
 
         [Fact]
-        public async Task Live_preview_processes_jpeg_in_memory_and_preserves_dimensions()
+        public async Task Geometry_and_heavy_effects_alone_bypass_live_models()
         {
-            if(IntPtr.Size!=4)return;
-            var source=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","TestImages","harry-potter.jpg");
-            var assets=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","Beauty");var input=File.ReadAllBytes(source);
-            using(var service=new OpenCvLiveBeautyPreviewService(assets))
-            {
-                var output=await service.ProcessAsync(input,new BeautySettings{Enabled=true,SmoothSkin=25,BrightenSkin=15,EyeSize=15,SlimFace=15},CancellationToken.None);
-                Assert.NotNull(output);Assert.NotEmpty(output);Assert.NotEqual(input,output);
-                var repeated=await service.ProcessAsync(input,new BeautySettings{Enabled=true,SmoothSkin=25,BrightenSkin=15,EyeSize=15,SlimFace=15},CancellationToken.None);
-                Assert.Same(output,repeated);
-                using(var before=Cv2.ImDecode(input,ImreadModes.Color))using(var after=Cv2.ImDecode(output,ImreadModes.Color))Assert.Equal(before.Size(),after.Size());
-                service.Reset();
-            }
-        }
-
-        [Fact]
-        public async Task Live_preview_cancellation_quietly_drops_stale_frame()
-        {
-            var input=new byte[]{1,2,3};
-            using(var cancellation=new CancellationTokenSource())
             using(var service=new OpenCvLiveBeautyPreviewService("missing-assets"))
+                Assert.Null(await service.ProcessAsync(new byte[]{1,2,3},new BeautySettings{Enabled=true,EyeSize=50,SlimFace=50,BlemishRemoval=100,DarkCircleReduction=100,SkinTone=100,Sharpen=100},CancellationToken.None));
+        }
+
+        [Theory]
+        [InlineData(100,0)]
+        [InlineData(0,100)]
+        public async Task Live_light_changes_pixels_and_reset_does_not_reuse_masks(int smooth,int bright)
+        {
+            var bytes=File.ReadAllBytes(Source);
+            using(var service=new OpenCvLiveBeautyPreviewService(Assets))
             {
-                cancellation.Cancel();
-                var output=await service.ProcessAsync(input,new BeautySettings{Enabled=true,SmoothSkin=25},cancellation.Token);
-                Assert.Same(input,output);
+                var settings=new BeautySettings{Enabled=true,SmoothSkin=smooth,BrightenSkin=bright};
+                var output=await WaitForBeauty(service,bytes,settings);
+                using(var original=Cv2.ImDecode(bytes,ImreadModes.Color))using(var resized=new Mat())
+                using(var after=new Mat(output.Height,output.Width,MatType.CV_8UC3))
+                {
+                    Cv2.Resize(original,resized,new Size(output.Width,output.Height),0,0,InterpolationFlags.Area);
+                    System.Runtime.InteropServices.Marshal.Copy(output.Pixels,0,after.Data,output.Pixels.Length);
+                    Assert.True(Cv2.Norm(resized,after,NormTypes.L1)>0);
+                    Assert.True(Math.Max(output.Width,output.Height)<=640);
+                }
+                service.Reset();
+                using(var blank=new Mat(output.Height,output.Width,MatType.CV_8UC3,Scalar.All(45)))
+                {
+                    var empty=await service.ProcessAsync(blank.ImEncode(".jpg"),settings,CancellationToken.None);
+                    Assert.NotNull(empty);Assert.False(empty.BeautyApplied);
+                }
             }
+        }
+
+        internal static async Task<LiveBeautyPixels> WaitForBeauty(OpenCvLiveBeautyPreviewService service,byte[] bytes,BeautySettings settings)
+        {
+            var watch=Stopwatch.StartNew();
+            while(watch.ElapsedMilliseconds<15000)
+            {
+                var output=await service.ProcessAsync(bytes,settings,CancellationToken.None);
+                if(output?.BeautyApplied==true)return output;
+                await Task.Delay(33);
+            }
+            throw new Exception("Background detector never produced a usable current-frame mask.");
+        }
+
+        [Fact]
+        public async Task Live_cancellation_and_disposal_drop_frames_without_loading_models()
+        {
+            var service=new OpenCvLiveBeautyPreviewService("missing-assets");
+            var settings=new BeautySettings{Enabled=true,SmoothSkin=100};
+            Assert.Null(await service.ProcessAsync(new byte[]{1},settings,new CancellationToken(true)));
+            service.Dispose();
+            Assert.Null(await service.ProcessAsync(new byte[]{1},settings,CancellationToken.None));
+        }
+
+        [Fact]
+        public async Task Full_still_effects_preserve_dimensions()
+        {
+            var output=Path.GetTempFileName();
+            try
+            {
+                var settings=new BeautySettings{Enabled=true};settings.SetLevel(10);
+                using(var service=new OpenCvBeautyRetouchService(Assets))Assert.True((await service.ProcessAsync(Source,output,settings,CancellationToken.None)).Applied);
+                using(var before=Cv2.ImRead(Source))using(var after=Cv2.ImRead(output))Assert.Equal(before.Size(),after.Size());
+            }
+            finally{File.Delete(output);}
         }
     }
 }

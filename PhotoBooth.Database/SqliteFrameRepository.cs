@@ -3,6 +3,32 @@ namespace PhotoBooth.Database
 {
  public sealed class SqliteFrameRepository:IFrameRepository
  {
+        public Task ReplacePinnedAsync(IReadOnlyCollection<Guid> ids, CancellationToken token)
+        {
+            if (ids == null) throw new ArgumentNullException(nameof(ids));
+            token.ThrowIfCancellationRequested();
+            using (var connection = db.OpenConnection())
+            using (var transaction = connection.BeginTransaction())
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                // Clear legacy collection unions in the same commit as all pin changes.
+                command.CommandText = "UPDATE Frames SET IsPinned=0; UPDATE WorkflowSettings SET SelectedFrameCollections='' WHERE Id=1";
+                command.ExecuteNonQuery();
+                command.CommandText = "UPDATE Frames SET IsPinned=1 WHERE Id=$id";
+                var parameter = command.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Text);
+                foreach (var id in ids.Distinct())
+                {
+                    token.ThrowIfCancellationRequested();
+                    parameter.Value = id.ToString();
+                    if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Mục đã bị xóa. Vui lòng tải lại thư viện.");
+                }
+                token.ThrowIfCancellationRequested();
+                transaction.Commit();
+            }
+            return Task.CompletedTask;
+        }
+
   readonly SqliteDatabase db;public SqliteFrameRepository(SqliteDatabase db){this.db=db;}
   public async Task<Frame> GetAsync(Guid id,CancellationToken t)=>(await GetAllAsync(t)).FirstOrDefault(x=>x.Id==id);
   public Task<IReadOnlyList<Frame>> GetAllAsync(CancellationToken t)

@@ -38,7 +38,7 @@ namespace PhotoBooth.Business.Services
                 settings = value?.Clone() ?? new BeautySettings();
                 generation++;
                 failed = false;
-                if (!settings.HasEffect) pending = null;
+                if (!settings.HasLiveEffect) pending = null;
                 resetProcessor = running;
             }
             processor.Reset();
@@ -51,7 +51,7 @@ namespace PhotoBooth.Business.Services
             var publishRaw = false;
             lock (sync)
             {
-                if (!settings.HasEffect || failed) publishRaw = true;
+                if (!settings.HasLiveEffect || failed) publishRaw = true;
                 else
                 {
                     pending = new PendingFrame(frame, token, generation);
@@ -97,10 +97,11 @@ namespace PhotoBooth.Business.Services
                 {
                     var output = await processor.ProcessAsync(item.Frame.ImageData, snapshot, item.Token).ConfigureAwait(false);
                     var elapsed = ElapsedMilliseconds(started);
-                    var current = false;
-                    lock (sync) current = item.Generation == generation && settings.HasEffect && !failed;
-                    if (!current || item.Token.IsCancellationRequested) continue;
-                    Publish(CloneWithImage(item.Frame, output ?? item.Frame.ImageData), true, elapsed);
+                    lock (sync)
+                    {
+                        if (item.Generation != generation || !settings.HasLiveEffect || failed || item.Token.IsCancellationRequested) continue;
+                        Publish(item.Frame, output?.BeautyApplied == true, elapsed, output);
+                    }
                 }
                 catch (OperationCanceledException) when (item.Token.IsCancellationRequested) { }
                 catch (Exception error)
@@ -122,24 +123,9 @@ namespace PhotoBooth.Business.Services
             }
         }
 
-        void Publish(LiveViewFrame frame, bool beautyApplied, double elapsedMilliseconds)
+        void Publish(LiveViewFrame frame, bool beautyApplied, double elapsedMilliseconds, LiveBeautyPixels pixels = null)
         {
-            FrameReady?.Invoke(this, new LiveBeautyPreviewFrameEventArgs(frame, beautyApplied, elapsedMilliseconds));
-        }
-
-        static LiveViewFrame CloneWithImage(LiveViewFrame source, byte[] image)
-        {
-            return new LiveViewFrame
-            {
-                ImageData = image,
-                Width = source.Width,
-                Height = source.Height,
-                Rotation = source.Rotation,
-                FocusX = source.FocusX,
-                FocusY = source.FocusY,
-                IsFocused = source.IsFocused,
-                TimestampUtc = source.TimestampUtc
-            };
+            FrameReady?.Invoke(this, new LiveBeautyPreviewFrameEventArgs(frame, beautyApplied, elapsedMilliseconds, pixels));
         }
 
         static double ElapsedMilliseconds(long started) =>

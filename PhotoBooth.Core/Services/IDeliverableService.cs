@@ -14,6 +14,7 @@ namespace PhotoBooth.Core.Services
         Task<Deliverable> GetAsync(Guid boothSessionId, string deliverableId, CancellationToken token);
         Task<IReadOnlyList<Deliverable>> GetByBoothSessionAsync(Guid boothSessionId, CancellationToken token);
         Task UpdateSharePathAsync(string deliverableId, string sharePath, CancellationToken token);
+        Task UpdateRemoteStateAsync(string deliverableId, string state, string error, DateTime? uploadedAtUtc, CancellationToken token);
         Task<DeliverableAsset> AddAssetAsync(string deliverableId, string localPath, string role, IReadOnlyList<string> sourceAssetIds, CancellationToken token);
     }
 }

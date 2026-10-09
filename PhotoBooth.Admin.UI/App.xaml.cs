@@ -7,16 +7,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PhotoBooth.Admin.UI.Services;
 using PhotoBooth.Admin.UI.ViewModels;
+using PhotoBooth.Core.Models;
 using PhotoBooth.Core.Services;
-using PhotoBooth.Customer.UI;
-using PhotoBooth.Customer.UI.ViewModels;
 using PhotoBooth.Infrastructure;
 using PhotoBooth.Infrastructure.Logging;
 using PhotoBooth.Infrastructure.Services;
 using PhotoBooth.Shared;
-#if !TRIAL_BUILD
-using Velopack;
-#endif
+using PhotoBooth.Customer.UI;
 
 namespace PhotoBooth.Admin.UI
 {
@@ -25,11 +22,18 @@ namespace PhotoBooth.Admin.UI
         private ServiceProvider provider;
         private string dataDirectory;
         private int shuttingDown;
+        private static bool uiSmoke;
+        private CancellationTokenSource configurationSyncCancellation;
         internal IServiceProvider Services => provider;
 
         [STAThread]
         private static void Main(string[] args)
         {
+            if (args != null && args.Length > 0 && string.Equals(args[0], "--delivery-smoke", StringComparison.Ordinal))
+            {
+                Environment.ExitCode = DeliverySmoke.Run();
+                return;
+            }
             if (args != null && args.Length > 0 && string.Equals(args[0], "--camera-smoke", StringComparison.Ordinal))
             {
                 Environment.ExitCode = RunCameraSmoke();
@@ -42,14 +46,14 @@ namespace PhotoBooth.Admin.UI
                 Environment.ExitCode = VideoService.RunEncoderCommand(args);
                 return;
             }
-#if !TRIAL_BUILD
-            VelopackApp.Build().Run();
-#endif
 
-            var instanceDataDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PhotoBooth",
-                "Data");
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+            uiSmoke = Array.Exists(args ?? new string[0], value => value == "--ui-smoke");
+            if (uiSmoke)
+            {
+                var smokeApp = new App(); smokeApp.InitializeComponent(); smokeApp.Run(); return;
+            }
+            var instanceDataDirectory = DesktopApplicationDefaults.ResolveDataDirectory();
             using (var instance = SingleInstanceCoordinator.TryAcquire(instanceDataDirectory))
             {
                 if (instance == null) return;
@@ -86,7 +90,7 @@ namespace PhotoBooth.Admin.UI
             finally { try { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); if (Directory.Exists(root)) Directory.Delete(root, true); } catch { } }
         }
 
-        protected override void OnStartup(StartupEventArgs e)
+        protected override async void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
@@ -107,11 +111,7 @@ namespace PhotoBooth.Admin.UI
 
             AppDomain.CurrentDomain.ProcessExit += (s, x) => ShutdownCamera();
 
-            dataDirectory = Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                "PhotoBooth",
-                "Data");
+            dataDirectory = uiSmoke ? Path.Combine(Path.GetTempPath(), "MiuPhotoBooth-UiSmoke-" + Guid.NewGuid().ToString("N")) : DesktopApplicationDefaults.ResolveDataDirectory();
 
             DispatcherUnhandledException += (s, x) =>
             {
@@ -156,11 +156,15 @@ namespace PhotoBooth.Admin.UI
 
             var applicationOptions = new ApplicationOptions
                 {
-                    ApplicationName = "PhotoBooth",
+                    ApplicationName = "MiuPhotoBooth",
+                    UseFakeCamera = uiSmoke || Environment.GetEnvironmentVariable("PHOTOBOOTH_USE_FAKE_CAMERA") == "1",
                     DataDirectory = dataDirectory,
                     DatabasePath = Path.Combine(
                         dataDirectory,
-                        "photobooth.db"),
+                        DesktopApplicationDefaults.DatabaseFileName),
+                    PhotoApiBaseUrl = DesktopApplicationDefaults.ResolvePhotoApiBaseUrl(),
+                    UploadMaxRetries = EnvironmentInteger("PHOTOBOOTH_UPLOAD_MAX_RETRIES", 5, 1, 10),
+                    UploadTimeoutSeconds = EnvironmentInteger("PHOTOBOOTH_UPLOAD_TIMEOUT_SECONDS", 120, 15, 1800),
                     RestartLiveViewDuringRecovery = false
                 };
             // Encoding runs in a child process so native FFmpeg failures cannot
@@ -172,13 +176,9 @@ namespace PhotoBooth.Admin.UI
             services.AddPhotoBoothInfrastructure(applicationOptions);
 
             services.AddCustomerMode();
-
             services.AddSingleton<IFileDialogService, FileDialogService>();
             services.AddSingleton<ICustomerModeController, CustomerModeController>();
-#if !TRIAL_BUILD
-            services.AddSingleton<VelopackUpdateService>();
-            services.AddSingleton<IUpdateService>(x => x.GetRequiredService<VelopackUpdateService>());
-#endif
+
 
             services.AddSingleton<HomeViewModel>();
             services.AddSingleton<EventFramePickerViewModel>();
@@ -189,56 +189,123 @@ namespace PhotoBooth.Admin.UI
             services.AddSingleton<PresetManagerViewModel>();
             services.AddSingleton<BeautyViewModel>();
             services.AddSingleton<PrinterManagerViewModel>();
+            services.AddSingleton<BoothAccessViewModel>();
             services.AddSingleton<DiagnosticsViewModel>();
             services.AddSingleton<LocalShareViewModel>();
+            services.AddSingleton<ShareSettingsViewModel>();
+            services.AddSingleton<AnalyticsViewModel>();
             services.AddSingleton<InterfaceViewModel>();
             services.AddSingleton<AboutViewModel>();
+            services.AddSingleton<DeviceEnrollmentViewModel>();
             services.AddSingleton<MainViewModel>();
 
+            services.AddTransient<LoginWindow>();
             services.AddTransient<MainWindow>();
 
             provider = services.BuildServiceProvider();
 
             provider.InitializePhotoBooth();
+            provider.GetRequiredService<IPcAuthenticationService>()
+                .EnsureDevelopmentAccountsAsync(CancellationToken.None)
+                .GetAwaiter().GetResult();
 
-            // Không còn AccessWindow/Login/PIN.
-            // Khởi động trực tiếp vào Admin.
-            var window = provider.GetRequiredService<MainWindow>();
+            if (!uiSmoke && !EnsureDeviceReady())
+            {
+                Shutdown();
+                return;
+            }
 
-            window.DataContext =
-                provider.GetRequiredService<MainViewModel>();
+            // Remove legacy saved login even after an unclean previous exit.
+            await provider.GetRequiredService<IPcAuthenticationService>().TryResumeAsync(CancellationToken.None);
+            await provider.GetRequiredService<ICustomerModeController>().StartAsync();
+            if (uiSmoke)
+            {
+                var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                timer.Tick += (_, __) => { timer.Stop(); Shutdown(MainWindow is PhotoBooth.Customer.UI.MainWindow && MainWindow.IsVisible ? 0 : 1); };
+                timer.Start();
+                return;
+            }
 
-            MainWindow = window;
+            configurationSyncCancellation = new CancellationTokenSource();
+            _ = RunConfigurationSyncAsync(configurationSyncCancellation.Token);
 
-            ShutdownMode = ShutdownMode.OnMainWindowClose;
 
-            window.Show();
+        }
 
-#if !TRIAL_BUILD
-            _ = CheckForUpdatesAsync();
+        private bool EnsureDeviceReady()
+        {
+            var identityService = provider.GetRequiredService<IDeviceIdentityService>();
+            var needsReauthentication = false;
+            DeviceIdentity identity;
+            try { identity = identityService.GetAsync(CancellationToken.None).GetAwaiter().GetResult(); }
+            catch (Exception exception)
+            {
+                provider.GetService<ILogger<App>>()?.LogWarning(exception, "Device readiness could not be read during startup.");
+                identity = null;
+            }
+
+            if (identity?.EnrollmentState == DeviceEnrollmentState.Enrolled)
+            {
+                CommercialAccessDecision access = null;
+                try { access = provider.GetRequiredService<ICommercialEntitlementService>().CheckAppAccessAsync(CancellationToken.None).GetAwaiter().GetResult(); }
+                catch (Exception exception) { provider.GetService<ILogger<App>>()?.LogWarning(exception, "Device security state could not be checked during startup."); }
+                if (access?.BlockReason != CommercialAccessBlockReason.DeviceLocked &&
+                    access?.BlockReason != CommercialAccessBlockReason.DeviceNotEnrolled) return true;
+                needsReauthentication = access?.BlockReason == CommercialAccessBlockReason.DeviceNotEnrolled;
+
+                if (access?.BlockReason == CommercialAccessBlockReason.DeviceLocked)
+                {
+                    var unlockViewModel = provider.GetRequiredService<DeviceEnrollmentViewModel>();
+                    unlockViewModel.PrepareForUnlock();
+                    MessageBox.Show(
+                        "Thiết bị đang bị khóa tạm thời. Chủ tài khoản cần xác minh lại trên đúng máy này để mở khóa an toàn.",
+                        "Thiết bị đang bị khóa",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    var unlockWindow = new DeviceEnrollmentWindow(unlockViewModel) { WindowStartupLocation = WindowStartupLocation.CenterScreen };
+                    unlockWindow.ShowDialog();
+                    return unlockViewModel.CompletedIdentity?.EnrollmentState == DeviceEnrollmentState.Enrolled;
+                }
+            }
+
+            var setupViewModel = provider.GetRequiredService<DeviceEnrollmentViewModel>();
+            if (needsReauthentication) setupViewModel.PrepareForReauthentication();
+            var setup = new DeviceEnrollmentWindow(setupViewModel)
+            {
+                WindowStartupLocation = WindowStartupLocation.CenterScreen
+            };
+            setup.ShowDialog();
+
+            try { identity = identityService.GetAsync(CancellationToken.None).GetAwaiter().GetResult(); }
+            catch { identity = null; }
+            if (identity?.EnrollmentState == DeviceEnrollmentState.Enrolled &&
+                (!needsReauthentication || setupViewModel.CompletedIdentity?.EnrollmentState == DeviceEnrollmentState.Enrolled)) return true;
+
+#if DEBUG
+            // Development accounts remain available for local UI and hardware-independent testing.
+            return true;
+#else
+            MessageBox.Show(
+                "Máy này chưa được kết nối với cửa hàng. Hãy hoàn tất thiết lập thiết bị trước khi đăng nhập.",
+                "Chưa thể bắt đầu",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return false;
 #endif
         }
 
-#if !TRIAL_BUILD
-        private async System.Threading.Tasks.Task CheckForUpdatesAsync()
+        private async System.Threading.Tasks.Task RunConfigurationSyncAsync(CancellationToken token)
         {
             try
             {
-                var updater = provider.GetRequiredService<VelopackUpdateService>();
-                if (!await updater.DownloadUpdateAsync(CancellationToken.None))
-                    return;
-
-                ShutdownCamera();
-                updater.ApplyUpdateAndRestart();
+                await provider.GetRequiredService<IDeviceConfigurationSyncService>().SyncAsync(token).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
             catch (Exception exception)
             {
-                provider?.GetService<ILogger<App>>()?.LogWarning(
-                    exception,
-                    "Automatic update check failed; application startup will continue.");
+                provider?.GetService<ILogger<App>>()?.LogWarning(exception, "Startup configuration sync failed; the local workflow remains available.");
             }
         }
-#endif
 
         protected override void OnSessionEnding(
             SessionEndingCancelEventArgs e)
@@ -252,13 +319,24 @@ namespace PhotoBooth.Admin.UI
             if (Interlocked.Exchange(ref shuttingDown, 1) != 0)
                 return;
 
+            try { configurationSyncCancellation?.Cancel(); } catch { }
+            // Revoke locally first; network logout is best-effort and bounded.
+            using (var logoutTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+            {
+                try { provider?.GetService<IPcAuthenticationService>()?.ForgetAsync(logoutTimeout.Token).GetAwaiter().GetResult(); }
+                catch (Exception exception) { provider?.GetService<ILogger<App>>()?.LogWarning(exception, "Session cleanup during exit failed."); }
+            }
+            var context = provider?.GetService<PhotoBooth.Customer.UI.Workflow.CustomerWorkflowContext>();
+            if (context != null) { context.Authorization = null; context.ManagerSession = null; context.PreviousPcSession = null; }
+            provider?.GetService<IPcSessionContext>()?.SignOut();
+
             using (var timeout =
                    new CancellationTokenSource(TimeSpan.FromSeconds(5)))
             {
                 try
                 {
                     provider?
-                        .GetService<IRecoveryService>()?
+                        .GetService<IRemoteDeliveryQueue>()?
                         .StopAsync(timeout.Token)
                         .GetAwaiter()
                         .GetResult();
@@ -270,8 +348,20 @@ namespace PhotoBooth.Admin.UI
                 try
                 {
                     provider?
-                        .GetService<CaptureViewModel>()?
-                        .ShutdownAsync(timeout.Token)
+                        .GetService<IEventExportQueue>()?
+                        .StopAsync(timeout.Token)
+                        .GetAwaiter()
+                        .GetResult();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    provider?
+                        .GetService<IRecoveryService>()?
+                        .StopAsync(timeout.Token)
                         .GetAwaiter()
                         .GetResult();
                 }
@@ -315,5 +405,14 @@ namespace PhotoBooth.Admin.UI
             catch { }
             try { Process.GetCurrentProcess().Kill(); } catch { }
         }
+
+        private static int EnvironmentInteger(string name, int fallback, int minimum, int maximum)
+        {
+            int parsed;
+            return int.TryParse(Environment.GetEnvironmentVariable(name), out parsed)
+                ? Math.Max(minimum, Math.Min(maximum, parsed))
+                : fallback;
+        }
+
     }
 }

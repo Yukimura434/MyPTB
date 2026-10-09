@@ -13,6 +13,7 @@ namespace PhotoBooth.Core.Services
         Task<IReadOnlyList<PhotoEvent>> GetAllAsync(CancellationToken token);
         Task<PhotoEvent> GetDefaultAsync(CancellationToken token);
         Task SetDefaultAsync(Guid eventId, CancellationToken token);
+        Task<PhotoEvent> TransitionAsync(Guid eventId, string lifecycleState, CancellationToken token);
     }
 
     public interface IBoothSessionService

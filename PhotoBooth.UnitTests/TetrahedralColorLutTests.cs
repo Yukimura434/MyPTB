@@ -54,6 +54,11 @@ namespace PhotoBooth.UnitTests
                 var now=DateTime.UtcNow;var preset=new Preset{Id=Guid.NewGuid(),Name="Invert",CaptureCountdownSeconds=3,CreatedAtUtc=now,ModifiedAtUtc=now};
                 await new SqlitePresetRepository(database).SaveAsync(preset,CancellationToken.None);
                 await service.AttachAsync(preset.Id,imported.Asset.Id,CancellationToken.None);
+                using (var live = await service.GetLiveAsync(preset.Id, CancellationToken.None))
+                {
+                    Assert.NotNull(live); Assert.Equal(2, live.Metadata.CubeSize); Assert.Equal(24, live.Values.Length);
+                }
+                Assert.Null(await service.GetLiveAsync(Guid.NewGuid(), CancellationToken.None));
                 var source=Path.Combine(root,"source.png");var output=Path.Combine(root,"output.png");
                 using(var bitmap=new Bitmap(24,16)){using(var graphics=Graphics.FromImage(bitmap))graphics.Clear(Color.Red);bitmap.Save(source,ImageFormat.Png);}
 
@@ -62,6 +67,8 @@ namespace PhotoBooth.UnitTests
                 using(var original=new Bitmap(source)){var pixel=original.GetPixel(12,8);Assert.InRange(pixel.R,250,255);Assert.InRange(pixel.G,0,5);Assert.InRange(pixel.B,0,5);}
                 using(var rendered=new Bitmap(output)){Assert.Equal(24,rendered.Width);Assert.Equal(16,rendered.Height);var pixel=rendered.GetPixel(12,8);Assert.InRange(pixel.R,126,129);Assert.InRange(pixel.G,126,129);Assert.InRange(pixel.B,126,129);}
                 await Assert.ThrowsAsync<InvalidDataException>(()=>service.ApplyToFileAsync(preset.Id,source,Path.Combine(root,"forbidden.mp4"),0.5f,CancellationToken.None));
+                File.AppendAllText(resolver.GetFullPath(imported.Asset.RelativePath), "# modified after validation\n");
+                Assert.Null(await service.GetLiveAsync(preset.Id, CancellationToken.None));
             }
             finally{try{Directory.Delete(root,true);}catch{}}
         }
@@ -80,6 +87,7 @@ namespace PhotoBooth.UnitTests
                 {
                     cancellation.Cancel();
                     Assert.Null(await service.RenderPreviewAsync(Guid.NewGuid(),source,0.5f,cancellation.Token));
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.GetLiveAsync(Guid.NewGuid(), cancellation.Token));
                 }
             }
             finally{try{Directory.Delete(root,true);}catch{}}

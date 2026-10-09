@@ -36,7 +36,10 @@ namespace PhotoBooth.Business.Services
                     using (var graphics = Graphics.FromImage(canvas))
                     {
                         graphics.Clear(Color.White);
+                        graphics.CompositingQuality = CompositingQuality.HighQuality;
                         graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                        graphics.SmoothingMode = SmoothingMode.HighQuality;
                         foreach (var slot in (frame.Slots ?? new FrameSlot[0]).OrderBy(x => x.Index))
                         {
                             string path;
@@ -92,7 +95,21 @@ namespace PhotoBooth.Business.Services
             var centerX=MediaTransformGeometry.Clamp(slot.MediaCenterX, width/(2*image.Width), 1-width/(2*image.Width));
             var centerY=MediaTransformGeometry.Clamp(slot.MediaCenterY, height/(2*image.Height), 1-height/(2*image.Height));
             var crop=new RectangleF((float)(centerX*image.Width-width/2),(float)(centerY*image.Height-height/2),(float)width,(float)height);
-            graphics.DrawImage(image, new Rectangle(slot.X, slot.Y, slot.Width, slot.Height), crop, GraphicsUnit.Pixel);
+            // GDI+ samples outside the source rectangle when bicubic scaling is
+            // used. Its default outside color is transparent black, which can
+            // create a one-pixel dark fringe at a slot edge. Mirroring edge
+            // pixels keeps the crop opaque without stretching or changing its
+            // aspect ratio.
+            using (var attributes = new ImageAttributes())
+            {
+                attributes.SetWrapMode(WrapMode.TileFlipXY);
+                graphics.DrawImage(
+                    image,
+                    new Rectangle(slot.X, slot.Y, slot.Width, slot.Height),
+                    crop.X, crop.Y, crop.Width, crop.Height,
+                    GraphicsUnit.Pixel,
+                    attributes);
+            }
         }
     }
 }

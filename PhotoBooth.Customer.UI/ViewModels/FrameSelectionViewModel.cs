@@ -82,6 +82,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
     public sealed class FrameSelectionViewModel : ObservableObject
     {
+        public bool HasCustomerHeader => true;
         readonly CustomerWorkflowStateMachine machine;
         readonly CustomerWorkflowContext context;
         readonly IFrameService frames;
@@ -115,6 +116,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         Task presetThumbnailTask = Task.CompletedTask;
         Task presetApplyTask = Task.CompletedTask;
         bool pageStopping;
+        bool loadedForCurrentEntry;
         string preview;
         string error;
         bool printing;
@@ -161,7 +163,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
             machine.StateChanged += OnWorkflowStateChanged;
         }
 
-        public event EventHandler<string> PrinterConnectionRequired;
         public ObservableCollection<Frame> PinnedFrames { get; } = new ObservableCollection<Frame>();
         public ObservableCollection<CustomerPresetChoice> PinnedPresets { get; } = new ObservableCollection<CustomerPresetChoice>();
         public ObservableCollection<CapturedPhotoChoice> CapturedPhotos { get; } = new ObservableCollection<CapturedPhotoChoice>();
@@ -176,7 +177,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             {
                 if(!Set(ref selectedPreset,value))return;
                 CancelStagedPresetPreview();
-                presetStrengthPercent=50d;Raise(nameof(PresetStrengthPercent));Raise(nameof(PresetStrengthText));
+                presetStrengthPercent=context.PresetStrength(value?.Preset)*100d;Raise(nameof(PresetStrengthPercent));Raise(nameof(PresetStrengthText));
                 PresetStatus=value==null?null:(ActivePhoto==null?"Đã chọn “"+value.Name+"”. Chọn một ảnh để xem trước, hoặc áp dụng cho tất cả.":"Đang xem trước “"+value.Name+"” trên ảnh đang chọn.");
                 NotifyPresetState();QueuePresetEffectPreview();
             }
@@ -185,7 +186,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string ErrorMessage { get => error; private set { Set(ref error, value); Raise(nameof(HasError)); } }
         public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
         public bool IsPrinting { get => printing; private set { Set(ref printing, value); printCommand.NotifyCanExecuteChanged();NotifyPresetState(); } }
-        public bool PrintingEnabled { get => printingEnabled; private set => Set(ref printingEnabled, value); }
+        public bool PrintingEnabled { get => printingEnabled; private set { if(Set(ref printingEnabled,value)){Raise(nameof(CanChangePrintCopies));System.Windows.Input.CommandManager.InvalidateRequerySuggested();} } }
+        public bool CanChangePrintCopies => PrintingEnabled && context.PrintPolicyMode == EventPrintPolicyMode.Manual;
         public bool FramesPanelActive { get=>framesPanelActive; private set { if(Set(ref framesPanelActive,value)){Raise(nameof(PresetsPanelActive));} } }
         public bool PresetsPanelActive => !FramesPanelActive;
         public bool HasPinnedPresets => PinnedPresets.Count>0;
@@ -203,7 +205,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string PresetStrengthText=>Math.Round(PresetStrengthPercent)+"%";
         public bool CanApplyPreset=>SelectedPreset!=null&&ActivePhoto!=null&&!IsPrinting&&!IsPresetBusy;
         public bool CanApplyPresetToAll=>SelectedPreset!=null&&CapturedPhotos.Count>0&&!IsPrinting&&!IsPresetBusy;
-        public int PrintCopies { get => printCopies; set => Set(ref printCopies, Math.Max(1, Math.Min(99, value))); }
+        public int PrintCopies { get => printCopies; set { if(Set(ref printCopies, Math.Max(1, Math.Min(Math.Max(1,context.MaximumPrintCopies), value))))System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
         public int ZoomPercent
         {
             get => zoomPercent;
@@ -241,43 +243,54 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             if (machine.State == CustomerWorkflowState.Preview)
             {
-                lock (operationSync) pageStopping = false;
+                lock (operationSync)
+                {
+                    pageStopping = false;
+                    loadedForCurrentEntry = false;
+                }
                 return;
             }
-            if (machine.State == CustomerWorkflowState.FrameSelection) StartLoad();
+            if (machine.State == CustomerWorkflowState.FrameSelection) Activate();
         }
 
-        void StartLoad()
+        // The view model can be resolved for the first time after the state machine has
+        // already entered FrameSelection. Activation by the shell is therefore the
+        // authoritative load trigger; the state event is only an eager fast path.
+        public void Activate()
         {
             lock (operationSync)
             {
-                if (pageStopping) return;
+                if (loadedForCurrentEntry && !pageStopping) return;
+                pageStopping = false;
+                loadedForCurrentEntry = true;
                 loadTask = Load();
             }
         }
 
-        async Task Load()
+        Task Load()
         {
             try
             {
-                ErrorMessage = null; PrintCopies = 1; ZoomPercent = 100; PrintingEnabled = context.PrintingEnabled;
+                ErrorMessage = null; PrintCopies = Math.Max(1, context.RequestedPrintCopies); ZoomPercent = 100; PrintingEnabled = context.PrintingEnabled;
                 CancelStagedPresetPreview();CancelPresetBackgroundWork();
+                selected = null; Raise(nameof(SelectedFrame)); PreviewPath = null;
                 PinnedFrames.Clear();PinnedPresets.Clear();CapturedPhotos.Clear();FrameSlots.Clear();
                 SelectedPreset=null;FramesPanelActive=true;PresetStatus=null;
                 var sourceFiles = GetSourceFiles();
+                if (sourceFiles.Count == 0) { ErrorMessage = "Không tìm thấy ảnh vừa chụp. Hãy quay lại và chụp lại lượt này."; return Task.CompletedTask; }
                 for (var i = 0; i < sourceFiles.Count; i++) CapturedPhotos.Add(new CapturedPhotoChoice(sourceFiles[i], i + 1));
-                var availablePresets=await presets.GetAllAsync(CancellationToken.None);
+                var availablePresets=context.AvailablePresets??new Preset[0];
                 foreach(var preset in availablePresets.Where(x=>x.IsPinned).OrderBy(x=>x.Name).ThenBy(x=>x.Id))PinnedPresets.Add(new CustomerPresetChoice{Preset=preset});
                 Raise(nameof(HasPinnedPresets));NotifyPresetState();
                 presetThumbnailTask=TrackPresetOperation(LoadPresetThumbnails(sourceFiles.FirstOrDefault()));
-                var usable = (await frames.GetAllAsync(CancellationToken.None)).Where(x => x.Slots != null && x.Slots.Count > 0 && x.PixelWidth > 0 && x.PixelHeight > 0 && !string.IsNullOrWhiteSpace(x.SourcePath) && File.Exists(x.SourcePath)).OrderByDescending(x => x.CreatedAtUtc).ToList();
-                var values = usable.Where(x => x.IsPinned).Take(10).ToList();
-                if (values.Count == 0 && usable.Count > 0) values.Add(usable[0]);
+                var usable = (context.AvailableFrames??new Frame[0]).Where(x => x.Slots != null && x.Slots.Count > 0 && x.PixelWidth > 0 && x.PixelHeight > 0 && !string.IsNullOrWhiteSpace(x.SourcePath) && File.Exists(x.SourcePath)).OrderByDescending(x => x.CreatedAtUtc).ToList();
+                var values = usable;
                 foreach (var frame in values) PinnedFrames.Add(frame);
-                if (values.Count == 0) { ErrorMessage = "Không tìm thấy frame hợp lệ. Hãy nhập lại frame trong Admin."; return; }
+                if (values.Count == 0) { ErrorMessage = "Không tìm thấy frame hợp lệ. Hãy nhập lại frame trong trang quản lý."; return Task.CompletedTask; }
                 SelectedFrame = context.Settings?.DefaultFrameId.HasValue == true ? values.FirstOrDefault(x => x.Id == context.Settings.DefaultFrameId.Value) ?? values[0] : values[0];
             }
             catch (Exception e) { Fail(e, "Không thể tải frame"); }
+            return Task.CompletedTask;
         }
 
         void BuildSlots(Frame frame)
@@ -361,7 +374,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 {
                     try
                     {
-                        var bytes=await colorLuts.RenderPreviewAsync(choice.Preset.LutAssetId,sourcePath,ColorLutData.DefaultStrength,cancellation.Token);
+                        var snapshot=GetLutSnapshot(choice.Preset);
+                        var bytes=!string.IsNullOrWhiteSpace(snapshot)
+                            ?await colorLuts.RenderSnapshotPreviewAsync(snapshot,sourcePath,context.PresetStrength(choice.Preset),cancellation.Token)
+                            :await colorLuts.RenderPreviewAsync(choice.Preset.LutAssetId,sourcePath,context.PresetStrength(choice.Preset),cancellation.Token);
                         if(cancellation.IsCancellationRequested||bytes==null||!PinnedPresets.Contains(choice))return;choice.PreviewBytes=bytes;
                     }
                     catch(OperationCanceledException){throw;}
@@ -398,7 +414,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try
             {
                 await Task.Delay(140,cancellation.Token);
-                var bytes=await colorLuts.RenderPreviewAsync(choice.Preset.LutAssetId,photo.PicturePath,strength,cancellation.Token);
+                var snapshot=GetLutSnapshot(choice.Preset);
+                var bytes=!string.IsNullOrWhiteSpace(snapshot)
+                    ?await colorLuts.RenderSnapshotPreviewAsync(snapshot,photo.PicturePath,strength,cancellation.Token)
+                    :await colorLuts.RenderPreviewAsync(choice.Preset.LutAssetId,photo.PicturePath,strength,cancellation.Token);
                 if(cancellation.IsCancellationRequested||bytes==null)return;
                 var directory=WorkingDirectory();path=Path.Combine(directory,".preset-preview-"+Guid.NewGuid().ToString("N")+".jpg");
                 await Task.Run(()=>File.WriteAllBytes(path,bytes));
@@ -431,7 +450,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 foreach(var photo in targets)
                 {
                     var destination=Path.Combine(WorkingDirectory(),"preset-photo-"+photo.Number+"-"+Guid.NewGuid().ToString("N")+".jpg");
-                    await colorLuts.ApplyToFileAsync(choice.Preset.Id,photo.PicturePath,destination,strength,CancellationToken.None);
+                    var snapshot=GetLutSnapshot(choice.Preset);
+                    if(!string.IsNullOrWhiteSpace(snapshot))await colorLuts.ApplySnapshotToFileAsync(snapshot,photo.PicturePath,destination,strength,CancellationToken.None);
+                    else await colorLuts.ApplyAssetToFileAsync(choice.Preset.LutAssetId,photo.PicturePath,destination,strength,CancellationToken.None);
                     generated.Add(new KeyValuePair<CapturedPhotoChoice,string>(photo,destination));
                 }
                 foreach(var item in generated)
@@ -547,6 +568,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             lock (operationSync)
             {
                 pageStopping = true;
+                loadedForCurrentEntry = false;
                 previews = previewOperations.ToArray();
                 presetTasks = presetOperations.ToArray();
                 loading = loadTask;
@@ -568,7 +590,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if (token.IsCancellationRequested) return;
                 if (context.BoothSession == null || SelectedFrame == null) return;
                 if (final && !CanFinish) throw new InvalidOperationException("Hãy đặt ảnh vào tất cả các ô trước khi tiếp tục.");
-                var all = await presets.GetAllAsync(token);
+                var all = context.AvailablePresets ?? new Preset[0];
                 context.DefaultPreset = context.Settings?.DefaultPresetId.HasValue == true ? all.FirstOrDefault(x => x.Id == context.Settings.DefaultPresetId.Value) : all.FirstOrDefault(x => x.IsDefault);
                 var sourceFiles = GetSourceFiles();
                 var workingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory) ? BoothSessionWorkspace.GetPath(context.BoothSession) : context.WorkingDirectory;
@@ -597,7 +619,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 var finalComposite = BoothSessionWorkspace.PromoteFinal(context.BoothSession, composed);
                 BoothSessionWorkspace.ReplaceWorkspaceFiles(context.BoothSession, promoted);
                 context.CurrentShots = currentShots.Select(x=>new CapturedShot{Id=x.Id,Sequence=x.Sequence,PicturePath=promoted.TryGetValue(x.PicturePath,out var picture)?picture:x.PicturePath,VideoPath=x.HasVideo&&promoted.TryGetValue(x.VideoPath,out var video)?video:x.VideoPath,PictureAssetId=x.PictureAssetId,VideoAssetId=x.VideoAssetId,CapturedAtUtc=x.CapturedAtUtc}).ToList(); sourceFiles = context.CurrentShots.Select(x=>x.PicturePath).ToList();
-                PreviewPath = finalComposite; context.BoothSession.FinalImagePath = finalComposite; await sessions.UpdateAsync(context.BoothSession, token);
+                PreviewPath = finalComposite; context.BoothSession.FinalImagePath = finalComposite;
                 log.LogInformation("Frame selected {Frame} ({ImageId}, originals {OriginalCount})", SelectedFrame.Name, context.BoothSession.FinalImageId, sourceFiles.Count);
             }
             finally { composeGate.Release(); }
@@ -615,6 +637,12 @@ namespace PhotoBooth.Customer.UI.ViewModels
             IsPinned=SelectedFrame.IsPinned, CreatedAtUtc=SelectedFrame.CreatedAtUtc, EventId=SelectedFrame.EventId,
             Slots=FrameSlots.Select(x=>x.Slot).ToList() };
 
+        string GetLutSnapshot(Preset preset)
+        {
+            if(preset==null||context.LutSnapshotFiles==null)return null;
+            return context.LutSnapshotFiles.TryGetValue(preset.LutAssetId,out var path)?path:null;
+        }
+
         async Task Finish()
         {
             try
@@ -626,52 +654,64 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     context.BoothSession.Status = BoothSessionStates.Finalizing;
                     await sessions.UpdateAsync(context.BoothSession, CancellationToken.None);
                 }
-                var transformedFrame = FrameWithTransforms();
-                var slotShotIds = FrameSlots.ToDictionary(
-                    x => x.Slot.Index,
-                    x => FindShot(x.Photo?.PicturePath)?.Id);
-                await Compose(true, CancellationToken.None);
-                if (await features.IsEnabledAsync("Video", CancellationToken.None))
+                if (string.IsNullOrWhiteSpace(context.DeliverableId))
                 {
-                    var assignments = new Dictionary<int, string>();
-                    foreach (var slot in slotShotIds)
+                    var transformedFrame = FrameWithTransforms();
+                    var slotShotIds = FrameSlots.ToDictionary(
+                        x => x.Slot.Index,
+                        x => FindShot(x.Photo?.PicturePath)?.Id);
+                    await Compose(true, CancellationToken.None);
+                    if (context.VideoEnabled && await features.IsEnabledAsync("Video", CancellationToken.None))
                     {
-                        var shot = context.CurrentShots.FirstOrDefault(x => string.Equals(x.Id, slot.Value, StringComparison.Ordinal));
-                        if (shot == null || !shot.HasVideo || !File.Exists(shot.VideoPath))
-                            throw new InvalidOperationException("Video tương ứng với ảnh ở ô " + (slot.Key + 1) + " không còn khả dụng.");
-                        assignments[slot.Key] = shot.VideoPath;
+                        var assignments = new Dictionary<int, string>();
+                        foreach (var slot in slotShotIds)
+                        {
+                            var shot = context.CurrentShots.FirstOrDefault(x => string.Equals(x.Id, slot.Value, StringComparison.Ordinal));
+                            if (shot == null || !shot.HasVideo || !File.Exists(shot.VideoPath))
+                                throw new InvalidOperationException("Video tương ứng với ảnh ở ô " + (slot.Key + 1) + " không còn khả dụng.");
+                            assignments[slot.Key] = shot.VideoPath;
+                        }
+                        var still = context.BoothSession?.FinalImagePath;
+                        if (string.IsNullOrWhiteSpace(still) || !File.Exists(still))
+                            throw new FileNotFoundException("Ảnh ghép cuối không còn khả dụng.", still);
+                        var destination = Path.Combine(Path.GetDirectoryName(still), Guid.NewGuid().ToString("N") + ".mp4");
+                        await videos.ComposeAsync(still, transformedFrame, assignments, destination, CancellationToken.None);
+                        var days = context.Settings?.BoothSessionRetentionDays ?? 30;
+                        var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
+                        var deliverable = await deliverables.CreateWithCompositeVideoAsync(
+                            context.BoothSession.Id, SelectedFrame.Id, context.BoothSession.FinalImageId, still,
+                            context.CurrentShots, destination, assignments.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                            expires, CancellationToken.None);
+                        context.DeliverableId = deliverable.Id;
                     }
-                    var still = context.BoothSession?.FinalImagePath;
-                    if (string.IsNullOrWhiteSpace(still) || !File.Exists(still))
-                        throw new FileNotFoundException("Ảnh ghép cuối không còn khả dụng.", still);
-                    var destination = Path.Combine(Path.GetDirectoryName(still), Guid.NewGuid().ToString("N") + ".mp4");
-                    await videos.ComposeAsync(still, transformedFrame, assignments, destination, CancellationToken.None);
-                    var days = context.Settings?.BoothSessionRetentionDays ?? 30;
-                    var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
-                    var deliverable = await deliverables.CreateWithCompositeVideoAsync(
-                        context.BoothSession.Id, SelectedFrame.Id, context.BoothSession.FinalImageId, still,
-                        context.CurrentShots, destination, assignments.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-                        expires, CancellationToken.None);
-                    context.DeliverableId = deliverable.Id;
+                    else
+                    {
+                        var days = context.Settings?.BoothSessionRetentionDays ?? 30; var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
+                        var deliverable = await deliverables.CreateAsync(context.BoothSession.Id, SelectedFrame.Id, context.BoothSession.FinalImageId, context.BoothSession.FinalImagePath, context.CurrentShots, expires, CancellationToken.None); context.DeliverableId = deliverable.Id;
+                    }
                 }
-                else if (string.IsNullOrWhiteSpace(context.DeliverableId))
-                {
-                    var days = context.Settings?.BoothSessionRetentionDays ?? 30; var expires = days > 0 ? (DateTime?)DateTime.UtcNow.AddDays(days) : null;
-                    var deliverable = await deliverables.CreateAsync(context.BoothSession.Id, SelectedFrame.Id, context.BoothSession.FinalImageId, context.BoothSession.FinalImagePath, context.CurrentShots, expires, CancellationToken.None); context.DeliverableId = deliverable.Id;
-                }
+                // Safe to repeat after a print failure. The deliverable registers the final
+                // media asset first; only then may BoothSessions.FinalImageAssetId reference it.
+                await sessions.UpdateAsync(context.BoothSession, CancellationToken.None);
                 machine.MoveTo(CustomerWorkflowState.Printing);
                 if (context.PrintingEnabled)
                 {
-                    var profiles = await printers.GetProfilesAsync(CancellationToken.None); var profile = profiles.SingleOrDefault(x => x.IsDefault);
-                    if (profile == null || !string.Equals(profile.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Default printer changed. Reconnect the printer.");
+                    var profiles = await printers.GetProfilesAsync(CancellationToken.None);
+                    var profile = context.ConnectedPrinterProfileId.HasValue
+                        ? profiles.SingleOrDefault(x => x.Id == context.ConnectedPrinterProfileId.Value)
+                        : profiles.SingleOrDefault(x => x.IsDefault && string.Equals(x.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase));
+                    if (profile == null || !string.Equals(profile.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Selected printer profile is no longer available.");
                     await printPipeline.ExecuteAsync(context.BoothSession.Id, profile.Id, Math.Max(1, PrintCopies), CancellationToken.None);
                 }
                 machine.MoveTo(CustomerWorkflowState.Complete);
             }
             catch (Exception e)
             {
-                if (machine.State == CustomerWorkflowState.Printing) machine.MoveTo(CustomerWorkflowState.FrameSelection);
-                Fail(e, e.Message);
+                var printFailed = machine.State == CustomerWorkflowState.Printing;
+                if (printFailed) machine.MoveTo(CustomerWorkflowState.FrameSelection);
+                Fail(e, printFailed
+                    ? "Không thể in ảnh. Vui lòng kiểm tra kết nối máy in rồi thử lại."
+                    : "Không thể hoàn tất ảnh. Vui lòng thử lại hoặc gọi nhân viên hỗ trợ.");
             }
             finally { IsPrinting = false; }
         }

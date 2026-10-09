@@ -104,6 +104,24 @@ namespace PhotoBooth.UnitTests
             Assert.Equal(0, service.BufferedBytes);
         }
 
+        [Fact]
+        public void Encoder_helper_prefers_the_current_product_executable_and_supports_legacy_builds()
+        {
+            var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var legacy = Path.Combine(root, "PhotoBooth.Admin.UI.exe");
+                File.WriteAllBytes(legacy, new byte[] { 1 });
+                Assert.Equal(legacy, VideoService.ResolveEncoderHelperPath(root));
+
+                var current = Path.Combine(root, "MiuPhotoBooth.exe");
+                File.WriteAllBytes(current, new byte[] { 1 });
+                Assert.Equal(current, VideoService.ResolveEncoderHelperPath(root));
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
         static int Find(byte[] source, byte[] value)
         {
             for (var i = 0; i <= source.Length - value.Length; i++)

@@ -40,7 +40,7 @@ namespace PhotoBooth.Business.Services
                 var number = Enumerable.Range(1, 99).FirstOrDefault(x => !used.Contains(x));
                 if (number == 0) throw new InvalidOperationException("The daily event limit (99) has been reached.");
                 var name = day + "_" + number; var folder = System.IO.Path.Combine(root, name);
-                return new Session { PresetId = presetId, StartedAtUtc = DateTime.UtcNow, UpdatedAtUtc=DateTime.UtcNow, OutputDirectory = folder, SessionName = name, SessionNumber = number, Kind=SessionKinds.Event, Status=BoothSessionStates.Active, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
+                return new Session { PresetId = presetId, StartedAtUtc = DateTime.UtcNow, UpdatedAtUtc=DateTime.UtcNow, OutputDirectory = folder, SessionName = name, SessionNumber = number, Kind=SessionKinds.Event, EventLifecycleState=PhotoEventLifecycleStates.Draft, Status=BoothSessionStates.Active, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
             }
             finally { SessionLock.Release(); }
         }
@@ -55,7 +55,7 @@ namespace PhotoBooth.Business.Services
             {
                 var folder = System.IO.Path.GetFullPath(draft.OutputDirectory);
                 System.IO.Directory.CreateDirectory(folder);
-                var value = new Session { Id = Guid.NewGuid(), PresetId = draft.PresetId, StartedAtUtc = DateTime.UtcNow, UpdatedAtUtc=DateTime.UtcNow, OutputDirectory = folder, SessionName = draft.SessionName.Trim(), SessionNumber = draft.SessionNumber, Kind=SessionKinds.Event, Status=BoothSessionStates.Active, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
+                var value = new Session { Id = Guid.NewGuid(), PresetId = draft.PresetId, StartedAtUtc = DateTime.UtcNow, UpdatedAtUtc=DateTime.UtcNow, OutputDirectory = folder, SessionName = draft.SessionName.Trim(), SessionNumber = draft.SessionNumber, Kind=SessionKinds.Event, EventLifecycleState=NormalizeEventState(draft.EventLifecycleState),EventScheduledStartAtUtc=draft.EventScheduledStartAtUtc,EventScheduledEndAtUtc=draft.EventScheduledEndAtUtc, Status=BoothSessionStates.Active, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
                 await repository.SaveAsync(value, token); return value;
             }
             finally { SessionLock.Release(); }
@@ -66,10 +66,33 @@ namespace PhotoBooth.Business.Services
         public async Task<Session> GetBaseAsync(CancellationToken token)
         {
             var all = await repository.GetAllAsync(token);
-            var existing = all.FirstOrDefault(x => x.SessionNumber == 0 && (string.Equals(x.SessionName, "Sự kiện mặc định", StringComparison.OrdinalIgnoreCase)||string.Equals(x.SessionName, "Base_session", StringComparison.OrdinalIgnoreCase)));
-            if (existing != null) { System.IO.Directory.CreateDirectory(existing.OutputDirectory); return existing; }
+            // Session number zero is the stable identity of the built-in event. Do not
+            // couple its identity to the display name because operators may rename it.
+            var existing = all.FirstOrDefault(x => !x.IsBoothSession && x.SessionNumber == 0);
+            if (existing != null)
+            {
+                System.IO.Directory.CreateDirectory(existing.OutputDirectory);
+                // Older installations could close or archive the former base event.
+                // The built-in event is now the permanent ready-to-run fallback, so
+                // repair only its lifecycle while preserving its name, path and setup.
+                if (!string.Equals(existing.EventLifecycleState, PhotoEventLifecycleStates.Open, StringComparison.Ordinal))
+                {
+                    existing.Kind = SessionKinds.Event;
+                    existing.EventLifecycleState = PhotoEventLifecycleStates.Open;
+                    existing.EventOpenedAtUtc = existing.EventOpenedAtUtc ?? DateTime.UtcNow;
+                    existing.EventClosedAtUtc = null;
+                    existing.EventDeliveredAtUtc = null;
+                    existing.EventArchivedAtUtc = null;
+                    existing.Status = BoothSessionStates.Active;
+                    existing.CompletedAtUtc = null;
+                    existing.UpdatedAtUtc = DateTime.UtcNow;
+                    existing.StateVersion++;
+                    await repository.SaveAsync(existing, token).ConfigureAwait(false);
+                }
+                return existing;
+            }
             var folder = System.IO.Path.Combine(options.DataDirectory, "Captures", "Base_session"); System.IO.Directory.CreateDirectory(folder);
-            var value = new Session { Id = Guid.NewGuid(), StartedAtUtc = DateTime.UtcNow, UpdatedAtUtc=DateTime.UtcNow, OutputDirectory = folder, SessionName = "Sự kiện mặc định", SessionNumber = 0, IsDefault = !all.Any(x => x.IsDefault), Kind=SessionKinds.Event, Status=BoothSessionStates.Active, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
+            var value = new Session { Id = Guid.NewGuid(), StartedAtUtc = DateTime.UtcNow, UpdatedAtUtc=DateTime.UtcNow, OutputDirectory = folder, SessionName = "Sự kiện mặc định", SessionNumber = 0, IsDefault = !all.Any(x => x.IsDefault), Kind=SessionKinds.Event, EventLifecycleState=PhotoEventLifecycleStates.Open,EventOpenedAtUtc=DateTime.UtcNow, Status=BoothSessionStates.Active, CapturedShots = new List<CapturedShot>(), CapturedFiles = new List<string>(), CapturedImageIds = new List<string>() };
             await repository.SaveAsync(value, token); return value;
         }
         public async Task<Session> GetDefaultAsync(CancellationToken token)
@@ -95,6 +118,29 @@ namespace PhotoBooth.Business.Services
         async Task<IReadOnlyList<PhotoEvent>> IEventService.GetAllAsync(CancellationToken token)=>(await GetAllAsync(token).ConfigureAwait(false)).Select(ToEvent).ToList();
         async Task<PhotoEvent> IEventService.GetDefaultAsync(CancellationToken token)=>ToEvent(await GetDefaultAsync(token).ConfigureAwait(false));
         Task IEventService.SetDefaultAsync(Guid eventId,CancellationToken token)=>SetDefaultAsync(eventId,token);
+        async Task<PhotoEvent> IEventService.TransitionAsync(Guid eventId,string lifecycleState,CancellationToken token)
+        {
+            lifecycleState=NormalizeEventState(lifecycleState);
+            await SessionLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                var value=await repository.GetAsync(eventId,token).ConfigureAwait(false);
+                if(value==null||value.IsBoothSession)throw new InvalidOperationException("Không tìm thấy sự kiện.");
+                var current=NormalizeEventState(value.EventLifecycleState);
+                if(current==lifecycleState)return ToEvent(value);
+                if(!CanTransitionEvent(current,lifecycleState))throw new InvalidOperationException("Không thể chuyển sự kiện từ “"+PhotoEventLifecycleStates.DisplayName(current)+"” sang “"+PhotoEventLifecycleStates.DisplayName(lifecycleState)+"”.");
+                var now=DateTime.UtcNow;
+                value.EventLifecycleState=lifecycleState;
+                value.UpdatedAtUtc=now;
+                if(lifecycleState==PhotoEventLifecycleStates.Open)value.EventOpenedAtUtc=now;
+                else if(lifecycleState==PhotoEventLifecycleStates.Closed)value.EventClosedAtUtc=now;
+                else if(lifecycleState==PhotoEventLifecycleStates.Delivered)value.EventDeliveredAtUtc=now;
+                else if(lifecycleState==PhotoEventLifecycleStates.Archived)value.EventArchivedAtUtc=now;
+                await repository.SaveAsync(value,token).ConfigureAwait(false);
+                return ToEvent(await repository.GetAsync(eventId,token).ConfigureAwait(false));
+            }
+            finally{SessionLock.Release();}
+        }
         async Task<BoothSession> IBoothSessionService.StartAsync(Guid eventId,Guid? presetId,CancellationToken token)=>BoothSession.From(await StartBoothSessionAsync(eventId,presetId,token).ConfigureAwait(false));
         async Task<BoothSession> IBoothSessionService.GetAsync(Guid boothSessionId,CancellationToken token)=>BoothSession.From(await GetAsync(boothSessionId,token).ConfigureAwait(false));
         Task IBoothSessionService.UpdateAsync(BoothSession boothSession,CancellationToken token)=>UpdateAsync(boothSession,token);
@@ -103,7 +149,8 @@ namespace PhotoBooth.Business.Services
         public async Task<Session> StartBoothSessionAsync(Guid eventId,Guid? presetId,CancellationToken token)
         {
             var eventSession=await repository.GetAsync(eventId,token).ConfigureAwait(false);
-            if(eventSession==null||eventSession.IsBoothSession)throw new InvalidOperationException("The selected event is unavailable.");
+            if(eventSession==null||eventSession.IsBoothSession)throw new InvalidOperationException("Sự kiện đã chọn không còn tồn tại.");
+            if(!string.Equals(eventSession.EventLifecycleState,PhotoEventLifecycleStates.Open,StringComparison.Ordinal))throw new InvalidOperationException("Sự kiện chưa mở nhận lượt chụp mới.");
             var id=Guid.NewGuid();var now=DateTime.UtcNow;
             SessionStoragePaths paths;
             if(storage!=null)paths=storage.CreateSessionStorage(id,now);
@@ -121,7 +168,17 @@ namespace PhotoBooth.Business.Services
         public async Task ReplaceCapturedShotsAsync(Guid sessionId,IReadOnlyDictionary<string,CapturedShot> replacements,CancellationToken token){if(replacements==null)throw new ArgumentNullException(nameof(replacements));var session=await repository.GetAsync(sessionId,token).ConfigureAwait(false);var previous=(session?.CapturedShots??new CapturedShot[0]).Where(x=>replacements.ContainsKey(x.Id)).ToList();if(previous.Count!=replacements.Count)throw new InvalidOperationException("One or more captured shots were not found.");await repository.ReplaceCapturedShotsAsync(sessionId,replacements,token).ConfigureAwait(false);if(mediaAssets!=null)foreach(var shot in previous){await mediaAssets.MarkDeletedAsync(shot.PictureAssetId,token).ConfigureAwait(false);await mediaAssets.MarkDeletedAsync(shot.VideoAssetId,token).ConfigureAwait(false);}}
         public Task CompleteAsync(Session session, CancellationToken token) { session.CompletedAtUtc = DateTime.UtcNow;session.UpdatedAtUtc=session.CompletedAtUtc.Value;session.Status=BoothSessionStates.Completed;session.StateVersion++;return repository.SaveAsync(session, token); }
         public async Task AbandonAsync(Session session,string reason,CancellationToken token){if(session==null)return;session.CompletedAtUtc=DateTime.UtcNow;session.UpdatedAtUtc=session.CompletedAtUtc.Value;session.Status=BoothSessionStates.Abandoned;session.TerminalReason=string.IsNullOrWhiteSpace(reason)?"Cancelled":reason;session.StateVersion++;await repository.SaveAsync(session,token).ConfigureAwait(false);if(mediaAssets!=null)await mediaAssets.MarkDeletedBySessionAsync(session.Id,token).ConfigureAwait(false);}
-        static PhotoEvent ToEvent(Session value)=>value==null?null:new PhotoEvent{Id=value.Id,PresetId=value.PresetId,Name=string.Equals(value.SessionName,"Base_session",StringComparison.OrdinalIgnoreCase)?"Sự kiện mặc định":value.SessionName,OutputDirectory=value.OutputDirectory,IsDefault=value.IsDefault,CreatedAtUtc=value.StartedAtUtc,UpdatedAtUtc=value.UpdatedAtUtc==DateTime.MinValue?value.StartedAtUtc:value.UpdatedAtUtc};
+        static PhotoEvent ToEvent(Session value)=>value==null?null:new PhotoEvent{Id=value.Id,PresetId=value.PresetId,Name=string.Equals(value.SessionName,"Base_session",StringComparison.OrdinalIgnoreCase)?"Sự kiện mặc định":value.SessionName,OutputDirectory=value.OutputDirectory,IsSelectedForThisDevice=value.IsDefault,IsSystemDefault=value.SessionNumber==0,LifecycleState=NormalizeEventState(value.EventLifecycleState),ScheduledStartAtUtc=value.EventScheduledStartAtUtc,ScheduledEndAtUtc=value.EventScheduledEndAtUtc,OpenedAtUtc=value.EventOpenedAtUtc,ClosedAtUtc=value.EventClosedAtUtc,DeliveredAtUtc=value.EventDeliveredAtUtc,ArchivedAtUtc=value.EventArchivedAtUtc,RemoteEventId=value.RemoteEventId,CreatedAtUtc=value.StartedAtUtc,UpdatedAtUtc=value.UpdatedAtUtc==DateTime.MinValue?value.StartedAtUtc:value.UpdatedAtUtc};
+        static string NormalizeEventState(string value)=>PhotoEventLifecycleStates.IsKnown(value)?value:PhotoEventLifecycleStates.Draft;
+        static bool CanTransitionEvent(string current,string next)
+        {
+            if(current==PhotoEventLifecycleStates.Draft)return next==PhotoEventLifecycleStates.Scheduled||next==PhotoEventLifecycleStates.Open||next==PhotoEventLifecycleStates.Archived;
+            if(current==PhotoEventLifecycleStates.Scheduled)return next==PhotoEventLifecycleStates.Open||next==PhotoEventLifecycleStates.Archived;
+            if(current==PhotoEventLifecycleStates.Open)return next==PhotoEventLifecycleStates.Closed;
+            if(current==PhotoEventLifecycleStates.Closed)return next==PhotoEventLifecycleStates.Delivered;
+            if(current==PhotoEventLifecycleStates.Delivered)return next==PhotoEventLifecycleStates.Archived;
+            return false;
+        }
     }
 
     public sealed class SessionService : BusinessWorkflowService

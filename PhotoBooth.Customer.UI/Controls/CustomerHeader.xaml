@@ -1,0 +1,51 @@
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="PhotoBooth.Customer.UI.Controls.CustomerHeader" x:Name="Header">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/PhotoBooth.Customer.UI;component/Themes/ApprovedUx.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Border Background="#111015" BorderBrush="#403949" BorderThickness="0,0,0,1">
+        <Grid x:Name="HeaderGrid" Margin="34,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="BrandEntrance" Tag="CustomerStaffEntrance" Click="Brand_Click"
+                        IsEnabled="{Binding IsManagerEntranceEnabled,ElementName=Header}"
+                        AutomationProperties.Name="MiuPhotoBooth" MinHeight="48" MinWidth="0"
+                        Margin="0" Padding="0" Background="Transparent" Foreground="#FAF7FC"
+                        BorderThickness="0" FocusVisualStyle="{x:Null}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Grid Background="{TemplateBinding Background}">
+                                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Left"/>
+                                <Border x:Name="FocusRing" BorderBrush="Transparent" BorderThickness="2"
+                                        CornerRadius="6" Margin="-5,0" IsHitTestVisible="False"/>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="BorderBrush" Value="#FF72AA"/></Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Image Source="/PhotoBooth.Customer.UI;component/Assets/fox-logo.png" Width="33" Height="33" Margin="0,0,10,0"/>
+                        <TextBlock x:Name="BrandTitle" Text="MiuPhotoBooth" FontSize="21" FontWeight="Bold" Foreground="#FAF7FC"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock x:Name="Slogan" Text="make it a memory." FontSize="13" Foreground="#BBB3C6" Margin="15,0,0,0"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel x:Name="Bars" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <Border Width="24" Height="5" CornerRadius="3" Background="#FF72AA"/>
+                    <Border x:Name="Second" Width="24" Height="5" CornerRadius="3" Background="#57495B" Margin="8,0"/>
+                    <Border Width="24" Height="5" CornerRadius="3" Background="#57495B"/>
+                </StackPanel>
+                <TextBlock Text="{Binding Step,ElementName=Header}" FontSize="13"/>
+                <TextBlock Text=" / 3" Foreground="#BBB3C6" FontSize="13" Margin="0,0,18,0"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

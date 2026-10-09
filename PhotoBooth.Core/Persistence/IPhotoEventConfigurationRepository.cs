@@ -8,7 +8,9 @@ namespace PhotoBooth.Core.Persistence
     public interface IPhotoEventConfigurationRepository
     {
         Task<PhotoEventConfiguration> GetAsync(Guid eventId, CancellationToken token);
+        Task<PhotoEventConfiguration> GetActiveAsync(Guid eventId, CancellationToken token);
         Task<PhotoEventConfiguration> SaveAsync(string eventName, PhotoEventConfiguration value, CancellationToken token);
+        Task<PhotoEventConfiguration> SaveAsync(string eventName, string outputDirectory, PhotoEventConfiguration value, CancellationToken token);
         Task ActivateAsync(Guid eventId, CancellationToken token);
         Task DeleteAsync(Guid eventId, CancellationToken token);
     }

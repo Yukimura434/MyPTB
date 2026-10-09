@@ -1,49 +1,70 @@
-<UserControl x:Class="PhotoBooth.Admin.UI.Views.BeautyView"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <Grid Margin="28,24,28,32" MaxWidth="1120" HorizontalAlignment="Left">
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <StackPanel Margin="4,0,4,18">
-                <TextBlock Text="Làm đẹp" Style="{StaticResource PageTitle}"/>
-                <TextBlock Text="Điều chỉnh retouch cho ảnh chụp và Live View. Ảnh luôn được xử lý Beauty trước preset màu." Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"/>
-            </StackPanel>
-            <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0">
-                <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <Border Background="{StaticResource SurfaceRaisedBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="9" Padding="14,11" Margin="0,0,0,18">
-                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <CheckBox Content="Bật làm đẹp cho ảnh chụp và Live View" IsChecked="{Binding Enabled}" FontSize="16" FontWeight="SemiBold"/>
-                            <TextBlock Grid.Column="1" Text="{Binding RuntimeStatus}" Foreground="{StaticResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" MaxWidth="360"/>
-                        </Grid>
-                    </Border>
-                    <Grid Grid.Row="1" IsEnabled="{Binding IsEditorEnabled}">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="18">
-                            <StackPanel>
-                                <TextBlock Text="Da &amp; độ nét" Style="{StaticResource SectionTitle}"/>
-                                <TextBlock Text="Làm mịn da" Style="{StaticResource FieldLabel}"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding SmoothSkin}"/><TextBlock Grid.Column="1" Text="{Binding SmoothSkin}" HorizontalAlignment="Right"/></Grid>
-                                <TextBlock Text="Làm sáng da" Style="{StaticResource FieldLabel}" Margin="4,14,4,3"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding BrightenSkin}"/><TextBlock Grid.Column="1" Text="{Binding BrightenSkin}" HorizontalAlignment="Right"/></Grid>
-                                <TextBlock Text="Tông da" Style="{StaticResource FieldLabel}" Margin="4,14,4,3"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding SkinTone}"/><TextBlock Grid.Column="1" Text="{Binding SkinTone}" HorizontalAlignment="Right"/></Grid>
-                                <TextBlock Text="Độ nét" Style="{StaticResource FieldLabel}" Margin="4,14,4,3"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding Sharpen}"/><TextBlock Grid.Column="1" Text="{Binding Sharpen}" HorizontalAlignment="Right"/></Grid>
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="18">
-                            <StackPanel>
-                                <TextBlock Text="Hình dáng khuôn mặt" Style="{StaticResource SectionTitle}"/>
-                                <TextBlock Text="Kích thước mắt" Style="{StaticResource FieldLabel}"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding EyeSize}"/><TextBlock Grid.Column="1" Text="{Binding EyeSize}" HorizontalAlignment="Right"/></Grid>
-                                <TextBlock Text="Thon gọn khuôn mặt" Style="{StaticResource FieldLabel}" Margin="4,14,4,3"/><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="48"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="100" Value="{Binding SlimFace}"/><TextBlock Grid.Column="1" Text="{Binding SlimFace}" HorizontalAlignment="Right"/></Grid>
-                                <Border Background="{StaticResource AccentSubtleBrush}" BorderBrush="#36558A" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,22,0,0"><TextBlock Text="Các thay đổi hình học chỉ tác động vùng khuôn mặt được nhận diện và không thay đổi kích thước ảnh." Foreground="#C7D8FA" FontSize="12" TextWrapping="Wrap"/></Border>
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-                    <Grid Grid.Row="2" Margin="0,18,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <Border Background="{StaticResource WarningSubtleBrush}" BorderBrush="#72562B" BorderThickness="1" CornerRadius="8" Padding="12,9" Margin="0,0,14,0"><TextBlock Text="{Binding Message}" Foreground="#FFD79B" TextWrapping="Wrap"/></Border>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="Tải lại" Command="{Binding ReloadCommand}" Style="{StaticResource AdminSecondaryButton}"/><Button Content="Tắt và đặt lại" Command="{Binding ResetCommand}" Style="{StaticResource AdminDangerButton}"/><Button Content="Lưu và áp dụng" Command="{Binding SaveCommand}" Style="{StaticResource AdminSuccessButton}" IsEnabled="{Binding HasUnsavedChanges}"/></StackPanel>
-                    </Grid>
-                </Grid>
-            </Border>
-        </Grid>
-    </ScrollViewer>
+<UserControl x:Class="PhotoBooth.Admin.UI.Views.BeautyView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:models="clr-namespace:PhotoBooth.Core.Models;assembly=PhotoBooth.Core" Background="#151922" Foreground="#F2F4F8" FontSize="14" SizeChanged="View_SizeChanged">
+ <UserControl.Resources>
+  <Style TargetType="ScrollBar">
+   <Setter Property="Width" Value="14"/><Setter Property="Background" Value="#151922"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+    <Border Background="{TemplateBinding Background}" Padding="2"><Track x:Name="PART_Track" IsDirectionReversed="True" Orientation="Vertical" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
+     <Track.DecreaseRepeatButton><RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
+     <Track.Thumb><Thumb MinHeight="24"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border x:Name="Grip" Background="#8395AF" CornerRadius="5"/><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Background" Value="#B6D0FF"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+     <Track.IncreaseRepeatButton><RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
+    </Track></Border>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="TextBlock"><Setter Property="Foreground" Value="#F2F4F8"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
+  <Style x:Key="BeautyButton" TargetType="Button">
+   <Setter Property="Foreground" Value="#F2F4F8"/><Setter Property="Background" Value="#232A37"/><Setter Property="BorderBrush" Value="#8395AF"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="16,10"/><Setter Property="MinHeight" Value="44"/><Setter Property="Margin" Value="4"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="Background" Value="#344154"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="#B6D0FF"/><Setter TargetName="Box" Property="BorderThickness" Value="3"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#B5BFD0"/><Setter TargetName="Box" Property="Background" Value="#252D3B"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="Slider">
+   <Setter Property="Height" Value="36"/><Setter Property="Minimum" Value="0"/><Setter Property="Maximum" Value="100"/><Setter Property="TickFrequency" Value="1"/><Setter Property="IsSnapToTickEnabled" Value="True"/><Setter Property="SmallChange" Value="1"/><Setter Property="LargeChange" Value="10"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Slider"><Border x:Name="FocusRing" Padding="4" BorderThickness="2" BorderBrush="Transparent" CornerRadius="6"><Grid><Border Height="5" Background="#8395AF" CornerRadius="2"/><Track x:Name="PART_Track" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" Orientation="Horizontal"><Track.DecreaseRepeatButton><RepeatButton Command="Slider.DecreaseLarge" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Height="5" Background="#83ACFF" CornerRadius="2"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton><Track.Thumb><Thumb Width="22" Height="22"><Thumb.Template><ControlTemplate TargetType="Thumb"><Ellipse Fill="#F2F4F8" Stroke="#83ACFF" StrokeThickness="3"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb><Track.IncreaseRepeatButton><RepeatButton Command="Slider.IncreaseLarge" Focusable="False"><RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton></Track></Grid></Border><ControlTemplate.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="FocusRing" Property="BorderBrush" Value="#B6D0FF"/></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="FocusRing" Property="Background" Value="#263247"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="FocusRing" Property="Background" Value="#252D3B"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="CheckBox"><Setter Property="Foreground" Value="#F2F4F8"/><Setter Property="FontSize" Value="16"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox"><Border x:Name="FocusRing" BorderThickness="2" BorderBrush="Transparent" CornerRadius="6" Padding="5"><StackPanel Orientation="Horizontal"><Border x:Name="CheckBoxBorder" Width="24" Height="24" BorderThickness="2" BorderBrush="#AAB4C5" Background="#232A37" CornerRadius="4" Margin="0,0,10,0"><TextBlock x:Name="CheckMark" Text="✓" FontWeight="Bold" Foreground="White" HorizontalAlignment="Center" Visibility="Collapsed"/></Border><ContentPresenter VerticalAlignment="Center"/></StackPanel></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/><Setter TargetName="CheckBoxBorder" Property="Background" Value="#315DAE"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="BorderBrush" Value="#B6D0FF"/></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="FocusRing" Property="Background" Value="#344154"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="#B5BFD0"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+ </UserControl.Resources>
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <StackPanel Margin="28,24,28,28">
+   <Grid Margin="0,0,0,22"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Làm đẹp" FontSize="30" FontWeight="SemiBold"/><TextBlock Text="Một điều chỉnh cho làn da và đường nét tự nhiên." Foreground="#AAB4C5" Margin="0,8,16,0"/></StackPanel><StackPanel Grid.Column="1"><CheckBox Content="Bật làm đẹp" IsChecked="{Binding Enabled}" IsEnabled="{Binding CanEdit}"/><TextBlock Text="{Binding RuntimeStatus}" Foreground="#AAB4C5" FontSize="11" Margin="7,4,0,0"/></StackPanel></Grid>
+   <Grid x:Name="EditorGrid"><Grid.ColumnDefinitions><ColumnDefinition x:Name="PreviewColumn" Width="*"/><ColumnDefinition x:Name="SettingsColumn" Width="340"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Border x:Name="PreviewCard" VerticalAlignment="Top" Background="#1B202B" BorderBrush="#8395AF" BorderThickness="1" CornerRadius="12" Margin="0,0,20,0" Height="620">
+     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><TextBlock Text="Ảnh mẫu" FontWeight="SemiBold" Margin="18,14"/>
+      <Border x:Name="PreviewViewport" Grid.Row="1" Background="#11151D" Margin="14,0" ClipToBounds="True" SizeChanged="PreviewViewport_SizeChanged" MouseWheel="Preview_MouseWheel" MouseLeftButtonDown="Preview_MouseLeftButtonDown" MouseLeftButtonUp="Preview_MouseLeftButtonUp" MouseMove="Preview_MouseMove" LostMouseCapture="Preview_LostMouseCapture">
+       <Grid ClipToBounds="True"><Image x:Name="PreviewImage" Source="{Binding DisplayedPreviewBytes,Converter={StaticResource ByteImage}}" Stretch="Uniform" RenderTransformOrigin="0,0"><Image.RenderTransform><TransformGroup><ScaleTransform x:Name="PreviewScale" ScaleX="1" ScaleY="1"/><TranslateTransform x:Name="PreviewTranslate"/></TransformGroup></Image.RenderTransform></Image><Border Background="#F01B202B" BorderBrush="#8395AF" BorderThickness="1" CornerRadius="8" Padding="12,7" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding IsPreviewBusy,Converter={StaticResource BoolVisibility}}"><TextBlock Text="Đang cập nhật…"/></Border></Grid>
+      </Border>
+      <WrapPanel Grid.Row="2" Margin="12"><Button Content="Giữ để xem ảnh gốc" Style="{StaticResource BeautyButton}" PreviewMouseLeftButtonDown="Before_PreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="Before_PreviewMouseLeftButtonUp" LostMouseCapture="Before_LostMouseCapture" PreviewKeyDown="Before_PreviewKeyDown" PreviewKeyUp="Before_PreviewKeyUp" LostKeyboardFocus="Before_LostKeyboardFocus"/><TextBlock Text="Lăn chuột để phóng to · kéo để di chuyển" Foreground="#AAB4C5" FontSize="12" VerticalAlignment="Center" Margin="8"/></WrapPanel>
+     </Grid>
+    </Border>
+    <Border x:Name="SettingsCard" Grid.Column="1" Background="#1B202B" BorderBrush="#8395AF" BorderThickness="1" CornerRadius="12" Padding="22">
+     <StackPanel>
+      <TextBlock Text="Đẹp tự nhiên" FontSize="22" FontWeight="SemiBold"/>
+      <TextBlock Text="Kéo thanh tổng để điều chỉnh đồng thời các hiệu ứng." Foreground="#AAB4C5" Margin="0,10,0,22"/>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="Mức làm đẹp" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Text="{Binding LevelText}" FontSize="25" FontWeight="SemiBold"/></Grid>
+      <Slider x:Name="MasterSlider" Maximum="10" LargeChange="1" Value="{Binding Level,UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding IsEditorEnabled}" AutomationProperties.Name="Mức làm đẹp" Margin="0,12,0,0"/>
+      <DockPanel><TextBlock Text="0 · Không hiệu ứng" Foreground="#AAB4C5"/><TextBlock Text="10 · Tối đa" Foreground="#AAB4C5" HorizontalAlignment="Right"/></DockPanel>
+      <Border Background="#223454" BorderBrush="#83ACFF" BorderThickness="3,0,0,0" Padding="12" Margin="0,20,0,16"><TextBlock Text="{Binding StrengthText}" Foreground="#D6E5FF"/></Border>
+      <TextBlock Text="Xem trực tiếp: mịn và sáng da nhẹ.&#x0a;Ảnh mẫu và ảnh chụp: áp dụng đầy đủ các điều chỉnh." Foreground="#AAB4C5" FontSize="13" Margin="0,0,0,16"/>
+      <Button Content="{Binding AdvancedButtonText}" Command="{Binding ToggleAdvancedCommand}" Style="{StaticResource BeautyButton}" HorizontalAlignment="Stretch"/>
+      <StackPanel Visibility="{Binding IsAdvanced,Converter={StaticResource BoolVisibility}}" IsEnabled="{Binding IsEditorEnabled}">
+       <TextBlock Text="Chỉnh từng hiệu ứng. Kéo lại thanh tổng sẽ thay thế các mức riêng." Foreground="#AAB4C5" FontSize="12" Margin="0,16,0,12"/>       <DockPanel Margin="0,10,0,0"><TextBlock Text="Làm mịn da"/><TextBlock Text="{Binding SmoothSkin,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="{Binding Source={x:Static models:BeautySettings.MaxSmoothSkin}}" Value="{Binding SmoothSkin,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Làm mịn da"/>
+       <DockPanel Margin="0,10,0,0"><TextBlock Text="Làm sáng da"/><TextBlock Text="{Binding BrightenSkin,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="{Binding Source={x:Static models:BeautySettings.MaxBrightenSkin}}" Value="{Binding BrightenSkin,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Làm sáng da"/>
+       <DockPanel Margin="0,10,0,0"><TextBlock Text="Tông da"/><TextBlock Text="{Binding SkinTone,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="{Binding Source={x:Static models:BeautySettings.MaxSkinTone}}" Value="{Binding SkinTone,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Tông da"/>
+       <DockPanel Margin="0,10,0,0"><TextBlock Text="Độ nét"/><TextBlock Text="{Binding Sharpen,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="100" Value="{Binding Sharpen,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Độ nét"/>
+       <DockPanel Margin="0,10,0,0"><TextBlock Text="Giảm khuyết điểm"/><TextBlock Text="{Binding BlemishRemoval,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="{Binding Source={x:Static models:BeautySettings.MaxBlemishRemoval}}" Value="{Binding BlemishRemoval,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Giảm khuyết điểm"/>
+       <DockPanel Margin="0,10,0,0"><TextBlock Text="To mắt"/><TextBlock Text="{Binding EyeSize,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="{Binding Source={x:Static models:BeautySettings.MaxGeometry}}" Value="{Binding EyeSize,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="To mắt"/>
+       <DockPanel Margin="0,10,0,0"><TextBlock Text="Thon mặt"/><TextBlock Text="{Binding SlimFace,StringFormat={}{0}%}" HorizontalAlignment="Right"/></DockPanel>
+       <Slider Maximum="{Binding Source={x:Static models:BeautySettings.MaxGeometry}}" Value="{Binding SlimFace,UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Thon mặt"/>
+
+      </StackPanel>
+     </StackPanel>
+    </Border>
+   </Grid>
+   <TextBlock Text="{Binding Message}" Foreground="#FFD98A" Margin="0,18,0,8"/>
+   <WrapPanel HorizontalAlignment="Right" IsEnabled="{Binding CanEdit}"><Button Content="Tải lại" Command="{Binding ReloadCommand}" Style="{StaticResource BeautyButton}"/><Button Content="Tắt và đặt lại" Command="{Binding ResetCommand}" Style="{StaticResource BeautyButton}"/><Button Content="Lưu và áp dụng" Command="{Binding SaveCommand}" Style="{StaticResource BeautyButton}" Background="#315DAE" Foreground="White" FontWeight="SemiBold" IsEnabled="{Binding HasUnsavedChanges}"/></WrapPanel>
+  </StackPanel>
+ </ScrollViewer>
 </UserControl>

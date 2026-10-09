@@ -11,6 +11,32 @@ namespace PhotoBooth.Database
 {
     public sealed class SqlitePresetRepository : IPresetRepository
     {
+        public Task ReplacePinnedAsync(IReadOnlyCollection<Guid> ids, CancellationToken token)
+        {
+            if (ids == null) throw new ArgumentNullException(nameof(ids));
+            token.ThrowIfCancellationRequested();
+            using (var connection = database.OpenConnection())
+            using (var transaction = connection.BeginTransaction())
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                // Clear legacy collection unions in the same commit as all pin changes.
+                command.CommandText = "UPDATE AdminPresets SET IsPinned=0; UPDATE WorkflowSettings SET SelectedPresetCollections='' WHERE Id=1";
+                command.ExecuteNonQuery();
+                command.CommandText = "UPDATE AdminPresets SET IsPinned=1 WHERE Id=$id";
+                var parameter = command.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Text);
+                foreach (var id in ids.Distinct())
+                {
+                    token.ThrowIfCancellationRequested();
+                    parameter.Value = id.ToString();
+                    if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Mục đã bị xóa. Vui lòng tải lại thư viện.");
+                }
+                token.ThrowIfCancellationRequested();
+                transaction.Commit();
+            }
+            return Task.CompletedTask;
+        }
+
         readonly SqliteDatabase database;
         public SqlitePresetRepository(SqliteDatabase database) { this.database = database; }
 
@@ -22,7 +48,7 @@ namespace PhotoBooth.Database
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = @"SELECT p.Id,p.Name,p.FrameId,p.PrinterProfileId,p.Countdown,p.CreatedAtUtc,p.ModifiedAtUtc,
-p.IsDefault,p.IsPinned,p.EventId,l.Id,l.DisplayName,l.CubeSize,l.Status,l.RowVersion
+p.IsDefault,p.IsPinned,p.EventId,l.Id,l.DisplayName,l.CubeSize,l.Status,l.RowVersion,p.StrengthPercent
 FROM AdminPresets p
 INNER JOIN PresetColorSettings color ON color.PresetId=p.Id
 INNER JOIN ColorLutAssets l ON l.Id=color.LutAssetId
@@ -43,7 +69,7 @@ ORDER BY p.Name COLLATE NOCASE,p.Id";
                             IsPinned = !reader.IsDBNull(8) && reader.GetInt32(8) != 0,
                             EventId = reader.IsDBNull(9) ? (Guid?)null : Guid.Parse(reader.GetString(9)),
                             LutAssetId = Guid.Parse(reader.GetString(10)), LutDisplayName = reader.GetString(11),
-                            LutCubeSize = reader.GetInt32(12), LutStatus = reader.GetString(13), LutRowVersion = reader.GetInt64(14)
+                            LutCubeSize = reader.GetInt32(12), LutStatus = reader.GetString(13), LutRowVersion = reader.GetInt64(14), StrengthPercent = reader.GetInt32(15)
                         });
                     }
                 }
@@ -65,12 +91,13 @@ ORDER BY p.Name COLLATE NOCASE,p.Id";
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = @"INSERT INTO AdminPresets
-(Id,Name,SettingsJson,FrameId,PrinterProfileId,Countdown,CreatedAtUtc,ModifiedAtUtc,IsDefault,IsPinned,EventId)
-VALUES($id,$name,NULL,$frame,$printer,$countdown,$created,$modified,$default,$pinned,$event)
+(Id,Name,SettingsJson,FrameId,PrinterProfileId,Countdown,CreatedAtUtc,ModifiedAtUtc,IsDefault,IsPinned,EventId,StrengthPercent)
+VALUES($id,$name,NULL,$frame,$printer,$countdown,$created,$modified,$default,$pinned,$event,$strength)
 ON CONFLICT(Id) DO UPDATE SET
 Name=excluded.Name,SettingsJson=NULL,FrameId=excluded.FrameId,PrinterProfileId=excluded.PrinterProfileId,
 Countdown=excluded.Countdown,CreatedAtUtc=excluded.CreatedAtUtc,ModifiedAtUtc=excluded.ModifiedAtUtc,
-IsDefault=excluded.IsDefault,IsPinned=excluded.IsPinned,EventId=excluded.EventId";
+IsDefault=excluded.IsDefault,IsPinned=excluded.IsPinned,EventId=excluded.EventId,StrengthPercent=excluded.StrengthPercent";
+                command.Parameters.AddWithValue("$strength", Math.Max(0, Math.Min(100, preset.StrengthPercent)));
                 command.Parameters.AddWithValue("$id", preset.Id.ToString());
                 command.Parameters.AddWithValue("$name", preset.Name);
                 command.Parameters.AddWithValue("$frame", preset.FrameId.HasValue ? (object)preset.FrameId.Value.ToString() : DBNull.Value);

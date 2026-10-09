@@ -29,6 +29,9 @@ namespace PhotoBooth.Core.Models
         public int RotationDegrees { get; set; }
         public int VideoDurationSeconds { get; set; }
         public Guid? ColorPresetId { get; set; }
+        public Guid? ColorLutAssetId { get; set; }
+        public string ColorLutSnapshotPath { get; set; }
+        public float ColorLutStrength { get; set; } = 0.5f;
         public BeautySettings BeautySettings { get; set; }
         public bool IsTracked { get; set; }
         public bool IsProcessed { get; set; }

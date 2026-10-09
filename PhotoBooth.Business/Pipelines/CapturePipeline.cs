@@ -171,7 +171,7 @@ namespace PhotoBooth.Business.Pipelines
                     await SaveAsset(sessionId,pending.Id,pending.PictureAssetId,MediaAssetKinds.OriginalPicture,pending.PicturePath,"image/jpeg",token).ConfigureAwait(false);
                     if(!string.IsNullOrWhiteSpace(pending.VideoPath))await SaveAsset(sessionId,pending.Id,pending.VideoAssetId,MediaAssetKinds.OriginalVideo,pending.VideoPath,"video/mp4",token).ConfigureAwait(false);
                 }
-                // CapturedImages remains all-or-nothing: processing may overlap the
+                // Selection remains all-or-nothing: processing may overlap the
                 // next countdown, but the database is written only after the full
                 // batch has completed successfully.
                 await sessions.AddCapturedShotsAsync(sessionId,result,token).ConfigureAwait(false);
@@ -209,7 +209,27 @@ namespace PhotoBooth.Business.Pipelines
                 catch(OperationCanceledException)when(token.IsCancellationRequested){throw;}
                 catch(Exception exception){log?.LogWarning(exception,"Beauty retouch failed; the original captured picture will continue through the pipeline");}
             }
-            if(pending.ColorPresetId.HasValue&&colorLuts!=null)
+            if(!string.IsNullOrWhiteSpace(pending.ColorLutSnapshotPath)&&colorLuts!=null)
+                {
+                    var lutOutput=pending.RawPicturePath+".lut.jpg";
+                    try
+                    {
+                        await colorLuts.ApplySnapshotToFileAsync(pending.ColorLutSnapshotPath,pending.PicturePath,lutOutput,pending.ColorLutStrength,token).ConfigureAwait(false);
+                        File.Copy(lutOutput,pending.PicturePath,true);
+                    }
+                    finally { try { if(File.Exists(lutOutput))File.Delete(lutOutput); } catch { } }
+                }
+            else if(pending.ColorLutAssetId.HasValue&&colorLuts!=null)
+                {
+                    var lutOutput=pending.RawPicturePath+".lut.jpg";
+                    try
+                    {
+                        await colorLuts.ApplyAssetToFileAsync(pending.ColorLutAssetId.Value,pending.PicturePath,lutOutput,pending.ColorLutStrength,token).ConfigureAwait(false);
+                        File.Copy(lutOutput,pending.PicturePath,true);
+                    }
+                    finally { try { if(File.Exists(lutOutput))File.Delete(lutOutput); } catch { } }
+                }
+            else if(pending.ColorPresetId.HasValue&&colorLuts!=null)
                 await colorLuts.ApplyCaptureAsync(pending.ColorPresetId.Value,pending.PicturePath,token).ConfigureAwait(false);
             if(videoEnabled)
             {

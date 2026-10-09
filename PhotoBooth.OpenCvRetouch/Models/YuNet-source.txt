@@ -1,0 +1,11 @@
+YuNet face detection model, unmodified upstream weights and ONNX graph.
+Upstream: https://github.com/opencv/opencv_zoo/tree/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet
+Model: face_detection_yunet_2023mar.onnx
+License: MIT, see LICENSE-YuNet.txt (redistributed with the model).
+SHA-256: 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+Length: 232589 bytes; checked against upstream Git LFS pointer.
+Input: fixed 1x3x640x640 float BGR, values 0..255, black right/bottom padding.
+Outputs: cls/obj/bbox/kps at strides 8, 16, 32.
+This model locates faces; it is not a skin segmentation or 68-point landmark model.
+Runtime: ONNX Runtime DirectML 1.20.1 (includes win-x86 required by the camera host).
+The inspected 1.24.4 package contains win-x64/arm64 but no win-x86 runtime.

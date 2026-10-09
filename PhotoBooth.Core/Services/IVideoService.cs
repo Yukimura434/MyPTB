@@ -6,6 +6,11 @@ using PhotoBooth.Core.Models;
 
 namespace PhotoBooth.Core.Services
 {
+    /// <summary>Optional direct-pixel input; implementations encode only frames admitted to the video buffer.</summary>
+    public interface IVideoPixelSink
+    {
+        void AddLiveViewPixels(LiveBeautyPixels pixels, DateTime timestampUtc);
+    }
     public interface IVideoService
     {
         void AddLiveViewFrame(byte[] imageData, DateTime timestampUtc);

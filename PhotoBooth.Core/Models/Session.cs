@@ -28,6 +28,14 @@ namespace PhotoBooth.Core.Models
         public string Kind { get; set; } = SessionKinds.Event;
         public Guid? EventId { get; set; }
         public string RemoteEventId { get; set; }
+        public string EventLifecycleState { get; set; } = PhotoEventLifecycleStates.Draft;
+        public DateTime? EventScheduledStartAtUtc { get; set; }
+        public DateTime? EventScheduledEndAtUtc { get; set; }
+        public DateTime? EventOpenedAtUtc { get; set; }
+        public DateTime? EventClosedAtUtc { get; set; }
+        public DateTime? EventDeliveredAtUtc { get; set; }
+        public DateTime? EventArchivedAtUtc { get; set; }
+        public string ConfigurationVersionId { get; set; }
         public string Status { get; set; } = BoothSessionStates.Active;
         public long StateVersion { get; set; }
         public string TerminalReason { get; set; }
@@ -69,6 +77,14 @@ namespace PhotoBooth.Core.Models
                 Kind = value.Kind,
                 EventId = value.EventId,
                 RemoteEventId = value.RemoteEventId,
+                EventLifecycleState = value.EventLifecycleState,
+                EventScheduledStartAtUtc = value.EventScheduledStartAtUtc,
+                EventScheduledEndAtUtc = value.EventScheduledEndAtUtc,
+                EventOpenedAtUtc = value.EventOpenedAtUtc,
+                EventClosedAtUtc = value.EventClosedAtUtc,
+                EventDeliveredAtUtc = value.EventDeliveredAtUtc,
+                EventArchivedAtUtc = value.EventArchivedAtUtc,
+                ConfigurationVersionId = value.ConfigurationVersionId,
                 Status = value.Status,
                 StateVersion = value.StateVersion,
                 TerminalReason = value.TerminalReason,

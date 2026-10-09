@@ -1,26 +1,60 @@
-<UserControl x:Class="PhotoBooth.Customer.UI.Views.CaptureView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:PhotoBooth.Customer.UI.Controls" xmlns:color="clr-namespace:PhotoBooth.Color.D3D11;assembly=PhotoBooth.Color.D3D11">
+<UserControl x:Class="PhotoBooth.Customer.UI.Views.CaptureView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="clr-namespace:PhotoBooth.Customer.UI.Controls" xmlns:color="clr-namespace:PhotoBooth.Color.D3D11;assembly=PhotoBooth.Color.D3D11" UseLayoutRounding="True" SnapsToDevicePixels="True">
+ <UserControl.Resources><ResourceDictionary Source="/PhotoBooth.Customer.UI;component/CustomerViewResources.xaml"/></UserControl.Resources>
  <Grid Background="{StaticResource BackgroundBrush}" ClipToBounds="True">
-  <Border x:Name="LiveViewPanel" VerticalAlignment="Stretch" Background="{StaticResource PreviewBackdropBrush}"
-          BorderBrush="{StaticResource LiveViewBorderBrush}" BorderThickness="1" CornerRadius="14" Padding="1">
-   <controls:RoundedClipBorder Background="{StaticResource PreviewBackdropBrush}" CornerRadius="13">
-    <Viewbox Stretch="UniformToFill" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-     <Grid x:Name="LiveViewCanvas" Width="1200" Height="900">
-      <Grid.LayoutTransform>
-       <TransformGroup>
-        <ScaleTransform ScaleX="{Binding LiveViewScaleX}"/>
-        <RotateTransform Angle="{Binding LiveViewRotation}"/>
-       </TransformGroup>
-      </Grid.LayoutTransform>
-       <TextBlock Text="Không có tín hiệu camera" FontSize="26" Foreground="#77737D" VerticalAlignment="Center">
-        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding HasLiveImage}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-       </TextBlock>
-       <color:LatestJpegImage FrameData="{Binding LiveImage}" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-     </Grid>
-    </Viewbox>
+  <!-- L1: camera media. UniformToFill may crop, but never changes aspect ratio. -->
+  <Border x:Name="LiveViewPanel" Panel.ZIndex="0" VerticalAlignment="Stretch"
+          HorizontalAlignment="Stretch" Background="{StaticResource PreviewBackdropBrush}"
+          BorderThickness="0" Padding="0">
+   <controls:RoundedClipBorder Background="{StaticResource PreviewBackdropBrush}" CornerRadius="0">
+    <Grid>
+     <TextBlock Text="Không có tín hiệu camera" FontSize="26" Foreground="#A7A2AD" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding HasLiveImage}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+     </TextBlock>
+     <Viewbox Stretch="UniformToFill" StretchDirection="Both" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+      <Grid x:Name="LiveViewCanvas" Width="1200" Height="900" ClipToBounds="True">
+       <Grid.LayoutTransform>
+        <TransformGroup>
+         <ScaleTransform ScaleX="{Binding LiveViewScaleX}"/>
+         <RotateTransform Angle="{Binding LiveViewRotation}"/>
+        </TransformGroup>
+       </Grid.LayoutTransform>
+       <color:LatestJpegImage ColorPreset="{Binding LivePreset}" FrameData="{Binding LiveImage}" Stretch="UniformToFill" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+      </Grid>
+     </Viewbox>
+    </Grid>
    </controls:RoundedClipBorder>
   </Border>
 
-  <Border x:Name="RecentCapturesPanel" Width="1000" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,870,0,0"
+  <!-- L2: contrast for the idle controls only. Countdown must preserve the
+       live camera brightness, so this layer fades out for that state. -->
+  <Grid Panel.ZIndex="5" IsHitTestVisible="False">
+   <Grid.Style>
+    <Style TargetType="Grid">
+     <Setter Property="Opacity" Value="1"/>
+     <Style.Triggers>
+      <DataTrigger Binding="{Binding IsCountdown}" Value="True"><Setter Property="Opacity" Value="0"/></DataTrigger>
+     </Style.Triggers>
+    </Style>
+   </Grid.Style>
+   <Border VerticalAlignment="Top" Height="190">
+    <Border.Background>
+     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+      <GradientStop Color="#B80B0B0F" Offset="0"/>
+      <GradientStop Color="#000B0B0F" Offset="1"/>
+     </LinearGradientBrush>
+    </Border.Background>
+   </Border>
+   <Border VerticalAlignment="Bottom" Height="260">
+    <Border.Background>
+     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+      <GradientStop Color="#000B0B0F" Offset="0"/>
+      <GradientStop Color="#F50B0B0F" Offset="1"/>
+     </LinearGradientBrush>
+    </Border.Background>
+   </Border>
+  </Grid>
+
+  <Border x:Name="RecentCapturesPanel" Panel.ZIndex="15" Width="1000" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="40,0,40,132"
           Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="16" Visibility="Collapsed">
    <Grid>
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
@@ -33,47 +67,131 @@
     </ScrollViewer>
    </Grid>
   </Border>
-  <Border VerticalAlignment="Top" HorizontalAlignment="Center" Background="#D915151A" BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1" CornerRadius="14" Padding="20,9" Margin="20">
-   <TextBlock Text="{Binding ProgressText}" FontSize="17" FontWeight="SemiBold" Foreground="White"/>
-  </Border>
-
-  <Border VerticalAlignment="Bottom" Background="#E60B0B0F" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="24,16">
+  <!-- L3: fixed actions. -->
+  <Border Panel.ZIndex="30" VerticalAlignment="Bottom" MinHeight="118"
+          BorderThickness="0" Padding="24,18">
+   <Border.Style>
+    <Style TargetType="Border">
+     <Setter Property="Visibility" Value="Visible"/>
+     <Style.Triggers>
+      <DataTrigger Binding="{Binding IsCountdown}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+     </Style.Triggers>
+    </Style>
+   </Border.Style>
+   <Border.Background>
+    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+     <GradientStop Color="#000B0B0F" Offset="0"/>
+     <GradientStop Color="#F70B0B0F" Offset="0.42"/>
+    </LinearGradientBrush>
+   </Border.Background>
    <Grid>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Visibility="{Binding IsModeSelection,Converter={StaticResource BoolVisibility}}">
-     <Button Content="Chụp thủ công" Command="{Binding ManualModeCommand}" Width="230" Height="60" FontSize="19" Style="{StaticResource SecondaryButton}"/>
-     <Button Content="Chụp tự động" Command="{Binding AutomaticCaptureCommand}" Width="230" Height="60" FontSize="19"/>
-    </StackPanel>
-    <Button Content="Chụp  ·  Space" Command="{Binding ManualShutterCommand}" Width="250" Height="60" FontSize="20" Visibility="{Binding IsManualReady,Converter={StaticResource BoolVisibility}}" HorizontalAlignment="Center"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}">
-     <Button Content="Chụp lại ảnh đã chọn" Command="{Binding RetakeCommand}" Style="{StaticResource SecondaryButton}" MinWidth="230"/>
-     <Button Content="Tiếp tục chọn frame" Command="{Binding SelectFrameCommand}" MinWidth="230"/>
+    <Grid x:Name="ModeSelectionGrid" Visibility="{Binding IsModeSelection,Converter={StaticResource BoolVisibility}}"
+          HorizontalAlignment="Center" Margin="0,-132,0,0">
+     <Grid.RowDefinitions><RowDefinition/><RowDefinition x:Name="ModeRowGap" Height="0"/><RowDefinition/></Grid.RowDefinitions>
+     <Grid.ColumnDefinitions>
+      <ColumnDefinition x:Name="ModeFirstColumn" Width="520"/>
+      <ColumnDefinition x:Name="ModeColumnGap" Width="24"/>
+      <ColumnDefinition x:Name="ModeSecondColumn" Width="520"/>
+     </Grid.ColumnDefinitions>
+     <Button Grid.Column="0" Command="{Binding AutomaticCaptureCommand}" Height="185"
+             Padding="20,14" BorderThickness="2" BorderBrush="{StaticResource AccentBrush}"
+             Background="#D9272028" HorizontalContentAlignment="Stretch"
+             RenderTransformOrigin="0.5,0.5">
+      <Button.RenderTransform><ScaleTransform/></Button.RenderTransform>
+      <Button.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard>
+       <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.35"/>
+       <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" From="0.94" To="1" Duration="0:0:0.35"/>
+       <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" From="0.94" To="1" Duration="0:0:0.35"/>
+      </Storyboard></BeginStoryboard></EventTrigger></Button.Triggers>
+      <StackPanel>
+       <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets" FontSize="34" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center"/>
+       <TextBlock Text="CHỤP TỰ ĐỘNG" FontSize="18" FontWeight="Bold" Foreground="White"
+                  HorizontalAlignment="Center" Margin="0,7,0,5"/>
+       <TextBlock Text="Máy sẽ tự chụp liên tiếp" FontSize="14" Foreground="#D9FFFFFF"
+                  HorizontalAlignment="Center"/>
+      </StackPanel>
+     </Button>
+     <Button x:Name="ManualModeButton" Grid.Column="2" Command="{Binding ManualModeCommand}" Height="185"
+             Padding="20,14" Style="{StaticResource SecondaryButton}"
+             BorderThickness="1" BorderBrush="#80FFFFFF" HorizontalContentAlignment="Stretch"
+             RenderTransformOrigin="0.5,0.5">
+      <Button.RenderTransform><ScaleTransform/></Button.RenderTransform>
+      <Button.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard BeginTime="0:0:0.08">
+       <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.35"/>
+       <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" From="0.94" To="1" Duration="0:0:0.35"/>
+       <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" From="0.94" To="1" Duration="0:0:0.35"/>
+      </Storyboard></BeginStoryboard></EventTrigger></Button.Triggers>
+      <StackPanel>
+       <TextBlock Text="&#xE815;" FontFamily="Segoe MDL2 Assets" FontSize="34" Foreground="White" HorizontalAlignment="Center"/>
+       <TextBlock Text="TỰ BẤM KHI SẴN SÀNG" FontSize="18" FontWeight="Bold" Foreground="White"
+                  HorizontalAlignment="Center" Margin="0,7,0,5"/>
+       <TextBlock Text="Bạn tự quyết định từng lần chụp" FontSize="14" Foreground="#BFFFFFFF"
+                  HorizontalAlignment="Center"/>
+      </StackPanel>
+     </Button>
+    </Grid>
+    <Button Content="CHỤP ẢNH" Command="{Binding ManualShutterCommand}" Width="280" Height="68" FontSize="20" Visibility="{Binding IsManualReady,Converter={StaticResource BoolVisibility}}" HorizontalAlignment="Center"/>
+    <StackPanel x:Name="PreviewActions" Orientation="Horizontal" HorizontalAlignment="Center" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}">
+     <Button x:Name="RetakeButton" Content="CHỤP LẠI ẢNH ĐÃ CHỌN" Command="{Binding RetakeCommand}" Style="{StaticResource SecondaryButton}" MinWidth="320" Height="68"/>
+     <Button x:Name="SelectFrameButton" Content="CHỌN KHUNG ẢNH" Command="{Binding SelectFrameCommand}" MinWidth="320" Height="68"/>
     </StackPanel>
    </Grid>
   </Border>
 
-  <Border Background="#52000000" IsHitTestVisible="True" Visibility="{Binding IsCountdown,Converter={StaticResource BoolVisibility}}">
-   <Grid><Border Width="250" Height="250" Background="#B315151A" BorderBrush="#55FFFFFF" BorderThickness="1" CornerRadius="125"/><TextBlock Text="{Binding CountdownNumber}" FontSize="150" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"><TextBlock.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever"><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.65" To="1" Duration="0:0:0.4" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></TextBlock.Triggers></TextBlock></Grid>
+  <!-- L5: blocking state overlays always sit above status and actions. -->
+  <Border Panel.ZIndex="50" Background="Transparent" IsHitTestVisible="True" Visibility="{Binding IsCountdown,Converter={StaticResource BoolVisibility}}">
+   <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+    <Grid Width="300" Height="300" RenderTransformOrigin="0.5,0.5">
+     <Grid.RenderTransform><ScaleTransform/></Grid.RenderTransform>
+     <Grid.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever" AutoReverse="True">
+      <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" From="0.96" To="1.03" Duration="0:0:0.55"/>
+      <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" From="0.96" To="1.03" Duration="0:0:0.55"/>
+     </Storyboard></BeginStoryboard></EventTrigger></Grid.Triggers>
+     <Ellipse Fill="#4815151A" Stroke="#70FF7EB5" StrokeThickness="2"/>
+     <Ellipse Stroke="{StaticResource AccentBrush}" StrokeThickness="8" Margin="6">
+      <Ellipse.Effect><DropShadowEffect Color="#FF2F86" BlurRadius="20" ShadowDepth="0" Opacity="0.65"/></Ellipse.Effect>
+     </Ellipse>
+     <TextBlock Text="{Binding CountdownNumber}" FontSize="160" FontWeight="SemiBold"
+                Foreground="White" VerticalAlignment="Center">
+      <TextBlock.Triggers><EventTrigger RoutedEvent="FrameworkElement.Loaded"><BeginStoryboard><Storyboard RepeatBehavior="Forever"><DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.7" To="1" Duration="0:0:0.4" AutoReverse="True"/></Storyboard></BeginStoryboard></EventTrigger></TextBlock.Triggers>
+     </TextBlock>
+    </Grid>
+    <TextBlock Text="Nhìn vào máy ảnh" FontSize="30" FontWeight="SemiBold"
+               Foreground="White" Margin="0,24,0,0"/>
+   </StackPanel>
   </Border>
-  <Border Background="#62000000" IsHitTestVisible="True" Visibility="{Binding IsSmile,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><TextBlock Text="😊" FontSize="120"/><TextBlock Text="Cười lên nào!" FontSize="58" FontWeight="SemiBold" Foreground="White"/></StackPanel></Border>
-  <Border Background="White" IsHitTestVisible="True" Visibility="{Binding IsShutterFlash,Converter={StaticResource BoolVisibility}}"/>
+  <Border Panel.ZIndex="51" Background="#72000000" IsHitTestVisible="True" Visibility="{Binding IsSmile,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><TextBlock Text="😊" FontSize="120"/><TextBlock Text="Cười lên nào!" FontSize="58" FontWeight="SemiBold" Foreground="White"/></StackPanel></Border>
+  <Border Panel.ZIndex="55" Background="White" IsHitTestVisible="True" Visibility="{Binding IsShutterFlash,Converter={StaticResource BoolVisibility}}"/>
 
-  <Border Background="#F20B0B0F" Visibility="{Binding IsInterShotDelay,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><Border Width="72" Height="72" CornerRadius="36" Background="#263A30" Margin="0,0,0,22"><TextBlock Text="✓" FontSize="38" Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center"/></Border><TextBlock Text="Ảnh đẹp!" FontSize="44" FontWeight="SemiBold"/><TextBlock Text="{Binding StatusMessage}" FontSize="21" Foreground="{StaticResource MutedTextBrush}" Margin="0,12,0,26"/><ProgressBar IsIndeterminate="True" Width="320" Height="6" Foreground="{StaticResource AccentBrush}" Background="{StaticResource SurfaceInteractiveBrush}"/></StackPanel></Border>
+  <Border Panel.ZIndex="52" Background="#F20B0B0F" IsHitTestVisible="True" Visibility="{Binding IsInterShotDelay,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><Border Width="72" Height="72" CornerRadius="36" Background="#263A30" Margin="0,0,0,22"><TextBlock Text="✓" FontSize="38" Foreground="{StaticResource SuccessBrush}" VerticalAlignment="Center"/></Border><TextBlock Text="Ảnh đẹp!" FontSize="44" FontWeight="SemiBold"/><TextBlock Text="{Binding StatusMessage}" FontSize="21" Foreground="{StaticResource MutedTextBrush}" Margin="0,12,0,26"/><ProgressBar IsIndeterminate="True" Width="320" Height="6" Foreground="{StaticResource AccentBrush}" Background="{StaticResource SurfaceInteractiveBrush}"/></StackPanel></Border>
 
-  <Border x:Name="ReviewOverlay" Background="#F20B0B0F" Visibility="{Binding IsPreview,Converter={StaticResource BoolVisibility}}" Margin="28,28,28,104" CornerRadius="16" Padding="14" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+  <Border x:Name="ReviewOverlay" Panel.ZIndex="40" Background="#F20B0B0F" Margin="28,112,28,104" CornerRadius="22" Padding="14" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+          RenderTransformOrigin="0.5,0.5">
+   <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
+   <Border.Style><Style TargetType="Border"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers>
+    <DataTrigger Binding="{Binding IsPreview}" Value="True"><Setter Property="Visibility" Value="Visible"/>
+     <DataTrigger.EnterActions><BeginStoryboard><Storyboard>
+      <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.35"/>
+      <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)" From="22" To="0" Duration="0:0:0.35">
+       <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+      </DoubleAnimation>
+     </Storyboard></BeginStoryboard></DataTrigger.EnterActions>
+    </DataTrigger>
+   </Style.Triggers></Style></Border.Style>
    <Grid x:Name="ReviewLayout"><Grid.ColumnDefinitions><ColumnDefinition x:Name="ReviewImageColumn" Width="*"/><ColumnDefinition x:Name="ReviewListColumn" Width="230"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition x:Name="ReviewImageRow" Height="*"/><RowDefinition x:Name="ReviewListRow" Height="0"/></Grid.RowDefinitions>
-    <Border x:Name="ReviewImagePanel" Margin="0,0,12,0" CornerRadius="12" Background="{StaticResource PreviewBackdropBrush}" ClipToBounds="True"><Image Source="{Binding SelectedReviewPhoto.Path,Converter={StaticResource CustomerPathImage},ConverterParameter=1280}" Stretch="Uniform"/></Border>
+    <controls:RoundedClipBorder x:Name="ReviewImagePanel" Margin="0,0,12,0" CornerRadius="14" Background="{StaticResource PreviewBackdropBrush}" BorderBrush="#806F5966" BorderThickness="2"><Image Source="{Binding SelectedReviewPhoto.Path,Converter={StaticResource CustomerPathImage},ConverterParameter=1280}" Stretch="Uniform"/></controls:RoundedClipBorder>
     <Border x:Name="ReviewListPanel" Grid.Column="1" CornerRadius="12" Background="{StaticResource SurfaceBrush}" Padding="7" ClipToBounds="True">
      <ListBox x:Name="ReviewPhotoList" ItemsSource="{Binding ReviewPhotos}" SelectedItem="{Binding SelectedReviewPhoto}"
               ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
               ScrollViewer.PanningMode="VerticalOnly" HorizontalContentAlignment="Stretch">
-      <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="MinWidth" Value="210"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/></Style></ListBox.ItemContainerStyle>
-      <ListBox.ItemTemplate><DataTemplate><Grid Margin="4" ClipToBounds="True"><Border Height="135" HorizontalAlignment="Stretch" CornerRadius="10" Background="#24242B" ClipToBounds="True"><Image Source="{Binding Path,Converter={StaticResource CustomerPathImage},ConverterParameter=360}" Stretch="UniformToFill" HorizontalAlignment="Stretch"/></Border><Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="7" Background="#D9141419" CornerRadius="12" Padding="7,3"><TextBlock Text="{Binding Number}" FontWeight="Bold" Foreground="White"/></Border><CheckBox IsChecked="{Binding IsRetakeSelected,Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="9" Width="28" Height="28"><CheckBox.Template><ControlTemplate TargetType="CheckBox"><Grid><Ellipse Fill="#17171C" Stroke="#E85D9E" StrokeThickness="3"/><Ellipse x:Name="Dot" Margin="6" Fill="#E85D9E" Visibility="Collapsed"/></Grid><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></CheckBox.Template></CheckBox></Grid></DataTemplate></ListBox.ItemTemplate>
+      <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="MinWidth" Value="210"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><ContentPresenter/></ControlTemplate></Setter.Value></Setter></Style></ListBox.ItemContainerStyle>
+      <ListBox.ItemTemplate><DataTemplate><Grid Margin="4"><controls:RoundedClipBorder Height="135" HorizontalAlignment="Stretch" CornerRadius="12" Background="#24242B" BorderBrush="#66525D" BorderThickness="1"><Image Source="{Binding Path,Converter={StaticResource CustomerPathImage},ConverterParameter=360}" Stretch="UniformToFill" HorizontalAlignment="Stretch"/></controls:RoundedClipBorder><Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="7" Background="#D9141419" BorderBrush="#55FFFFFF" BorderThickness="1" CornerRadius="12" Padding="7,3"><TextBlock Text="{Binding Number}" FontWeight="Bold" Foreground="White"/></Border><CheckBox IsChecked="{Binding IsRetakeSelected,Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="8" Width="44" Height="44"><CheckBox.Template><ControlTemplate TargetType="CheckBox"><Grid><Ellipse Fill="#E817171C" Stroke="{StaticResource AccentBrush}" StrokeThickness="3"/><Ellipse x:Name="Dot" Margin="9" Fill="{StaticResource AccentBrush}" Visibility="Collapsed"/></Grid><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Visibility" Value="Visible"/></Trigger></ControlTemplate.Triggers></ControlTemplate></CheckBox.Template></CheckBox></Grid></DataTemplate></ListBox.ItemTemplate>
      </ListBox>
     </Border>
    </Grid>
   </Border>
 
-  <Border Background="#F20B0B0F" Visibility="{Binding IsPrinting,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><ProgressBar IsIndeterminate="True" Width="320" Height="6" Foreground="{StaticResource AccentBrush}" Background="{StaticResource SurfaceInteractiveBrush}"/><TextBlock Text="Đang in ảnh của bạn" FontSize="36" FontWeight="SemiBold" Margin="0,28,0,8"/><TextBlock Text="Vui lòng chờ trong giây lát…" FontSize="20" Foreground="{StaticResource MutedTextBrush}"/></StackPanel></Border>
-  <Border Background="#E60B0B0F" Visibility="{Binding HasError,Converter={StaticResource BoolVisibility}}"><Border Style="{StaticResource SoftCard}" Width="520" VerticalAlignment="Center"><StackPanel><TextBlock Text="Có lỗi xảy ra" FontSize="26" FontWeight="SemiBold" Margin="0,0,0,12"/><TextBlock Text="{Binding ErrorMessage}" FontSize="18" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0"><Button Content="Thử lại" Command="{Binding RetryCommand}"/><Button Content="Hủy" Command="{Binding CancelErrorCommand}" Style="{StaticResource SecondaryButton}"/></StackPanel></StackPanel></Border></Border>
+  <Border Panel.ZIndex="60" Background="#F20B0B0F" IsHitTestVisible="True" Visibility="{Binding IsPrinting,Converter={StaticResource BoolVisibility}}"><StackPanel VerticalAlignment="Center"><ProgressBar IsIndeterminate="True" Width="320" Height="6" Foreground="{StaticResource AccentBrush}" Background="{StaticResource SurfaceInteractiveBrush}"/><TextBlock Text="Đang chuẩn bị ảnh của bạn" FontSize="36" FontWeight="SemiBold" Margin="0,28,0,8"/><TextBlock Text="Vui lòng chờ trong giây lát…" FontSize="20" Foreground="{StaticResource MutedTextBrush}"/></StackPanel></Border>
+  <Border Panel.ZIndex="70" Background="#E60B0B0F" IsHitTestVisible="True" Visibility="{Binding HasError,Converter={StaticResource BoolVisibility}}"><Border Style="{StaticResource SoftCard}" Width="520" VerticalAlignment="Center"><StackPanel><TextBlock Text="Có lỗi xảy ra" FontSize="26" FontWeight="SemiBold" Margin="0,0,0,12"/><TextBlock Text="{Binding ErrorMessage}" FontSize="18" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0"><Button Content="Thử lại" Command="{Binding RetryCommand}"/><Button Content="Hủy" Command="{Binding CancelErrorCommand}" Style="{StaticResource SecondaryButton}"/></StackPanel></StackPanel></Border></Border>
  </Grid>
 </UserControl>

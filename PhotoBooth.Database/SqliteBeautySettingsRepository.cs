@@ -15,9 +15,9 @@ namespace PhotoBooth.Database
             token.ThrowIfCancellationRequested();
             using (var connection = db.OpenConnection()) using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT Enabled,SmoothSkin,BrightenSkin,SkinTone,Sharpen,EyeSize,SlimFace FROM BeautySettings WHERE Id=1";
+                command.CommandText = "SELECT Enabled,SmoothSkin,BrightenSkin,SkinTone,Sharpen,EyeSize,SlimFace,BlemishRemoval,DarkCircleReduction FROM BeautySettings WHERE Id=1";
                 using (var reader = command.ExecuteReader())
-                    if (reader.Read()) return Task.FromResult(new BeautySettings { Enabled=reader.GetInt32(0)!=0,SmoothSkin=reader.GetInt32(1),BrightenSkin=reader.GetInt32(2),SkinTone=reader.GetInt32(3),Sharpen=reader.GetInt32(4),EyeSize=reader.GetInt32(5),SlimFace=reader.GetInt32(6) });
+                    if (reader.Read()) return Task.FromResult(new BeautySettings { Enabled=reader.GetInt32(0)!=0,SmoothSkin=reader.GetInt32(1),BrightenSkin=reader.GetInt32(2),SkinTone=reader.GetInt32(3),Sharpen=reader.GetInt32(4),EyeSize=reader.GetInt32(5),SlimFace=reader.GetInt32(6),BlemishRemoval=reader.GetInt32(7),DarkCircleReduction=reader.GetInt32(8) });
             }
             return Task.FromResult(new BeautySettings());
         }
@@ -26,8 +26,8 @@ namespace PhotoBooth.Database
             token.ThrowIfCancellationRequested(); value = value ?? new BeautySettings();
             using (var connection=db.OpenConnection()) using(var command=connection.CreateCommand())
             {
-                command.CommandText="INSERT OR REPLACE INTO BeautySettings(Id,Enabled,SmoothSkin,BrightenSkin,SkinTone,Sharpen,EyeSize,SlimFace,ModifiedAtUtc) VALUES(1,$enabled,$smooth,$brighten,$tone,$sharpen,$eye,$slim,$modified)";
-                command.Parameters.AddWithValue("$enabled",value.Enabled?1:0); command.Parameters.AddWithValue("$smooth",Clamp(value.SmoothSkin)); command.Parameters.AddWithValue("$brighten",Clamp(value.BrightenSkin)); command.Parameters.AddWithValue("$tone",Clamp(value.SkinTone)); command.Parameters.AddWithValue("$sharpen",Clamp(value.Sharpen)); command.Parameters.AddWithValue("$eye",Clamp(value.EyeSize)); command.Parameters.AddWithValue("$slim",Clamp(value.SlimFace)); command.Parameters.AddWithValue("$modified",DateTime.UtcNow.ToString("O")); command.ExecuteNonQuery();
+                command.CommandText="INSERT OR REPLACE INTO BeautySettings(Id,Enabled,SmoothSkin,BrightenSkin,SkinTone,Sharpen,EyeSize,SlimFace,BlemishRemoval,DarkCircleReduction,ModifiedAtUtc) VALUES(1,$enabled,$smooth,$brighten,$tone,$sharpen,$eye,$slim,$blemish,$darkCircle,$modified)";
+                command.Parameters.AddWithValue("$enabled",value.Enabled?1:0); command.Parameters.AddWithValue("$smooth",Clamp(value.SmoothSkin)); command.Parameters.AddWithValue("$brighten",Clamp(value.BrightenSkin)); command.Parameters.AddWithValue("$tone",Clamp(value.SkinTone)); command.Parameters.AddWithValue("$sharpen",Clamp(value.Sharpen)); command.Parameters.AddWithValue("$eye",Clamp(value.EyeSize)); command.Parameters.AddWithValue("$slim",Clamp(value.SlimFace)); command.Parameters.AddWithValue("$blemish",Clamp(value.BlemishRemoval)); command.Parameters.AddWithValue("$darkCircle",Clamp(value.DarkCircleReduction)); command.Parameters.AddWithValue("$modified",DateTime.UtcNow.ToString("O")); command.ExecuteNonQuery();
             }
             return Task.CompletedTask;
         }

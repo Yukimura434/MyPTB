@@ -69,6 +69,59 @@ namespace PhotoBooth.UnitTests
             finally { try { Directory.Delete(directory, true); } catch { } }
         }
 
+        [Fact]
+        public async Task ComposeAsync_DoesNotCreateDarkFringeAtSlotEdges()
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "PhotoBooth-compose-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            try
+            {
+                var overlay = Path.Combine(directory, "frame.png");
+                var source = Path.Combine(directory, "source.png");
+                SaveSolid(overlay, Color.Transparent, 80, 80);
+                SaveSolid(source, Color.FromArgb(255, 220, 20, 60), 7, 5);
+                var frame = new Frame
+                {
+                    SourcePath = overlay,
+                    PixelWidth = 80,
+                    PixelHeight = 80,
+                    Slots = new[] { new FrameSlot { Index = 0, X = 10, Y = 12, Width = 60, Height = 56 } }
+                };
+
+                var output = await new ImageCompositionService().ComposeAsync(
+                    new Session { OutputDirectory = directory },
+                    frame,
+                    null,
+                    false,
+                    new Dictionary<int, string> { [0] = source },
+                    CancellationToken.None);
+
+                using (var result = new Bitmap(output))
+                {
+                    for (var x = 10; x < 70; x++)
+                    {
+                        AssertRed(result.GetPixel(x, 12));
+                        AssertRed(result.GetPixel(x, 67));
+                    }
+                    for (var y = 12; y < 68; y++)
+                    {
+                        AssertRed(result.GetPixel(10, y));
+                        AssertRed(result.GetPixel(69, y));
+                    }
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(directory, true); } catch { }
+            }
+        }
+
+        static void AssertRed(Color color)
+        {
+            Assert.True(color.A == 255 && color.R >= 210 && color.G <= 30 && color.B <= 70,
+                "Expected an opaque red slot edge, got " + color + ".");
+        }
+
         static void SaveSolid(string path, Color color, int width, int height)
         {
             using (var image = new Bitmap(width, height, PixelFormat.Format32bppArgb))

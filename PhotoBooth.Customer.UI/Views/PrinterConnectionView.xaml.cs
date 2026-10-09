@@ -9,7 +9,7 @@ namespace PhotoBooth.Customer.UI.Views
   void ApplyOrientation()
   {
    var shell=Window.GetWindow(this)?.DataContext as CustomerShellViewModel;
-   var portrait=shell!=null&&shell.IsPortraitMode;
+   var portrait=shell!=null?shell.IsPortraitMode:ActualHeight>ActualWidth;
    if(portrait)
    {
     PrinterListColumn.Width=new GridLength(1,GridUnitType.Star);PrinterSettingsColumn.Width=new GridLength(0);PrinterListRow.Height=new GridLength(5,GridUnitType.Star);PrinterSettingsRow.Height=new GridLength(4,GridUnitType.Star);

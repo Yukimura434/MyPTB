@@ -20,7 +20,18 @@ namespace PhotoBooth.Infrastructure.Services
         public async Task<string> SaveAsync(string relativePath, Stream content, CancellationToken cancellationToken)
         {
             var path = Resolve(relativePath); Directory.CreateDirectory(Path.GetDirectoryName(path));
-            using (var output = File.Create(path)) await content.CopyToAsync(output, 81920, cancellationToken).ConfigureAwait(false);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    await content.CopyToAsync(output, 81920, cancellationToken).ConfigureAwait(false);
+                if (File.Exists(path)) File.Replace(temporary, path, null);
+                else File.Move(temporary, path);
+            }
+            finally
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            }
             return path;
         }
         public Task<Stream> OpenReadAsync(string relativePath, CancellationToken cancellationToken) => Task.FromResult<Stream>(File.OpenRead(Resolve(relativePath)));

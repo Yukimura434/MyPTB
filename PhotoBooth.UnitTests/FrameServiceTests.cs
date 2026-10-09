@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using PhotoBooth.Business.Services;
@@ -49,6 +50,21 @@ namespace PhotoBooth.UnitTests
             Assert.Equal(1, second.Index);
         }
 
+        [Fact]
+        public async Task SetPinnedAsync_allows_more_than_ten_local_frames()
+        {
+            var values = Enumerable.Range(0, 11)
+                .Select(index => new Frame { Id = Guid.NewGuid(), IsPinned = index < 10 })
+                .ToArray();
+            var repository = new FrameRepository(values);
+            var service = new FrameService(new UnusedAnalyzer(), repository, new UnusedStorage());
+
+            await service.SetPinnedAsync(values[10].Id, true, CancellationToken.None);
+
+            Assert.True(values[10].IsPinned);
+            Assert.Equal(11, values.Count(frame => frame.IsPinned));
+        }
+
         static FrameSlot Slot(int index, int x) => new FrameSlot
         {
             Id = Guid.NewGuid(), Index = index, X = x, Y = 1, Width = 100, Height = 100
@@ -56,12 +72,14 @@ namespace PhotoBooth.UnitTests
 
         sealed class FrameRepository : IFrameRepository
         {
-            public FrameRepository(Frame value) { Value = value; }
+            public Task ReplacePinnedAsync(IReadOnlyCollection<Guid> ids, CancellationToken token) { foreach(var item in values) item.IsPinned=ids.Contains(item.Id); return Task.CompletedTask; }
+            readonly List<Frame> values;
+            public FrameRepository(params Frame[] items) { values = items.ToList(); Value = values.FirstOrDefault(); }
             public Frame Value { get; private set; }
             public int SaveCount { get; private set; }
-            public Task<Frame> GetAsync(Guid id, CancellationToken token) => Task.FromResult(Value != null && Value.Id == id ? Value : null);
-            public Task<IReadOnlyList<Frame>> GetAllAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<Frame>>(new[] { Value });
-            public Task SaveAsync(Frame frame, CancellationToken token) { Value = frame; SaveCount++; return Task.CompletedTask; }
+            public Task<Frame> GetAsync(Guid id, CancellationToken token) => Task.FromResult(values.FirstOrDefault(frame => frame.Id == id));
+            public Task<IReadOnlyList<Frame>> GetAllAsync(CancellationToken token) => Task.FromResult<IReadOnlyList<Frame>>(values);
+            public Task SaveAsync(Frame frame, CancellationToken token) { var index=values.FindIndex(value=>value.Id==frame.Id);if(index>=0)values[index]=frame;else values.Add(frame);Value=frame;SaveCount++;return Task.CompletedTask; }
             public Task DeleteAsync(Guid id, CancellationToken token) => Task.CompletedTask;
         }
 

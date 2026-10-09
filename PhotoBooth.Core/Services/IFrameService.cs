@@ -8,6 +8,9 @@ namespace PhotoBooth.Core.Services
 {
     public interface IFrameService
     {
+        // Replace the local used set atomically; collection membership is not changed.
+        Task ReplacePinnedAsync(System.Collections.Generic.IReadOnlyCollection<System.Guid> ids, CancellationToken token);
+
         Task<Frame> ImportAsync(string pngPath, FrameAnalysisOptions options, CancellationToken cancellationToken);
         Task<Frame> GetAsync(Guid id, CancellationToken cancellationToken);
         Task<IReadOnlyList<Frame>> GetAllAsync(CancellationToken cancellationToken);

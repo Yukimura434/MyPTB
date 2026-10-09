@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,5 +12,6 @@ namespace PhotoBooth.Core.Services
         Task<InterfaceAsset> GetSelectedAsync(CancellationToken token);
         Task<InterfaceAsset> ImportAsync(string sourcePath, CancellationToken token);
         Task SelectAsync(Guid id, CancellationToken token);
+        Task UseDefaultAsync(CancellationToken token);
     }
 }

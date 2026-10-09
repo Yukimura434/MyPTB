@@ -15,7 +15,7 @@ using PhotoBooth.Shared;
 
 namespace PhotoBooth.Infrastructure.Services
 {
-    public sealed class VideoService : IVideoService, IDeferredVideoService
+    public sealed class VideoService : IVideoService, IDeferredVideoService, IVideoPixelSink
     {
         internal const int FramesPerSecond = 18;
         internal const int MaximumDurationSeconds = 8;
@@ -41,11 +41,39 @@ namespace PhotoBooth.Infrastructure.Services
         {
             if (!nativeEncoderEnabled) return;
             if (imageData == null || imageData.Length == 0) return;
+            AddBufferedFrame(() => (byte[])imageData.Clone(), timestampUtc);
+        }
+
+        public void AddLiveViewPixels(LiveBeautyPixels pixels, DateTime timestampUtc)
+        {
+            if (!nativeEncoderEnabled || pixels == null) return;
+            AddBufferedFrame(() => EncodePixels(pixels), timestampUtc);
+        }
+
+        static byte[] EncodePixels(LiveBeautyPixels pixels)
+        {
+            using (var bitmap = new Bitmap(pixels.Width, pixels.Height, System.Drawing.Imaging.PixelFormat.Format24bppRgb))
+            using (var output = new MemoryStream())
+            {
+                var locked = bitmap.LockBits(new Rectangle(0, 0, pixels.Width, pixels.Height), System.Drawing.Imaging.ImageLockMode.WriteOnly, bitmap.PixelFormat);
+                try
+                {
+                    for (int y = 0; y < pixels.Height; y++)
+                        System.Runtime.InteropServices.Marshal.Copy(pixels.Pixels, y * pixels.Stride, IntPtr.Add(locked.Scan0, y * locked.Stride), pixels.Stride);
+                }
+                finally { bitmap.UnlockBits(locked); }
+                bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Jpeg);
+                return output.ToArray();
+            }
+        }
+
+        void AddBufferedFrame(Func<byte[]> getBytes, DateTime timestampUtc)
+        {
             timestampUtc = timestampUtc.Kind == DateTimeKind.Utc ? timestampUtc : timestampUtc.ToUniversalTime();
             lock (sync)
             {
                 if (lastAcceptedUtc != default(DateTime) && timestampUtc - lastAcceptedUtc < FrameInterval) return;
-                frames.Add(new BufferedFrame(timestampUtc, (byte[])imageData.Clone()));
+                frames.Add(new BufferedFrame(timestampUtc, getBytes()));
                 lastAcceptedUtc = timestampUtc;
                 var cutoff = timestampUtc - MaximumPreroll - FrameInterval;
                 frames.RemoveAll(x => x.TimestampUtc < cutoff);
@@ -216,8 +244,7 @@ namespace PhotoBooth.Infrastructure.Services
                     token.ThrowIfCancellationRequested();
                     File.WriteAllBytes(Path.Combine(frameDirectory, i.ToString("D3") + ".jpg"), selected[i].ImageData);
                 }
-                var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
-                if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
+                var helper = ResolveEncoderHelperPath(AppDomain.CurrentDomain.BaseDirectory);
                 var start = new ProcessStartInfo
                 {
                     FileName = helper,
@@ -265,8 +292,7 @@ namespace PhotoBooth.Infrastructure.Services
             var outputPath = Path.Combine(directory, ".video-result-" + Guid.NewGuid().ToString("N") + ".mp4");
             try
             {
-                var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
-                if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
+                var helper = ResolveEncoderHelperPath(AppDomain.CurrentDomain.BaseDirectory);
                 var start = new ProcessStartInfo
                 {
                     FileName = helper,
@@ -496,8 +522,7 @@ namespace PhotoBooth.Infrastructure.Services
 
         void RunHelper(string arguments, CancellationToken token)
         {
-            var helper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PhotoBooth.Admin.UI.exe");
-            if (!File.Exists(helper)) throw new FileNotFoundException("The isolated Video encoder is unavailable.", helper);
+            var helper = ResolveEncoderHelperPath(AppDomain.CurrentDomain.BaseDirectory);
             var start = new ProcessStartInfo { FileName = helper, Arguments = arguments, WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
             start.EnvironmentVariables["PHOTOBOOTH_ENCODER_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
             using (var process = Process.Start(start))
@@ -538,6 +563,16 @@ namespace PhotoBooth.Infrastructure.Services
                 LogMemory(stage + " parent after completion", 0, BufferedBytes);
             }
             catch { }
+        }
+
+        internal static string ResolveEncoderHelperPath(string baseDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(baseDirectory)) throw new ArgumentException("Application directory is required.", nameof(baseDirectory));
+            var current = Path.Combine(baseDirectory, "MiuPhotoBooth.exe");
+            if (File.Exists(current)) return current;
+            var legacy = Path.Combine(baseDirectory, "PhotoBooth.Admin.UI.exe");
+            if (File.Exists(legacy)) return legacy;
+            throw new FileNotFoundException("The isolated Video encoder is unavailable.", current);
         }
 
         static string Quote(string value) => "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";

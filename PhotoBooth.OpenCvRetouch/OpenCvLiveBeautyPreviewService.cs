@@ -1,71 +1,175 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using OpenCvSharp.Face;
 using PhotoBooth.Core.Models;
 using PhotoBooth.Core.Services;
+
 namespace PhotoBooth.OpenCvRetouch
 {
+    /// <summary>Light preview with a bounded detector worker and owned BGR24 output.</summary>
     public sealed class OpenCvLiveBeautyPreviewService : ILiveBeautyPreviewService, IDisposable
     {
-        const int AnalysisInterval=6;
-        readonly SemaphoreSlim gate=new SemaphoreSlim(1,1);readonly string cascadePath,modelPath;
-        CascadeClassifier detector;FacemarkLBF facemark;Point2f[][] landmarks=new Point2f[0][];double landmarkScale=1;int frameCounter,width,height;bool disposed;
-        Mat cachedSkinMask,cachedFeatureMask;byte[] lastInput,lastOutput;int lastSettingsKey;
-        public OpenCvLiveBeautyPreviewService():this(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Assets","Beauty")){}
-        public OpenCvLiveBeautyPreviewService(string assets){cascadePath=Path.Combine(assets,"frontface.xml");modelPath=Path.Combine(assets,"lbfmodel.yaml");}
-        public async Task<byte[]> ProcessAsync(byte[] jpegData,BeautySettings settings,CancellationToken token)
+        readonly SemaphoreSlim previewGate = new SemaphoreSlim(1, 1);
+        readonly object sync = new object();
+        readonly string assets;
+        YuNetFaceDetector detector;
+        FacemarkLBF facemark;
+        Task detectorTask = Task.CompletedTask;
+        Snapshot pending, ready;
+        Exception detectorError;
+        bool detecting, disposed;
+        long generation, trackedGeneration = -1, trackEpoch;
+        Mat previous = new Mat();
+        Point2f[][] points = Array.Empty<Point2f[]>();
+        double lastRequest = double.NegativeInfinity, confidence = 1;
+        static double Now => Stopwatch.GetTimestamp() * 1000d / Stopwatch.Frequency;
+        public OpenCvLiveBeautyPreviewService() : this(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Beauty")) { }
+        public OpenCvLiveBeautyPreviewService(string assetsDirectory) { assets = assetsDirectory; BeautyRuntime.EnsureConfigured(); }
+
+        public async Task<LiveBeautyPixels> ProcessAsync(byte[] jpegData, BeautySettings settings, CancellationToken token)
         {
-            if(jpegData==null||jpegData.Length==0||settings==null||!settings.HasEffect)return jpegData;
-            // Live preview is best-effort. Cancellation means the frame is stale,
-            // so quietly return it and let the pipeline discard it. Throwing here
-            // crosses the OpenCvRetouch assembly boundary and makes Visual Studio
-            // report an expected camera-stop cancellation as user-unhandled.
-            if(token.IsCancellationRequested)return jpegData;
-            if(!await gate.WaitAsync(0).ConfigureAwait(false))return jpegData;
-            try
+            if (jpegData == null || jpegData.Length == 0 || settings?.HasLiveEffect != true || token.IsCancellationRequested) return null;
+            var snapshot = settings.Clone();
+            snapshot.ClampStrengths();
+            long version = Interlocked.Read(ref generation);
+            double submitted = Now;
+            if (!await previewGate.WaitAsync(0).ConfigureAwait(false)) return null;
+            try { return await Task.Run(() => Process(jpegData, snapshot, token, version, submitted)).ConfigureAwait(false); }
+            finally { previewGate.Release(); }
+        }
+
+        LiveBeautyPixels Process(byte[] jpeg, BeautySettings settings, CancellationToken token, long version, double submitted)
+        {
+            if (Stale(version, token)) return null;
+            if (trackedGeneration != version)
             {
-                if(token.IsCancellationRequested)return jpegData;
-                return await Task.Run(()=>ProcessCore(jpegData,settings,token)).ConfigureAwait(false);
+                points = Array.Empty<Point2f[]>(); previous.Dispose(); previous = new Mat();
+                trackEpoch++; lastRequest = double.NegativeInfinity; trackedGeneration = version;
             }
-            finally{gate.Release();}
-        }
-        byte[] ProcessCore(byte[] jpeg,BeautySettings settings,CancellationToken token)
-        {
-            if(token.IsCancellationRequested)return jpeg;EnsureLoaded();if(token.IsCancellationRequested)return jpeg;var settingsKey=SettingsKey(settings);if(settingsKey==lastSettingsKey&&SameBytes(jpeg,lastInput)&&lastOutput!=null)return lastOutput;
-            using(var original=Cv2.ImDecode(jpeg,ImreadModes.Color)){if(original.Empty())return jpeg;
-                if(original.Width!=width||original.Height!=height){width=original.Width;height=original.Height;frameCounter=0;landmarks=new Point2f[0][];ClearMasks();}
-                if(frameCounter++%AnalysisInterval==0||landmarks.Length==0){Analyze(original);ClearMasks();}
-                if(token.IsCancellationRequested)return jpeg;if(landmarks.Length==0){Remember(jpeg,jpeg,settingsKey);return jpeg;}var light=Light(settings);EnsureMasks(original.Size(),light);
-                using(var result=original.Clone())
+            using (var decoded = Cv2.ImDecode(jpeg, ImreadModes.Color))
+            using (var image = new Mat())
+            using (var gray = new Mat())
+            {
+                if (decoded.Empty()) return null;
+                // Bound preview work independently of camera JPEG resolution.
+                double scale = Math.Min(1d, 640d / Math.Max(decoded.Width, decoded.Height));
+                if (scale < 1) Cv2.Resize(decoded, image, new Size(0, 0), scale, scale, InterpolationFlags.Area);
+                else decoded.CopyTo(image);
+                Cv2.CvtColor(image, gray, ColorConversionCodes.BGR2GRAY);
+                if (points.Length > 0 && (previous.Size() != gray.Size() || !LiveBeautyTracking.Track(previous, gray, ref points, out confidence)))
+                { points = Array.Empty<Point2f[]>(); trackEpoch++; lastRequest = double.NegativeInfinity; }
+                Snapshot completed;
+                lock (sync)
                 {
-                    if(token.IsCancellationRequested)return jpeg;
-                    OpenCvBeautyRetouchService.ApplyEffects(original,result,cachedSkinMask,cachedFeatureMask,light,CancellationToken.None);
-                    if(light.EyeSize>0||light.SlimFace>0)foreach(var face in landmarks)OpenCvBeautyRetouchService.ApplyGeometry(result,face,landmarkScale,light);
-                    if(token.IsCancellationRequested)return jpeg;
-                    var encoded=result.ImEncode(".jpg",new[]{(int)ImwriteFlags.JpegQuality,88});Remember(jpeg,encoded,settingsKey);return encoded;
-                }}
+                    if (detectorError != null) throw new InvalidOperationException("Live Beauty detection failed.", detectorError);
+                    completed = ready; ready = null;
+                }
+                if (completed != null) using (completed)
+                {
+                    if (completed.Generation == version && completed.Epoch == trackEpoch && Now - completed.Submitted <= 150 &&
+                        completed.Submitted <= submitted && completed.Gray.Size() == gray.Size())
+                    {
+                        var candidate = completed.Points; double quality = 1;
+                        if (candidate.Length == 0 || LiveBeautyTracking.Track(completed.Gray, gray, ref candidate, out quality))
+                        { points = candidate; confidence = quality; }
+                    }
+                }
+                double interval = points.Length == 0 ? 100 : confidence >= .65 ? 400 : confidence >= .35 ? 200 : 100;
+                if (Now - lastRequest >= interval && !Stale(version, token))
+                {
+                    var job = new Snapshot { Image = image.Clone(), Gray = gray.Clone(), Generation = version, Epoch = trackEpoch, Submitted = submitted };
+                    lock (sync)
+                    {
+                        if (disposed || generation != version) job.Dispose();
+                        else
+                        {
+                            pending?.Dispose(); pending = job;
+                            if (!detecting) { detecting = true; detectorTask = Task.Run((Action)DetectLoop); }
+                        }
+                    }
+                    lastRequest = Now;
+                }
+                gray.CopyTo(previous);
+                bool applied = false;
+                if (points.Length > 0)
+                using (var skin = new Mat(image.Size(), MatType.CV_8UC1))
+                using (var features = new Mat())
+                using (var underEyes = new Mat())
+                {
+                    FaceSkinMaskBuilder.Build(image, points, 1, skin, features, underEyes);
+                    applied = Cv2.CountNonZero(skin) > 0;
+                    LiveBeautyTracking.Light(image, skin, settings.SmoothSkin, settings.BrightenSkin);
+                }
+                if (Stale(version, token)) return null;
+                int stride = image.Width * 3;
+                var pixels = new byte[stride * image.Height];
+                for (int y = 0; y < image.Height; y++) Marshal.Copy(image.Ptr(y), pixels, y * stride, stride);
+                return new LiveBeautyPixels(pixels, image.Width, image.Height, applied);
+            }
         }
-        void EnsureMasks(Size size,BeautySettings settings)
+        bool Stale(long version, CancellationToken token) => token.IsCancellationRequested || Volatile.Read(ref disposed) || version != Interlocked.Read(ref generation);
+
+        void DetectLoop()
         {
-            var needSkin=settings.SmoothSkin>0||settings.BrightenSkin>0||settings.SkinTone>0;var needFeature=settings.Sharpen>0;
-            if(needSkin&&cachedSkinMask==null){using(var raw=Mat.Zeros(size,MatType.CV_8UC1)){foreach(var face in landmarks)OpenCvBeautyRetouchService.BuildMasks(face,landmarkScale,raw,null);cachedSkinMask=new Mat();Cv2.GaussianBlur(raw,cachedSkinMask,new Size(0,0),Math.Max(1.5,width/600d));}}
-            if(needFeature&&cachedFeatureMask==null){using(var raw=Mat.Zeros(size,MatType.CV_8UC1)){foreach(var face in landmarks)OpenCvBeautyRetouchService.BuildMasks(face,landmarkScale,null,raw);cachedFeatureMask=new Mat();Cv2.GaussianBlur(raw,cachedFeatureMask,new Size(0,0),1.2);}}
+            while (true)
+            {
+                Snapshot job;
+                lock (sync) { job = pending; pending = null; if (job == null) { detecting = false; return; } }
+                try
+                {
+                    if (detector == null)
+                    {
+                        var loaded = FacemarkLBF.Create();
+                        try
+                        {
+                            loaded.LoadModel(Path.Combine(assets, "lbfmodel.yaml"));
+                            detector = new YuNetFaceDetector(Path.Combine(assets, YuNetFaceDetector.ModelFileName));
+                            facemark = loaded;
+                        }
+                        catch { loaded.Dispose(); throw; }
+                    }
+                    var boxes = detector.Detect(job.Image);
+                    job.Points = Array.Empty<Point2f[]>();
+                    if (boxes.Length > 0) using (var eq = new Mat()) using (var faces = Mat.FromArray(boxes))
+                    {
+                        Cv2.EqualizeHist(job.Gray, eq);
+                        if (!facemark.Fit(eq, faces, out job.Points)) job.Points = Array.Empty<Point2f[]>();
+                    }
+                    job.Image.Dispose(); job.Image = null;
+                    lock (sync) if (!disposed && generation == job.Generation) { ready?.Dispose(); ready = job; job = null; }
+                }
+                catch (Exception error) { lock (sync) if (!disposed && job.Generation == generation) detectorError = error; }
+                finally { job?.Dispose(); }
+            }
         }
-        void Analyze(Mat original)
+        public void Reset()
         {
-            var scale=Math.Min(1d,640d/Math.Max(original.Width,original.Height));using(var analysis=new Mat())using(var gray=new Mat())
-            {if(scale<.999)Cv2.Resize(original,analysis,new Size(0,0),scale,scale,InterpolationFlags.Area);else original.CopyTo(analysis);Cv2.CvtColor(analysis,gray,ColorConversionCodes.BGR2GRAY);Cv2.EqualizeHist(gray,gray);var faces=detector.DetectMultiScale(gray,1.15,3,HaarDetectionTypes.ScaleImage,new Size(35,35));Point2f[][] found;if(faces.Length==0){landmarks=new Point2f[0][];landmarkScale=scale;return;}using(var faceMat=Mat.FromArray(faces)){if(!facemark.Fit(gray,faceMat,out found))found=new Point2f[0][];}landmarks=found;landmarkScale=scale;}
+            lock (sync)
+            {
+                Interlocked.Increment(ref generation);
+                pending?.Dispose(); pending = null; ready?.Dispose(); ready = null; detectorError = null;
+            }
         }
-        static BeautySettings Light(BeautySettings s)=>new BeautySettings{Enabled=s.Enabled,SmoothSkin=(int)(s.SmoothSkin*.55),BrightenSkin=(int)(s.BrightenSkin*.7),SkinTone=(int)(s.SkinTone*.6),Sharpen=(int)(s.Sharpen*.65),EyeSize=(int)(s.EyeSize*.6),SlimFace=(int)(s.SlimFace*.6)};
-        void EnsureLoaded(){if(disposed)throw new ObjectDisposedException(nameof(OpenCvLiveBeautyPreviewService));if(detector!=null)return;if(!File.Exists(cascadePath)||!File.Exists(modelPath))throw new FileNotFoundException("Live Beauty model assets are unavailable.");detector=new CascadeClassifier(cascadePath);facemark=FacemarkLBF.Create();facemark.LoadModel(modelPath);}
-        static bool SameBytes(byte[] a,byte[] b){if(a==null||b==null||a.Length!=b.Length)return false;for(var i=0;i<a.Length;i++)if(a[i]!=b[i])return false;return true;}
-        static int SettingsKey(BeautySettings s){unchecked{var h=s.SmoothSkin;h=h*397^s.BrightenSkin;h=h*397^s.SkinTone;h=h*397^s.Sharpen;h=h*397^s.EyeSize;return h*397^s.SlimFace;}}
-        void Remember(byte[] input,byte[] output,int settingsKey){lastInput=(byte[])input.Clone();lastOutput=output;lastSettingsKey=settingsKey;}
-        void ClearMasks(){cachedSkinMask?.Dispose();cachedSkinMask=null;cachedFeatureMask?.Dispose();cachedFeatureMask=null;lastInput=null;lastOutput=null;lastSettingsKey=0;}
-        public void Reset(){if(!gate.Wait(0))return;try{landmarks=new Point2f[0][];frameCounter=0;width=height=0;ClearMasks();}finally{gate.Release();}}
-        public void Dispose(){if(disposed)return;disposed=true;ClearMasks();facemark?.Dispose();detector?.Dispose();gate.Dispose();}
+        public void Dispose()
+        {
+            lock (sync) { if (disposed) return; disposed = true; }
+            Reset(); previewGate.Wait();
+            try { Task worker; lock (sync) worker = detectorTask; worker.GetAwaiter().GetResult(); previous.Dispose(); facemark?.Dispose(); detector?.Dispose(); }
+            finally { previewGate.Release(); }
+            // Do not dispose a semaphore which already-entered callers may still release.
+        }
+        sealed class Snapshot : IDisposable
+        {
+            internal Mat Image, Gray;
+            internal Point2f[][] Points;
+            internal long Generation, Epoch;
+            internal double Submitted;
+            public void Dispose() { Image?.Dispose(); Gray?.Dispose(); }
+        }
     }
 }

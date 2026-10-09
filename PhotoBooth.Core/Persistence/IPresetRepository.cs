@@ -7,6 +7,9 @@ namespace PhotoBooth.Core.Persistence
 {
     public interface IPresetRepository
     {
+        // Replace the local used set atomically; collection membership is not changed.
+        Task ReplacePinnedAsync(System.Collections.Generic.IReadOnlyCollection<System.Guid> ids, CancellationToken token);
+
         Task<IReadOnlyList<Preset>> GetAllAsync(CancellationToken cancellationToken);
         Task<Preset> GetAsync(System.Guid id, CancellationToken cancellationToken);
         Task SaveAsync(Preset preset, CancellationToken cancellationToken);

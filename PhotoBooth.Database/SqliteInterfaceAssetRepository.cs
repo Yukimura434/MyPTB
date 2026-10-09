@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +28,33 @@ namespace PhotoBooth.Database
         public Task SelectAsync(Guid id,CancellationToken token)
         {
             token.ThrowIfCancellationRequested(); using(var c=db.OpenConnection()) using(var tx=c.BeginTransaction()){using(var clear=c.CreateCommand()){clear.Transaction=tx;clear.CommandText="UPDATE InterfaceAssets SET IsSelected=0";clear.ExecuteNonQuery();}using(var set=c.CreateCommand()){set.Transaction=tx;set.CommandText="UPDATE InterfaceAssets SET IsSelected=1 WHERE Id=$id";set.Parameters.AddWithValue("$id",id.ToString());if(set.ExecuteNonQuery()!=1)throw new InvalidOperationException("Interface asset was not found.");}tx.Commit();}return Task.CompletedTask;
+        }
+        public async Task UseDefaultAsync(CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            // A fresh installation may not have saved its first settings row yet.
+            bool hasSettings;
+            using (var c = db.OpenConnection()) using (var q = c.CreateCommand())
+            {
+                q.CommandText = "SELECT COUNT(*) FROM WorkflowSettings WHERE Id=1";
+                hasSettings = Convert.ToInt32(q.ExecuteScalar()) != 0;
+            }
+            if (!hasSettings)
+            {
+                var settings = new SqliteSettingsRepository(db);
+                await settings.SaveAsync(await settings.GetAsync(token), token);
+            }
+            using (var c = db.OpenConnection()) using (var tx = c.BeginTransaction())
+            {
+                using (var q = c.CreateCommand())
+                {
+                    q.Transaction = tx;
+                    q.CommandText = "UPDATE InterfaceAssets SET IsSelected=0; UPDATE WorkflowSettings SET ShowWaitingLiveView=0 WHERE Id=1";
+                    q.ExecuteNonQuery();
+                }
+                token.ThrowIfCancellationRequested();
+                tx.Commit();
+            }
         }
         static InterfaceAsset Read(Microsoft.Data.Sqlite.SqliteDataReader r)=>new InterfaceAsset{Id=Guid.Parse(r.GetString(0)),Name=r.GetString(1),FilePath=r.GetString(2),IsAnimated=r.GetInt32(3)!=0,IsSelected=r.GetInt32(4)!=0,CreatedAtUtc=DateTime.Parse(r.GetString(5)).ToUniversalTime()};
     }
