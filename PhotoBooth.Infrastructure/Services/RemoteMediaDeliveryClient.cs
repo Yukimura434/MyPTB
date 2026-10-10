@@ -89,6 +89,7 @@ namespace PhotoBooth.Infrastructure.Services
             using(var request=new HttpRequestMessage(HttpMethod.Put,uploadUri))
             {
                 content.Headers.ContentType=MediaTypeHeaderValue.Parse(asset.MimeType);content.Headers.ContentLength=asset.FileLength;request.Content=content;
+                request.Headers.ExpectContinue=false;
                 request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",credential);request.Headers.TryAddWithoutValidation("X-Content-Sha256",hash);request.Headers.TryAddWithoutValidation("X-Request-Id",RequestId());
                 request.Headers.TryAddWithoutValidation("X-Employee-Session",employee);
                 await DeviceRequestProof.SignAsync(request,identities,credential,hash,token).ConfigureAwait(false);

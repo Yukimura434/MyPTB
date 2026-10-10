@@ -16,10 +16,12 @@ namespace PhotoBooth.UnitTests
 {
     public sealed class BoothAccessServiceTests
     {
-        [Fact]
-        public async Task Event_login_uses_event_credentials_and_preserves_binding()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task Event_login_uses_event_credentials_and_preserves_binding(bool legacySettings)
         {
-            var handler = new RecordingHandler("{\"authorization\":{\"accessCodeId\":\"evt_1\",\"eventId\":\"evt_1\",\"eventName\":\"Test Event\",\"codeType\":\"event\",\"sessionToken\":\"es3.event.secret\",\"expiresAt\":2000000000,\"printCopies\":2}}", HttpStatusCode.OK);
+            var handler = new RecordingHandler("{\"authorization\":{\"accessCodeId\":\"evt_1\",\"eventId\":\"evt_1\",\"eventName\":\"Test Event\",\"codeType\":\"event\",\"sessionToken\":\"es3.event.secret\",\"expiresAt\":2000000000" + (legacySettings ? ",\"printCopies\":2,\"photoCount\":3" : "") + "}}", HttpStatusCode.OK);
             var result = await CreateService(handler).LoginEventAsync("ev23456789", "synthetic-password", CancellationToken.None);
             Assert.True(result.Succeeded);
             Assert.Equal("/api/v3/device/events/login", handler.Path);
@@ -27,7 +29,8 @@ namespace PhotoBooth.UnitTests
             Assert.Null(handler.EmployeeSession);
             Assert.True(result.Authorization.IsEvent);
             Assert.Equal("evt_1", result.Authorization.EventId);
-            Assert.Equal(2, result.Authorization.Settings.PrintCopies);
+            Assert.Equal(1, result.Authorization.Settings.PrintCopies);
+            Assert.Equal(8, result.Authorization.Settings.PhotoCount);
         }
 
         [Theory]

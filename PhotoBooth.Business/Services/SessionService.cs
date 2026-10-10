@@ -165,9 +165,29 @@ namespace PhotoBooth.Business.Services
         }
         public Task UpdateAsync(Session session, CancellationToken token) { session.UpdatedAtUtc=DateTime.UtcNow;session.StateVersion++;return repository.SaveAsync(session, token); }
         public Task ReplaceCapturedShotAsync(Guid sessionId,string previousShotId,CapturedShot replacement,CancellationToken token)=>ReplaceCapturedShotsAsync(sessionId,new Dictionary<string,CapturedShot>{{previousShotId,replacement}},token);
-        public async Task ReplaceCapturedShotsAsync(Guid sessionId,IReadOnlyDictionary<string,CapturedShot> replacements,CancellationToken token){if(replacements==null)throw new ArgumentNullException(nameof(replacements));var session=await repository.GetAsync(sessionId,token).ConfigureAwait(false);var previous=(session?.CapturedShots??new CapturedShot[0]).Where(x=>replacements.ContainsKey(x.Id)).ToList();if(previous.Count!=replacements.Count)throw new InvalidOperationException("One or more captured shots were not found.");await repository.ReplaceCapturedShotsAsync(sessionId,replacements,token).ConfigureAwait(false);if(mediaAssets!=null)foreach(var shot in previous){await mediaAssets.MarkDeletedAsync(shot.PictureAssetId,token).ConfigureAwait(false);await mediaAssets.MarkDeletedAsync(shot.VideoAssetId,token).ConfigureAwait(false);}}
+        public async Task ReplaceCapturedShotsAsync(Guid sessionId,IReadOnlyDictionary<string,CapturedShot> replacements,CancellationToken token)
+        {
+            if(replacements==null)throw new ArgumentNullException(nameof(replacements));
+            var session=await repository.GetAsync(sessionId,token).ConfigureAwait(false);
+            var previous=(session?.CapturedShots??new CapturedShot[0]).Where(x=>replacements.ContainsKey(x.Id)).ToList();
+            if(previous.Count!=replacements.Count)throw new InvalidOperationException("One or more captured shots were not found.");
+            // Retaking changes the selected attempts, not the retention of originals.
+            // The repository commits the entire selection change atomically.
+            await repository.ReplaceCapturedShotsAsync(sessionId,replacements,token).ConfigureAwait(false);
+            if(mediaAssets!=null)foreach(var shot in previous)
+            {
+                await DeleteWorkAssetAsync(shot.PictureAssetId,token).ConfigureAwait(false);
+                await DeleteWorkAssetAsync(shot.VideoAssetId,token).ConfigureAwait(false);
+            }
+        }
+        async Task DeleteWorkAssetAsync(string id,CancellationToken token)
+        {
+            if(string.IsNullOrWhiteSpace(id))return;
+            var asset=await mediaAssets.GetAsync(id,token).ConfigureAwait(false);
+            if(asset?.RetentionClass==MediaRetentionClasses.Work)await mediaAssets.MarkDeletedAsync(id,token).ConfigureAwait(false);
+        }
         public Task CompleteAsync(Session session, CancellationToken token) { session.CompletedAtUtc = DateTime.UtcNow;session.UpdatedAtUtc=session.CompletedAtUtc.Value;session.Status=BoothSessionStates.Completed;session.StateVersion++;return repository.SaveAsync(session, token); }
-        public async Task AbandonAsync(Session session,string reason,CancellationToken token){if(session==null)return;session.CompletedAtUtc=DateTime.UtcNow;session.UpdatedAtUtc=session.CompletedAtUtc.Value;session.Status=BoothSessionStates.Abandoned;session.TerminalReason=string.IsNullOrWhiteSpace(reason)?"Cancelled":reason;session.StateVersion++;await repository.SaveAsync(session,token).ConfigureAwait(false);if(mediaAssets!=null)await mediaAssets.MarkDeletedBySessionAsync(session.Id,token).ConfigureAwait(false);}
+        public async Task AbandonAsync(Session session,string reason,CancellationToken token){if(session==null)return;session.CompletedAtUtc=DateTime.UtcNow;session.UpdatedAtUtc=session.CompletedAtUtc.Value;session.Status=BoothSessionStates.Abandoned;session.TerminalReason=string.IsNullOrWhiteSpace(reason)?"Cancelled":reason;session.StateVersion++;await repository.SaveAsync(session,token).ConfigureAwait(false);if(mediaAssets!=null)foreach(var asset in await mediaAssets.GetBySessionAsync(session.Id,token).ConfigureAwait(false))if(asset.RetentionClass==MediaRetentionClasses.Work)await mediaAssets.MarkDeletedAsync(asset.Id,token).ConfigureAwait(false);}
         static PhotoEvent ToEvent(Session value)=>value==null?null:new PhotoEvent{Id=value.Id,PresetId=value.PresetId,Name=string.Equals(value.SessionName,"Base_session",StringComparison.OrdinalIgnoreCase)?"Sự kiện mặc định":value.SessionName,OutputDirectory=value.OutputDirectory,IsSelectedForThisDevice=value.IsDefault,IsSystemDefault=value.SessionNumber==0,LifecycleState=NormalizeEventState(value.EventLifecycleState),ScheduledStartAtUtc=value.EventScheduledStartAtUtc,ScheduledEndAtUtc=value.EventScheduledEndAtUtc,OpenedAtUtc=value.EventOpenedAtUtc,ClosedAtUtc=value.EventClosedAtUtc,DeliveredAtUtc=value.EventDeliveredAtUtc,ArchivedAtUtc=value.EventArchivedAtUtc,RemoteEventId=value.RemoteEventId,CreatedAtUtc=value.StartedAtUtc,UpdatedAtUtc=value.UpdatedAtUtc==DateTime.MinValue?value.StartedAtUtc:value.UpdatedAtUtc};
         static string NormalizeEventState(string value)=>PhotoEventLifecycleStates.IsKnown(value)?value:PhotoEventLifecycleStates.Draft;
         static bool CanTransitionEvent(string current,string next)

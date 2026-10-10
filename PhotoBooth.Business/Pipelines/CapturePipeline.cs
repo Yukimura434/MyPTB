@@ -276,7 +276,11 @@ namespace PhotoBooth.Business.Pipelines
 
         async Task SaveAsset(Guid sessionId,string attemptId,string assetId,string kind,string path,string mime,CancellationToken token)
         {
-            var now=DateTime.UtcNow;await mediaAssets.SaveAsync(new MediaAssetRecord{Id=assetId,SessionId=sessionId,CaptureAttemptId=attemptId,Kind=kind,RelativePath=storage.GetRelativePath(path),MimeType=mime,FileLength=new FileInfo(path).Length,Status=MediaAssetStates.Ready,RetentionClass=MediaRetentionClasses.Original,CreatedAtUtc=now,UpdatedAtUtc=now},token).ConfigureAwait(false);
+            var relative=storage.GetRelativePath(path);
+            // Customer review files are temporary until CaptureService promotes the
+            // accepted selection to Originals. Retention must follow that lifetime.
+            var isWork=relative.Replace('\\','/').Split('/').Any(part=>string.Equals(part,"Work",StringComparison.OrdinalIgnoreCase));
+            var now=DateTime.UtcNow;await mediaAssets.SaveAsync(new MediaAssetRecord{Id=assetId,SessionId=sessionId,CaptureAttemptId=attemptId,Kind=kind,RelativePath=relative,MimeType=mime,FileLength=new FileInfo(path).Length,Status=MediaAssetStates.Ready,RetentionClass=isWork?MediaRetentionClasses.Work:MediaRetentionClasses.Original,CreatedAtUtc=now,UpdatedAtUtc=now},token).ConfigureAwait(false);
         }
 
         static void FinalizeImage(string staging, string destination, bool autoFlip, int rotationDegrees)

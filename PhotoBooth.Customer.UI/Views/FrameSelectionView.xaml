@@ -261,12 +261,13 @@
                 <StackPanel>
                     <TextBlock Text="Sẵn sàng giữ lại khoảnh khắc này?" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding SelectedFrame.Name}" FontSize="16" Foreground="#D4C9DC" Margin="0,12,0,18"/>
-                    <StackPanel Orientation="Horizontal" IsEnabled="{Binding CanChangePrintCopies}" Visibility="{Binding PrintingEnabled,Converter={StaticResource UxVisible}}">
+                    <StackPanel Orientation="Horizontal" IsEnabled="{Binding CanChangePrintCopies}" Visibility="{Binding CanChangePrintCopies,Converter={StaticResource UxVisible}}">
                         <TextBlock Text="Số bản in" Margin="0,0,20,0"/>
                         <Button Content="−" Command="{Binding DecreaseCopiesCommand}"/>
                         <TextBlock Text="{Binding PrintCopies}" Margin="20,0"/>
                         <Button Content="+" Command="{Binding IncreaseCopiesCommand}"/>
                     </StackPanel>
+                    <Button Content="Bỏ qua in" Click="SkipPrint_Click" Visibility="{Binding CanSkipPrint,Converter={StaticResource UxVisible}}" Margin="0,18,0,0" HorizontalAlignment="Stretch"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,26,0,0">
                         <Button x:Name="ContinueEditing" Content="Chỉnh thêm" Click="Edit_Click" Margin="0,0,12,0"/>
                         <Button Click="Finish_Click" Style="{StaticResource UxPrimary}">

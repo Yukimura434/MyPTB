@@ -131,6 +131,14 @@ namespace PhotoBooth.UnitTests
                 var shot=Assert.Single(captured.CapturedShots);Assert.Equal(32,shot.Id.Length);Assert.Equal(32,shot.PictureAssetId.Length);Assert.Equal(shot.PictureAssetId,Path.GetFileNameWithoutExtension(shot.PicturePath));
                 using(var connection=setup.Database.OpenConnection())using(var command=connection.CreateCommand()){command.CommandText="SELECT State FROM CaptureAttempts WHERE Id=$id";command.Parameters.AddWithValue("$id",shot.Id);Assert.Equal(CaptureAttemptStates.Accepted,Convert.ToString(command.ExecuteScalar()));}
                 var asset=Assert.Single(await setup.Assets.GetBySessionAsync(booth.Id,CancellationToken.None));Assert.Equal(MediaAssetKinds.OriginalPicture,asset.Kind);Assert.False(Path.IsPathRooted(asset.RelativePath));Assert.Equal(MediaAssetStates.Ready,asset.Status);
+                Assert.Equal(MediaRetentionClasses.Work,asset.RetentionClass);
+                var next=await pipeline.ExecuteAsync(booth.Id,"camera",work,false,CancellationToken.None);
+                var replacement=next.CapturedShots.Single(x=>x.Id!=shot.Id);replacement.Sequence=shot.Sequence;
+                await service.ReplaceCapturedShotAsync(booth.Id,shot.Id,replacement,CancellationToken.None);
+                Assert.Equal(replacement.Id,Assert.Single((await setup.Sessions.GetAsync(booth.Id,CancellationToken.None)).CapturedShots).Id);
+                Assert.Equal(MediaAssetStates.Deleted,(await setup.Assets.GetAsync(shot.PictureAssetId,CancellationToken.None)).Status);
+                await service.AbandonAsync(await setup.Sessions.GetAsync(booth.Id,CancellationToken.None),"Customer cancelled",CancellationToken.None);
+                Assert.Equal(MediaAssetStates.Deleted,(await setup.Assets.GetAsync(replacement.PictureAssetId,CancellationToken.None)).Status);
             }
             finally{Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
         }

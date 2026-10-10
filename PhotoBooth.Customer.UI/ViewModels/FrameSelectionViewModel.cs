@@ -142,15 +142,16 @@ namespace PhotoBooth.Customer.UI.ViewModels
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
             presetProcessor = processor; sessions = session; deliverables = deliverableService; printPipeline = pipeline; videos = videoService; features = featureFlags; colorLuts=colorLutService; log = logger;
             CancelCommand = new RelayCommand(BackToPreview);
-            printCommand = new AsyncCommand(RunFinishTracked, () => CanFinish && !IsPrinting);
+            printCommand = new AsyncCommand(() => { skipPrinting = false; return RunFinishTracked(); }, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
+            SkipPrintCommand = new AsyncCommand(() => { skipPrinting = true; return RunFinishTracked(); }, () => CanFinish && !IsPrinting && CanSkipPrint);
             RetryCommand = new AsyncCommand(StartPreviewOperation);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
             SelectPhotoCommand = new ParameterCommand(value => SelectPhoto(value as CapturedPhotoChoice));
             SelectSlotCommand = new ParameterCommand(value => SelectSlot(value as FrameSlotChoice));
             ClearSlotCommand = new RelayCommand(ClearSelectedSlot);
-            IncreaseCopiesCommand = new RelayCommand(() => PrintCopies++);
-            DecreaseCopiesCommand = new RelayCommand(() => PrintCopies--);
+            IncreaseCopiesCommand = new RelayCommand(() => { if (CanChangePrintCopies) PrintCopies++; });
+            DecreaseCopiesCommand = new RelayCommand(() => { if (CanChangePrintCopies) PrintCopies--; });
             ZoomInCommand = new RelayCommand(() => ZoomPercent += 25);
             ZoomOutCommand = new RelayCommand(() => ZoomPercent -= 25);
             ResetZoomCommand = new RelayCommand(() => ZoomPercent = 100);
@@ -186,8 +187,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string ErrorMessage { get => error; private set { Set(ref error, value); Raise(nameof(HasError)); } }
         public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
         public bool IsPrinting { get => printing; private set { Set(ref printing, value); printCommand.NotifyCanExecuteChanged();NotifyPresetState(); } }
-        public bool PrintingEnabled { get => printingEnabled; private set { if(Set(ref printingEnabled,value)){Raise(nameof(CanChangePrintCopies));System.Windows.Input.CommandManager.InvalidateRequerySuggested();} } }
-        public bool CanChangePrintCopies => PrintingEnabled && context.PrintPolicyMode == EventPrintPolicyMode.Manual;
+        bool skipPrinting;
+        public bool HasPackagePrintCopies => context.Authorization?.IsOneTimeCode == true || context.Authorization?.IsReusableSelfBooth == true;
+        public bool CanSkipPrint => PrintingEnabled && context.Authorization?.IsReusableSelfBooth == true;
+        public bool PrintingEnabled { get => printingEnabled; private set { Set(ref printingEnabled,value);Raise(nameof(CanChangePrintCopies));Raise(nameof(CanSkipPrint));System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
+        public bool CanChangePrintCopies => PrintingEnabled && !HasPackagePrintCopies && context.PrintPolicyMode == EventPrintPolicyMode.Manual;
         public bool FramesPanelActive { get=>framesPanelActive; private set { if(Set(ref framesPanelActive,value)){Raise(nameof(PresetsPanelActive));} } }
         public bool PresetsPanelActive => !FramesPanelActive;
         public bool HasPinnedPresets => PinnedPresets.Count>0;
@@ -205,7 +209,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string PresetStrengthText=>Math.Round(PresetStrengthPercent)+"%";
         public bool CanApplyPreset=>SelectedPreset!=null&&ActivePhoto!=null&&!IsPrinting&&!IsPresetBusy;
         public bool CanApplyPresetToAll=>SelectedPreset!=null&&CapturedPhotos.Count>0&&!IsPrinting&&!IsPresetBusy;
-        public int PrintCopies { get => printCopies; set { if(Set(ref printCopies, Math.Max(1, Math.Min(Math.Max(1,context.MaximumPrintCopies), value))))System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
+        public int PrintCopies { get => printCopies; set { if(Set(ref printCopies, HasPackagePrintCopies ? Math.Max(0, context.RequestedPrintCopies) : Math.Max(1, Math.Min(Math.Max(1,context.MaximumPrintCopies), value))))System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
         public int ZoomPercent
         {
             get => zoomPercent;
@@ -223,6 +227,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string Guidance => SelectedSlot == null ? "Chọn một ô trên frame" : SelectedPhoto == null ? "Đã chọn ô " + SelectedSlot.Number + " — hãy chọn ảnh bên phải" : "Ảnh " + SelectedPhoto.Number + " đang được chọn — chạm ô để đặt ảnh";
         public ICommand CancelCommand { get; }
         public ICommand PrintCommand { get; }
+        public ICommand SkipPrintCommand { get; }
         public ICommand RetryCommand { get; }
         public ICommand CancelErrorCommand { get; }
         public ICommand SelectPhotoCommand { get; }
@@ -694,7 +699,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 // media asset first; only then may BoothSessions.FinalImageAssetId reference it.
                 await sessions.UpdateAsync(context.BoothSession, CancellationToken.None);
                 machine.MoveTo(CustomerWorkflowState.Printing);
-                if (context.PrintingEnabled)
+                if (context.PrintingEnabled && !skipPrinting && PrintCopies > 0)
                 {
                     var profiles = await printers.GetProfilesAsync(CancellationToken.None);
                     var profile = context.ConnectedPrinterProfileId.HasValue

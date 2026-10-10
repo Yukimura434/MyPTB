@@ -45,7 +45,8 @@ namespace PhotoBooth.UnitTests
                 Assert.False(OfflineEntitlementLeaseVerifier.TryVerify(lease, wrongDevice, now, 0, Base64Url(parameters.Modulus), Base64Url(parameters.Exponent)));
                 Assert.False(OfflineEntitlementLeaseVerifier.TryVerify(lease, identity, now.AddHours(hours + 1), 0, Base64Url(parameters.Modulus), Base64Url(parameters.Exponent)));
 
-                lease.Signature = lease.Signature.Substring(0, lease.Signature.Length - 1) + (lease.Signature.EndsWith("A", StringComparison.Ordinal) ? "B" : "A");
+                // Mutate a full data sextet; the final Base64 character can change only padding bits.
+                lease.Signature = (lease.Signature.StartsWith("A", StringComparison.Ordinal) ? "B" : "A") + lease.Signature.Substring(1);
                 Assert.False(OfflineEntitlementLeaseVerifier.TryVerify(lease, identity, now, 0, Base64Url(parameters.Modulus), Base64Url(parameters.Exponent)));
             }
         }

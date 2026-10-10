@@ -85,7 +85,7 @@ namespace PhotoBooth.Infrastructure.Services
                 return new BoothAccessResult { Succeeded = true, Authorization = new BoothAccessAuthorization {
                     CodeType = BoothAccessCodeType.Event, AccessCodeId = remote.AccessCodeId, EventId = remote.EventId,
                     DisplayName = remote.EventName ?? "Nhân viên sự kiện", SessionToken = remote.SessionToken,
-                    ExpiresAtUtc = DateTimeOffset.FromUnixTimeSeconds(remote.ExpiresAt).UtcDateTime, Settings = remote.ToSettings() } };
+                    ExpiresAtUtc = DateTimeOffset.FromUnixTimeSeconds(remote.ExpiresAt).UtcDateTime, Settings = new BoothAccessSettings() } };
             }
             catch (BoothAccessException e) { return Failed(e.Message); }
             catch (HttpRequestException) { return Failed("Không thể kết nối để đăng nhập sự kiện. Vui lòng thử lại."); }

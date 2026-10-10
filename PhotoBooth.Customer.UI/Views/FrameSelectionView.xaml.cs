@@ -23,6 +23,7 @@ namespace PhotoBooth.Customer.UI.Views
         void Continue_Click(object s, RoutedEventArgs e) { if (DataContext is FrameSelectionViewModel vm && vm.CanFinish && !vm.IsPrinting) { Confirmation.Visibility = Visibility.Visible; ContinueEditing.Focus(); } }
         void Edit_Click(object s, RoutedEventArgs e) => Confirmation.Visibility = Visibility.Collapsed;
         void Finish_Click(object s, RoutedEventArgs e) { Confirmation.Visibility = Visibility.Collapsed; if (DataContext is FrameSelectionViewModel vm && vm.PrintCommand.CanExecute(null)) vm.PrintCommand.Execute(null); }
+        void SkipPrint_Click(object s, RoutedEventArgs e) { if (DataContext is FrameSelectionViewModel vm && vm.SkipPrintCommand.CanExecute(null)) { Confirmation.Visibility = Visibility.Collapsed; vm.SkipPrintCommand.Execute(null); } }
         static void ScrollHorizontally(object s, MouseWheelEventArgs e) { var viewer = Find<ScrollViewer>((DependencyObject)s); if (viewer == null || viewer.ScrollableWidth <= 0) return; viewer.ScrollToHorizontalOffset(viewer.HorizontalOffset - e.Delta); e.Handled = true; }
         static T Find<T>(DependencyObject root) where T : DependencyObject { for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T result) return result; var nested = Find<T>(child); if (nested != null) return nested; } return null; }
     }

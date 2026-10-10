@@ -44,6 +44,11 @@ namespace PhotoBooth.Infrastructure.Services
             token.ThrowIfCancellationRequested();
             var originalUri = request.RequestUri;
             var originalHost = request.Headers.Host;
+            // Keep the hostname for streamed uploads. Rewriting it to a shared
+            // edge IP can reset the connection while Framework writes the body,
+            // even when small JSON requests to the same edge succeed.
+            if (request.Content is StreamContent)
+                return await base.SendAsync(request, token).ConfigureAwait(false);
             if (originalUri.Scheme != Uri.UriSchemeHttps || originalUri.HostNameType != UriHostNameType.Dns ||
                 usesProxy(originalUri) || (!string.IsNullOrEmpty(originalHost) &&
                 !string.Equals(originalHost, originalUri.Authority, StringComparison.OrdinalIgnoreCase)))

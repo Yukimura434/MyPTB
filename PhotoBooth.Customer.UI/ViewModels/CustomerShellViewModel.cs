@@ -210,8 +210,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     var validation = await provider.GetRequiredService<IBoothAccessService>().ValidateAsync(context.Authorization, CancellationToken.None);
                     if (!validation.Succeeded) throw new InvalidOperationException(validation.Error);
                     if (sessions.Current != null) sessions.Current.ExpiresAtUtc = validation.Authorization.ExpiresAtUtc;
-                    if (context.Authorization.IsEvent)
-                        await provider.GetRequiredService<IDeviceConfigurationSyncService>().SyncAsync(CancellationToken.None);
                 }
                 // Revalidation happens only before a new session. The entitlement service
                 // bounds temporary offline use and never interrupts capture or printing that
@@ -276,7 +274,9 @@ namespace PhotoBooth.Customer.UI.ViewModels
             var lutTask = colorLuts.GetAllAsync(CancellationToken.None);
             await System.Threading.Tasks.Task.WhenAll(configurationTask, frameTask, presetTask, lutTask);
             var configuration = configurationTask.Result;
-            var useBoothLibrary = context.ManagerSession?.CanManageConfiguration == true && context.Authorization?.UsesAccessCodeSettings != true;
+            // Creative assets follow the booth's current selection for code guests too.
+            // Access-code photo/countdown/print limits are still applied below.
+            var useBoothLibrary = context.Authorization != null || context.ManagerSession?.CanManageConfiguration == true;
             var selectedFrameIds = useBoothLibrary
                 ? PhotoBooth.Core.Models.BoothLibrarySelection.Frames(frameTask.Result, context.Settings).Select(x => x.Id).ToList()
                 : configuration?.FrameIds;
@@ -318,7 +318,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             // Both code products own their capture/countdown/result settings. PhotoBooth
             // additionally owns GIF timing; employee mode follows the selected event.
             // Layout and visual assets always come from the selected event.
-            var usesAccessCodeSettings = context.Authorization?.UsesAccessCodeSettings == true;
+            var usesAccessCodeSettings = context.Authorization?.IsOneTimeCode == true || context.Authorization?.IsReusableSelfBooth == true;
             if (usesAccessCodeSettings)
             {
                 var authorizedSettings = context.Authorization.Settings;
@@ -340,25 +340,26 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 context.Settings.ImageRotationDegrees = configuration.ImageRotationDegrees;
             }
             context.UsePresetStrength = useBoothLibrary;
-            // Only normal manager runs may select a local preview-only preset.
-            // Event/code runs retain their authorized library and strength.
+            // Event and manager runs use the app library and its selected preset strength.
             context.LiveViewPreset = useBoothLibrary && context.Settings.LiveViewPresetId.HasValue
                 ? presetTask.Result.FirstOrDefault(x => x.Id == context.Settings.LiveViewPresetId.Value && x.LutStatus == "Ready" && x.LutCubeSize >= 2 && x.LutCubeSize <= 65)
                 : null;
             if (!useBoothLibrary) context.Settings.LiveViewPresetId = null;
             context.Settings.DefaultFrameId = selectedFrameIds[0];
             context.Settings.DefaultPresetId = selectedPresetIds?.Count > 0 ? (Guid?)selectedPresetIds[0] : null;
-            context.PrintPolicyMode = configuration.PrintPolicyMode;
+            var packagePrinting = context.Authorization?.IsOneTimeCode == true || context.Authorization?.IsReusableSelfBooth == true;
+            context.PrintPolicyMode = packagePrinting ? EventPrintPolicyMode.Automatic : configuration.PrintPolicyMode;
             var includedPrintCopies = Math.Max(0, configuration.IncludedPrintCopies);
-            context.MaximumPrintCopies = Math.Max(includedPrintCopies, configuration.MaximumPrintCopies);
+            context.MaximumPrintCopies = packagePrinting ? Math.Max(0, context.Authorization.Settings.PrintCopies) : Math.Max(includedPrintCopies, configuration.MaximumPrintCopies);
             context.RequestedPrintCopies = usesAccessCodeSettings
                 ? Math.Min(Math.Max(0, context.Authorization.Settings.PrintCopies), context.MaximumPrintCopies)
                 : includedPrintCopies;
-            if (configuration.PrintPolicyMode == EventPrintPolicyMode.Disabled)
+            if (!packagePrinting && configuration.PrintPolicyMode == EventPrintPolicyMode.Disabled)
             {
                 context.RequestedPrintCopies = 0;
                 context.Settings.PrintingEnabled = false;
             }
+            if (packagePrinting) context.Settings.PrintingEnabled = context.RequestedPrintCopies > 0;
             context.ColorPresetStrength = Math.Max(0f,Math.Min(1f,configuration.ColorPresetStrengthPercent/100f));
 
             var snapshotDirectory = Path.Combine(storage.GetPath("Temp"), "configuration-" + Guid.NewGuid().ToString("N"));
@@ -408,7 +409,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         PhotoBooth.Core.Models.PhotoEvent ResolveRunEvent(IEnumerable<PhotoBooth.Core.Models.PhotoEvent> values)
         {
             var list = (values ?? Enumerable.Empty<PhotoBooth.Core.Models.PhotoEvent>()).ToList();
-            var remoteEventId = context.Authorization?.UsesAccessCodeSettings == true ? context.Authorization.EventId : null;
+            var remoteEventId = context.Authorization?.UsesAccessCodeSettings == true && context.Authorization.IsEvent != true ? context.Authorization.EventId : null;
             if (!string.IsNullOrWhiteSpace(remoteEventId))
                 return list.FirstOrDefault(value => string.Equals(value.RemoteEventId, remoteEventId, StringComparison.Ordinal));
             return list.FirstOrDefault(value => value.IsDefault);
@@ -442,7 +443,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         async System.Threading.Tasks.Task ConfigurePrinterForRunAsync()
         {
-            context.PrintingEnabled = false;
+            var requiredByCode = context.Authorization != null && context.RequestedPrintCopies > 0;
+            context.PrintingEnabled = requiredByCode;
             context.ConnectedPrinterId = null;
             context.ConnectedPrinterProfileId = null;
             if (context.Settings?.PrintingEnabled != true || context.RequestedPrintCopies <= 0) return;
@@ -457,7 +459,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 context.ConnectedPrinterId = profile.PrinterId;
                 context.ConnectedPrinterProfileId = profile.Id;
             }
-            catch { context.PrintingEnabled = false; }
+            catch { context.PrintingEnabled = requiredByCode; }
         }
 
         async System.Threading.Tasks.Task OnRunCompletedAsync()

@@ -15,6 +15,29 @@ namespace PhotoBooth.UnitTests
         static readonly Uri Endpoint = new Uri("https://api.example.test:8443/a%2Fb?key=x%2Fy&v=1");
 
         [Fact]
+        public async Task Streamed_upload_keeps_hostname_and_stream_without_IP_rewrite_or_replay()
+        {
+            var bytes=Encoding.UTF8.GetBytes("synthetic-media");
+            var inner=new Handler(async request=>
+            {
+                Assert.Equal(Endpoint,request.RequestUri);
+                Assert.Null(request.Headers.Host);
+                Assert.Equal(bytes,await request.Content.ReadAsByteArrayAsync());
+                Assert.Equal("synthetic-signature",string.Join("",request.Headers.GetValues("X-Device-Signature")));
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            });
+            using(var client=new HttpClient(new ApiAddressHandler(inner,
+                _=>throw new InvalidOperationException("Streaming must keep normal hostname routing"),_=>false)))
+            using(var request=new HttpRequestMessage(HttpMethod.Put,Endpoint))
+            {
+                request.Content=new StreamContent(new System.IO.MemoryStream(bytes));
+                request.Headers.Add("X-Device-Signature","synthetic-signature");
+                using(await client.SendAsync(request)){}
+                Assert.Equal(1,inner.Calls);
+            }
+        }
+
+        [Fact]
         public async Task Direct_request_uses_DNS_IPv4_and_preserves_authority_body_and_signed_path()
         {
             var originalBody = Encoding.UTF8.GetBytes("{\"pin\":\"synthetic\"}");

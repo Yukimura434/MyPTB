@@ -67,7 +67,7 @@
                                     <TextBlock Text="8 ký tự" FontSize="13" Foreground="#BBB3C6" HorizontalAlignment="Right"/>
                                 </Grid>
                                 <Grid>
-                                    <TextBox x:Name="CodeBox" Text="{Binding Code,UpdateSourceTrigger=PropertyChanged}" MaxLength="8" CharacterCasing="Upper" FontSize="32" Height="84" TextAlignment="Center" VerticalContentAlignment="Center" GotKeyboardFocus="Code_Focus" PreviewTouchDown="Code_Touch" AutomationProperties.Name="Mã chụp ảnh"/>
+                                    <TextBox x:Name="CodeBox" Text="{Binding Code,UpdateSourceTrigger=PropertyChanged}" MaxLength="8" CharacterCasing="Upper" FontSize="32" Height="84" Padding="14,2" TextAlignment="Center" VerticalContentAlignment="Center" GotKeyboardFocus="Code_Focus" PreviewTouchDown="Code_Touch" AutomationProperties.Name="Mã chụp ảnh"/>
                                     <TextBlock Text="N H Ậ P  M Ã" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="#A198AC" FontSize="22" HorizontalAlignment="Center">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">

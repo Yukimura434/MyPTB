@@ -27,15 +27,25 @@ namespace PhotoBooth.UnitTests
                 var replacement=await RecordShot(root,booth.Id,2,"replacement",attempts,assets);await sessions.AddCapturedShotAsync(booth.Id,replacement,CancellationToken.None);
 
                 replacement.Sequence=original.Sequence;
-                await sessions.ReplaceCapturedShotAsync(booth.Id,original.Id,replacement,CancellationToken.None);
+                var workflow=new PhotoBooth.Business.Services.BusinessWorkflowService(sessions,
+                    new PhotoBooth.Shared.ApplicationOptions{DataDirectory=root},null,assets);
+                await workflow.ReplaceCapturedShotAsync(booth.Id,original.Id,replacement,CancellationToken.None);
 
                 var selected=Assert.Single((await sessions.GetAsync(booth.Id,CancellationToken.None)).CapturedShots);
                 Assert.Equal(replacement.Id,selected.Id);Assert.Equal(1,selected.Sequence);
+                Assert.Equal(MediaAssetStates.Ready,(await assets.GetAsync(original.PictureAssetId,CancellationToken.None)).Status);
+                Assert.True(File.Exists(original.PicturePath));
+                // A retake must not weaken retention enforcement for stored originals.
+                await Assert.ThrowsAsync<SqliteException>(()=>assets.MarkDeletedAsync(original.PictureAssetId,CancellationToken.None));
                 using(var connection=database.OpenConnection())using(var command=connection.CreateCommand())
                 {
                     command.CommandText="SELECT Sequence,AttemptNumber,IsSelected FROM CaptureAttempts WHERE Id=$id";command.Parameters.AddWithValue("$id",replacement.Id);
                     using(var reader=command.ExecuteReader()){Assert.True(reader.Read());Assert.Equal(1,reader.GetInt32(0));Assert.Equal(2,reader.GetInt32(1));Assert.Equal(1,reader.GetInt32(2));}
                 }
+                var current=await sessions.GetAsync(booth.Id,CancellationToken.None);
+                await workflow.AbandonAsync(current,"Customer cancelled",CancellationToken.None);
+                Assert.Equal(BoothSessionStates.Abandoned,(await sessions.GetAsync(booth.Id,CancellationToken.None)).Status);
+                Assert.Equal(MediaAssetStates.Ready,(await assets.GetAsync(replacement.PictureAssetId,CancellationToken.None)).Status);
             }
             finally{SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
         }
