@@ -1,4 +1,4 @@
-﻿#region License
+#region License
 /*
 PortableDeviceCollection.cs
 Copyright (C) 2009 Vincent Lainé
@@ -21,191 +21,157 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
+using System.Runtime.InteropServices;
 using PortableDeviceApiLib;
 
 namespace PortableDeviceLib
 {
-
-    /// <summary>
-    /// Manage a collection of <see cref="PortableDeviceLib.PortableDevice"/> from the WPD API Interop
-    /// </summary>
     public class PortableDeviceCollection
     {
         private static PortableDeviceCollection _instance;
+        private static readonly object instanceLock = new object();
+        private readonly object sync = new object();
+        private readonly Dictionary<string, PortableDevice> portableDevices = new Dictionary<string, PortableDevice>();
+        private readonly Func<string[]> enumerate;
+        private readonly string appName;
+        private readonly float majorVersion, minorVersion;
 
-        private PortableDeviceManagerClass deviceManager;
-        private uint countDevices = 0;
-        private Dictionary<string, PortableDevice> portableDevices;
-
-        private string appName;
-        private float majorVersion;
-        private float minorVersion;
-
-        /// <summary>
-        /// Private default constructor
-        /// </summary>
         private PortableDeviceCollection(string appName, float majorVersion, float minorVersion)
+            : this(appName, majorVersion, minorVersion, WpdDeviceEnumeration.Read) { }
+
+        internal PortableDeviceCollection(string appName, float majorVersion, float minorVersion, Func<string[]> enumerate)
         {
-            if (string.IsNullOrEmpty(appName))
-                throw new ArgumentNullException("appName");
-
-            this.deviceManager = new PortableDeviceManagerClass();
-
-            this.portableDevices = new Dictionary<string, PortableDevice>();
-
+            if (string.IsNullOrEmpty(appName)) throw new ArgumentNullException("appName");
             this.appName = appName;
             this.majorVersion = majorVersion;
             this.minorVersion = minorVersion;
-            this.AutoConnectToPortableDevice = true;
+            this.enumerate = enumerate;
+            AutoConnectToPortableDevice = true;
         }
 
-        #region Properties
-
-        /// <summary>
-        /// Get or set a value that indicate if we autoconnect to PortableDevice when creating a new instance
-        /// </summary>
-        public bool AutoConnectToPortableDevice
-        {
-            get;
-            set;
-        }
-
-        /// <summary>
-        /// Gets the number of PortableDevice connected
-        /// </summary>
-        public int Count
-        {
-            get
-            {
-                RefreshDevices();
-                return Convert.ToInt32(countDevices);
-            }
-        }
-
-        /// <summary>
-        /// Get the device ID list
-        /// </summary>
-        public IEnumerable<string> DeviceIds
-        {
-            get
-            {
-                return InternalGetDeviceIds();
-            }
-        }
-
-        /// <summary>
-        /// Get the list of devices
-        /// </summary>
+        public bool AutoConnectToPortableDevice { get; set; }
+        public int Count { get { return InternalGetDeviceIds().Length; } }
+        public IEnumerable<string> DeviceIds { get { return InternalGetDeviceIds(); } }
         public IEnumerable<PortableDevice> Devices
         {
             get
             {
-                if (DeviceIds == null)
-                    yield break;
+                // One snapshot: unplug between two enumerations must not change this iteration.
+                lock (sync) return InternalGetDeviceIds().Select(GetPortableDeviceById).ToArray();
+            }
+        }
+        public static PortableDeviceCollection Instance { get { lock (instanceLock) return _instance; } }
 
-                foreach (string id in DeviceIds)
-                    yield return GetPortableDeviceById(id);
+        public PortableDevice GetPortableDeviceById(string id)
+        {
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException("id");
+            lock (sync)
+            {
+                PortableDevice device;
+                if (!portableDevices.TryGetValue(id, out device))
+                {
+                    device = new PortableDevice(id);
+                    if (AutoConnectToPortableDevice) device.ConnectToDevice(appName, majorVersion, minorVersion);
+                    portableDevices.Add(id, device);
+                }
+                return device;
             }
         }
 
-        /// <summary>
-        /// Gets or sets the instance of PortableDeviceCollection
-        /// </summary>
-        public static PortableDeviceCollection Instance
+        public void RemoveDevice(string id) { lock (sync) portableDevices.Remove(id); }
+
+        public static PortableDeviceCollection CreateInstance(string appName, float majorVersion, float minorVersion)
         {
-            get
+            if (string.IsNullOrEmpty(appName)) throw new ArgumentNullException("appName");
+            lock (instanceLock)
             {
+                if (_instance == null) _instance = new PortableDeviceCollection(appName, majorVersion, minorVersion);
                 return _instance;
             }
         }
 
-        #endregion
+        public void RefreshDevices() { InternalGetDeviceIds(); }
 
-        /// <summary>
-        /// Get the portable device by his id
-        /// </summary>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        public PortableDevice GetPortableDeviceById(string id)
+        private string[] InternalGetDeviceIds()
         {
-            if (string.IsNullOrEmpty(id))
-                throw new ArgumentNullException("id");
-
-            if (!portableDevices.ContainsKey(id))
+            lock (sync)
             {
-                PortableDevice portableDevice = new PortableDevice(id);
-                if( AutoConnectToPortableDevice )
-                    portableDevice.ConnectToDevice(appName, majorVersion, minorVersion);
-                portableDevices.Add(id, portableDevice);
+                // No shared count/buffer across discovery and connection, and no persistent
+                // COM manager created on one apartment then reused on another.
+                var ids = enumerate();
+                foreach (var id in portableDevices.Keys.Where(id => !ids.Contains(id)).ToArray())
+                    portableDevices.Remove(id);
+                return ids;
             }
-
-            return this.portableDevices[id];
         }
+    }
 
+    // The bundled type-library string[] declaration does not describe the native
+    // pointer-array ownership reliably. Use the first two IPortableDeviceManager
+    // vtable slots explicitly; each returned LPWSTR belongs to CoTaskMemFree.
+    [ComImport, Guid("A1567595-4C2F-4574-A6FA-ECEF917B9A40"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IWpdDeviceManager
+    {
+        [PreserveSig] int GetDevices(IntPtr deviceIds, ref uint count);
+        [PreserveSig] int RefreshDeviceList();
+    }
 
-      /// <summary>
-      /// remove a disconected device, this should be call after device disconnected
-      ///  </summary>
-      /// <param name="id">Device ide of the disconnected device</param>
-        public void RemoveDevice(string id)
+    internal static class WpdDeviceEnumeration
+    {
+        internal delegate int GetDevices(IntPtr buffer, ref uint count);
+        private const uint MaximumDevices = 4096;
+
+        internal static string[] Read()
         {
-          if(portableDevices.ContainsKey(id))
-          {
-            portableDevices.Remove(id);
-          }
+            var manager = (IWpdDeviceManager)(object)new PortableDeviceManagerClass();
+            try { return Read(manager.GetDevices, manager.RefreshDeviceList); }
+            finally { Marshal.ReleaseComObject(manager); }
         }
 
-      /// <summary>
-        /// Create the unique instance of PortableDeviceCollection
-        /// </summary>
-        /// <param name="appName"></param>
-        /// <param name="majorVersion"></param>
-        /// <param name="minorVersion"></param>
-        /// <returns></returns>
-        public static PortableDeviceCollection CreateInstance(string appName, float majorVersion, float minorVersion)
+        internal static string[] Read(GetDevices getDevices, Func<int> refresh)
         {
-            if (string.IsNullOrEmpty(appName))
-                throw new ArgumentNullException("appName");
-
-            if (_instance == null)
-                _instance = new PortableDeviceCollection(appName, majorVersion, minorVersion);
-
-            return _instance;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                Marshal.ThrowExceptionForHR(refresh());
+                uint capacity = 0;
+                Marshal.ThrowExceptionForHR(getDevices(IntPtr.Zero, ref capacity));
+                if (capacity == 0) return new string[0];
+                if (capacity > MaximumDevices) throw new InvalidOperationException("Invalid WPD device count.");
+                int slots = checked((int)capacity);
+                IntPtr buffer = Marshal.AllocCoTaskMem(checked(slots * IntPtr.Size));
+                for (int i = 0; i < slots; i++) Marshal.WriteIntPtr(buffer, i * IntPtr.Size, IntPtr.Zero);
+                try
+                {
+                    uint written = capacity;
+                    int result = getDevices(buffer, ref written);
+                    Marshal.ThrowExceptionForHR(result);
+                    if (written > capacity) throw new InvalidOperationException("Invalid WPD result length.");
+                    // S_FALSE means the list grew. Retry with a fresh bounded snapshot.
+                    if (result == 1) continue;
+                    var ids = new List<string>();
+                    for (int i = 0; i < written; i++)
+                    {
+                        IntPtr value = Marshal.ReadIntPtr(buffer, i * IntPtr.Size);
+                        if (value != IntPtr.Zero)
+                        {
+                            string id = Marshal.PtrToStringUni(value);
+                            if (!string.IsNullOrEmpty(id)) ids.Add(id);
+                        }
+                    }
+                    return ids.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                }
+                finally
+                {
+                    // Also free partial results on HRESULT failure or hotplug retry.
+                    for (int i = 0; i < slots; i++)
+                    {
+                        IntPtr value = Marshal.ReadIntPtr(buffer, i * IntPtr.Size);
+                        if (value != IntPtr.Zero) Marshal.FreeCoTaskMem(value);
+                    }
+                    Marshal.FreeCoTaskMem(buffer);
+                }
+            }
+            throw new InvalidOperationException("Portable device list is changing. Retry discovery.");
         }
-
-        public void RefreshDevices()
-        {
-          this.deviceManager.RefreshDeviceList();
-          uint _countDevices = 1;
-          this.deviceManager.GetDevices(null, ref _countDevices);
-          string[] devicesIds = new string[_countDevices];
-          this.deviceManager.GetDevices(devicesIds, ref _countDevices);
-          this.countDevices = _countDevices;
-          // Keep cached wrappers for devices which are still present.  The old
-          // predicate did the opposite and evicted every connected camera on
-          // each refresh, which made native Nikon discovery intermittent.
-          List<string> removedDevices =
-            (from portableDevice in portableDevices
-             where !devicesIds.Contains(portableDevice.Key)
-             select portableDevice.Key).ToList();
-          foreach (string removedDevice in removedDevices)
-          {
-            RemoveDevice(removedDevice);
-          }
-        }
-
-      private string[] InternalGetDeviceIds()
-        {
-            RefreshDevices();
-            if (this.countDevices <= 0)
-                return null;
-
-            string[] deviceIds = new string[this.countDevices];
-            this.deviceManager.GetDevices(deviceIds, ref this.countDevices);            
-
-            return deviceIds;
-        }
-
     }
 }

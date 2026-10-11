@@ -122,6 +122,8 @@ namespace PhotoBooth.Admin.UI.ViewModels
             var assets = await service.GetAllAsync(CancellationToken.None);
             await service.ReplacePinnedAsync(BoothLibrarySelection.Presets(assets, current).Select(x => x.Id).ToArray(), CancellationToken.None);
         }
+        readonly IDeviceConfigurationSyncService librarySync;
+        bool syncBusy;
         readonly IPresetService service;
         readonly IPresetEventService eventService;
         readonly IColorLutService color;
@@ -142,9 +144,11 @@ namespace PhotoBooth.Admin.UI.ViewModels
         CancellationTokenSource previewCancellation;
 
         public PresetManagerViewModel(IPresetService presets, IPresetEventService events, IColorLutService colors,
-            ISettingsService settings, IFileDialogService dialog, ILogger<PresetManagerViewModel> logger, IPcSessionContext sessions)
+            ISettingsService settings, IFileDialogService dialog, ILogger<PresetManagerViewModel> logger, IPcSessionContext sessions, IDeviceConfigurationSyncService librarySync = null)
         {
             this.sessions = sessions;
+            this.librarySync = librarySync;
+            SyncCommand = new AsyncCommand(_ => SyncLibrary(), _ => IsLibraryReady && !syncBusy && librarySync != null);
             service = presets; eventService = events; color = colors; settingsService = settings; dialogs = dialog; log = logger;
             SaveStrengthCommand = new AsyncCommand(_ => SaveStrength(), _ => IsLibraryReady && SelectedPreset != null);
             UseLivePresetCommand = new AsyncCommand(_ => SaveLivePreset(false), _ => CanEditLibrary && !livePresetBusy && !IsSelectedLivePreset && string.Equals(SelectedPreset?.LutStatus, "Ready", StringComparison.OrdinalIgnoreCase) && SelectedPreset.LutCubeSize >= 2 && SelectedPreset.LutCubeSize <= 65);
@@ -259,6 +263,21 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public ICommand DeleteEventCommand { get; }
         public ICommand AssignEventCommand { get; }
 
+        public ICommand SyncCommand { get; }
+        async Task SyncLibrary()
+        {
+            syncBusy = true;
+            CommandManager.InvalidateRequerySuggested();
+            Message = "Đang tải frame và preset từ web…";
+            try
+            {
+                var result = await librarySync.SyncAsync(CancellationToken.None);
+                await Load(SelectedPreset?.Id, SelectedEvent?.Id);
+                Message = result.Message;
+            }
+            catch (Exception error) { log.LogWarning(error, "Library synchronization failed."); Message = "Chưa tải được thư viện. Hãy kiểm tra mạng và thử lại."; }
+            finally { syncBusy = false; CommandManager.InvalidateRequerySuggested(); }
+        }
         public Task RefreshAsync() => Load();
 
         async Task Load(Guid? selectPresetId = null, Guid? selectEventId = null)

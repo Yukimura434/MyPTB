@@ -1,4 +1,4 @@
-#region Licence
+﻿#region Licence
 
 // Distributed under MIT License
 // ===========================================================
@@ -446,6 +446,13 @@ namespace CameraControl.Devices
                     camera.Dispose();
                 }
             }
+            return result;
+        }
+
+        // Called on the MTP dispatcher, never on the Canon/webcam discovery STA.
+        public IReadOnlyList<CameraDiscoveryDescriptor> ScanPortableCameras()
+        {
+            var result = new List<CameraDiscoveryDescriptor>();
             if (PortableDeviceCollection.Instance == null)
             {
                 PortableDeviceCollection.CreateInstance(AppName, AppMajorVersionNumber, AppMinorVersionNumber);
@@ -910,7 +917,7 @@ namespace CameraControl.Devices
 
             var existing = ConnectedDevices.OfType<WebCameraDevice>()
                 .FirstOrDefault(x => String.Equals(x.PortName, cameraId, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
+            if (existing != null && existing.IsConnected)
             {
                 SelectedCameraDevice = existing;
                 return;

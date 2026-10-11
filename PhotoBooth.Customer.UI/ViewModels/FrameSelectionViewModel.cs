@@ -120,6 +120,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         string preview;
         string error;
         bool printing;
+        bool retryFinish;
         bool printingEnabled;
         int printCopies = 1;
         int zoomPercent = 100;
@@ -145,7 +146,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
             printCommand = new AsyncCommand(() => { skipPrinting = false; return RunFinishTracked(); }, () => CanFinish && !IsPrinting);
             PrintCommand = printCommand;
             SkipPrintCommand = new AsyncCommand(() => { skipPrinting = true; return RunFinishTracked(); }, () => CanFinish && !IsPrinting && CanSkipPrint);
-            RetryCommand = new AsyncCommand(StartPreviewOperation);
+            RetryCommand = new AsyncCommand(() => retryFinish ? RunFinishTracked() : StartPreviewOperation(),
+                () => !IsPrinting && !pageStopping);
             CancelErrorCommand = new RelayCommand(() => ErrorMessage = null);
             SelectPhotoCommand = new ParameterCommand(value => SelectPhoto(value as CapturedPhotoChoice));
             SelectSlotCommand = new ParameterCommand(value => SelectSlot(value as FrameSlotChoice));
@@ -186,7 +188,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string PreviewPath { get => preview; private set => Set(ref preview, value); }
         public string ErrorMessage { get => error; private set { Set(ref error, value); Raise(nameof(HasError)); } }
         public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
-        public bool IsPrinting { get => printing; private set { Set(ref printing, value); printCommand.NotifyCanExecuteChanged();NotifyPresetState(); } }
+        public bool IsPrinting { get => printing; private set { Set(ref printing, value); printCommand.NotifyCanExecuteChanged(); (RetryCommand as AsyncCommand)?.NotifyCanExecuteChanged();NotifyPresetState(); } }
         bool skipPrinting;
         public bool HasPackagePrintCopies => context.Authorization?.IsOneTimeCode == true || context.Authorization?.IsReusableSelfBooth == true;
         public bool CanSkipPrint => PrintingEnabled && context.Authorization?.IsReusableSelfBooth == true;
@@ -276,6 +278,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             try
             {
+                retryFinish = false;
                 ErrorMessage = null; PrintCopies = Math.Max(1, context.RequestedPrintCopies); ZoomPercent = 100; PrintingEnabled = context.PrintingEnabled;
                 CancelStagedPresetPreview();CancelPresetBackgroundWork();
                 selected = null; Raise(nameof(SelectedFrame)); PreviewPath = null;
@@ -530,7 +533,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             }
             try { ErrorMessage = null; await Compose(false, cancellation.Token); }
             catch (OperationCanceledException) { }
-            catch (Exception e) { Fail(e, "Không thể tạo bản xem trước"); }
+            catch (Exception e) { if (!IsPrinting) { retryFinish = false; Fail(e, "Không thể tạo bản xem trước"); } }
             finally
             {
                 lock (previewCancellationSync)
@@ -650,8 +653,10 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         async Task Finish()
         {
+            if (IsPrinting || pageStopping) return;
             try
             {
+                retryFinish = false;
                 ErrorMessage = null; IsPrinting = true;
                 lock (previewCancellationSync) previewCancellation?.Cancel();
                 if (context.BoothSession != null && context.BoothSession.IsBoothSession && context.BoothSession.Status != BoothSessionStates.Finalizing)
@@ -702,16 +707,32 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if (context.PrintingEnabled && !skipPrinting && PrintCopies > 0)
                 {
                     var profiles = await printers.GetProfilesAsync(CancellationToken.None);
+                    // A profile read may have failed at run startup. Resolve only the
+                    // frozen default, then retain it for every retry of this run.
+                    if (!context.ConnectedPrinterProfileId.HasValue && string.IsNullOrWhiteSpace(context.ConnectedPrinterId))
+                    {
+                        var defaultProfile = context.Settings?.DefaultPrinterProfileId;
+                        var selectedPrinter = defaultProfile.HasValue
+                            ? profiles.SingleOrDefault(x => x.Id == defaultProfile.Value)
+                            : profiles.SingleOrDefault(x => x.IsDefault);
+                        if (selectedPrinter != null)
+                        {
+                            context.ConnectedPrinterProfileId = selectedPrinter.Id;
+                            context.ConnectedPrinterId = selectedPrinter.PrinterId;
+                        }
+                    }
                     var profile = context.ConnectedPrinterProfileId.HasValue
                         ? profiles.SingleOrDefault(x => x.Id == context.ConnectedPrinterProfileId.Value)
                         : profiles.SingleOrDefault(x => x.IsDefault && string.Equals(x.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase));
                     if (profile == null || !string.Equals(profile.PrinterId, context.ConnectedPrinterId, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Selected printer profile is no longer available.");
+                    await printers.ConnectAsync(profile.PrinterId, CancellationToken.None);
                     await printPipeline.ExecuteAsync(context.BoothSession.Id, profile.Id, Math.Max(1, PrintCopies), CancellationToken.None);
                 }
                 machine.MoveTo(CustomerWorkflowState.Complete);
             }
             catch (Exception e)
             {
+                retryFinish = true;
                 var printFailed = machine.State == CustomerWorkflowState.Printing;
                 if (printFailed) machine.MoveTo(CustomerWorkflowState.FrameSelection);
                 Fail(e, printFailed

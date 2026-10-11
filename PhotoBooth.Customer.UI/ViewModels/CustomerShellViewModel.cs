@@ -448,18 +448,21 @@ namespace PhotoBooth.Customer.UI.ViewModels
             context.ConnectedPrinterId = null;
             context.ConnectedPrinterProfileId = null;
             if (context.Settings?.PrintingEnabled != true || context.RequestedPrintCopies <= 0) return;
+            context.PrintingEnabled = true;
             try
             {
                 var profiles = await printers.GetProfilesAsync(CancellationToken.None);
                 var profile = context.Settings.DefaultPrinterProfileId.HasValue
                     ? profiles.FirstOrDefault(value => value.Id == context.Settings.DefaultPrinterProfileId.Value)
                     : profiles.FirstOrDefault(value => value.IsDefault);
-                if (profile == null || !await printers.IsConnectedAsync(profile.PrinterId, CancellationToken.None)) return;
-                context.PrintingEnabled = true;
+                if (profile == null) return;
+                // Retain the selected profile even while offline so Retry can recover
+                // the same printer without silently disabling the requested print.
                 context.ConnectedPrinterId = profile.PrinterId;
                 context.ConnectedPrinterProfileId = profile.Id;
+                await printers.ConnectAsync(profile.PrinterId, CancellationToken.None);
             }
-            catch { context.PrintingEnabled = requiredByCode; }
+            catch { /* The finishing screen reports the failure and permits explicit Retry. */ }
         }
 
         async System.Threading.Tasks.Task OnRunCompletedAsync()

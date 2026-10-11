@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Windows.Threading;
 using Accord.Video;
 using Accord.Video.DirectShow;
 using CameraControl.Devices.Classes;
@@ -13,6 +14,7 @@ namespace CameraControl.Devices.Others
     public class WebCameraDevice: BaseCameraDevice
     {
         private VideoCaptureDevice _captureDevice;
+        private Dispatcher _owner;
 
         private LiveViewData _liveViewData = new LiveViewData();
 
@@ -29,9 +31,11 @@ namespace CameraControl.Devices.Others
         public void Init(string id)
         {
             PortName = id;
+            _owner = Dispatcher.CurrentDispatcher;
             _captureDevice = new VideoCaptureDevice(id);
             _captureDevice.NewFrame += _localWebCam_NewFrame;
             _captureDevice.SnapshotFrame += _localWebCam_SnapshotFrame;
+            _captureDevice.PlayingFinished += CaptureDevice_PlayingFinished;
             _captureDevice.ProvideSnapshots = true;
             IsConnected = true;
             LiveViewImageZoomRatio = new PropertyValue<long>();
@@ -64,6 +68,23 @@ namespace CameraControl.Devices.Others
             CompressionSetting.ValueChanged += CompressionSetting_ValueChanged;
             StartLiveView();
 
+        }
+
+        private void CaptureDevice_PlayingFinished(object sender, ReasonToFinishPlaying reason)
+        {
+            if (reason == ReasonToFinishPlaying.StoppedByUser) return;
+            // DirectShow raises this on its capture worker. Never WaitForStop or
+            // run UI/SDK recovery inline there: that would join the current thread.
+            _owner.BeginInvoke(new Action(() => HandleSourceFinished(sender)), DispatcherPriority.Normal);
+        }
+
+        private void HandleSourceFinished(object source)
+        {
+            if (!ReferenceEquals(source, _captureDevice) || !IsConnected) return;
+            IsConnected = false;
+            _processLiveView = false;
+            _liveViewData = new LiveViewData();
+            OnCameraDisconnected(this, new DisconnectCameraEventArgs());
         }
 
         private void CompressionSetting_ValueChanged(object sender, string key, long val)
@@ -112,6 +133,7 @@ namespace CameraControl.Devices.Others
 
         public override  void CapturePhoto()
         {
+            if (!IsConnected) throw new InvalidOperationException("Webcam is disconnected.");
             StartLiveView();
 
             _processLiveView = true;
@@ -134,6 +156,7 @@ namespace CameraControl.Devices.Others
         {
             lock (_lock)
             {
+                if (_captureDevice == null || !IsConnected) throw new InvalidOperationException("Webcam is disconnected.");
                 if (!_captureDevice.IsRunning)
                 {
                     _captureDevice.Start();
@@ -148,6 +171,7 @@ namespace CameraControl.Devices.Others
         {
             lock (_lock)
             {
+                if (_captureDevice == null) return;
                 _captureDevice.SignalToStop();
                 _captureDevice.WaitForStop();
                 _operationInProgress = false;
@@ -158,7 +182,7 @@ namespace CameraControl.Devices.Others
         public override LiveViewData GetLiveViewImage()
         {
             _operationInProgress = false;
-            return _liveViewData;
+            return IsConnected ? _liveViewData : null;
         }
 
         private void PhotoCaptureEvent(byte[] data)
@@ -203,9 +227,13 @@ namespace CameraControl.Devices.Others
 
         public override void Close()
         {
+            IsConnected = false;
+            _processLiveView = false;
+            _liveViewData = new LiveViewData();
             if (_captureDevice != null)
            {
                 _captureDevice.SignalToStop();
+                _captureDevice.PlayingFinished -= CaptureDevice_PlayingFinished;
                 _captureDevice.SnapshotFrame -= _localWebCam_SnapshotFrame;
                 _captureDevice.NewFrame -= _localWebCam_NewFrame;
                 _captureDevice.WaitForStop();

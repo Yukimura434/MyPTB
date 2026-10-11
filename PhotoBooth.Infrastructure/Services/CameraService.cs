@@ -87,9 +87,10 @@ namespace PhotoBooth.Infrastructure.Services
           .ToList());
     public async Task<IReadOnlyList<CameraInfo>> ScanAsync(CancellationToken token)
     {
-      var connected = await GetCamerasAsync(token).ConfigureAwait(false);
+      var connected = (await GetCamerasAsync(token).ConfigureAwait(false)).Where(x => x.IsConnected).ToList();
       var discovered = await operations.RunAsync(() => manager.ScanCameras(), token).ConfigureAwait(false);
-      return connected.Concat(discovered
+      var portable = await operations.RunMtpAsync(() => manager.ScanPortableCameras(), token).ConfigureAwait(false);
+      return connected.Concat(discovered.Concat(portable)
           .Where(x => connected.All(c => !String.Equals(c.Id, x.Id, StringComparison.OrdinalIgnoreCase)))
           .Select(x => new CameraInfo(x.Id, x.DisplayName, false, x.Manufacturer)))
         .ToList();

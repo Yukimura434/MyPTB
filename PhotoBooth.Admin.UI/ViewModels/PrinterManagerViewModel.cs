@@ -79,11 +79,27 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public ICommand SaveAndTestCommand { get; }
         async Task Initialize()
         {
+            Settings configured = null;
             IsBusy = true;
-            try { loadingPrintingSetting = true; PrintingEnabled = (await settings.GetAsync(CancellationToken.None))?.PrintingEnabled ?? true; }
+            try { loadingPrintingSetting = true; configured = await settings.GetAsync(CancellationToken.None); PrintingEnabled = configured?.PrintingEnabled ?? true; }
             catch (Exception e) { Fail(e, "Không thể tải cài đặt in. Vui lòng thử lại."); }
             finally { loadingPrintingSetting = false; IsBusy = false; }
             await Scan();
+            if (!PrintingEnabled) return;
+            IsBusy = true;
+            try
+            {
+                var profiles = await service.GetProfilesAsync(CancellationToken.None);
+                var profile = configured?.DefaultPrinterProfileId.HasValue == true
+                    ? profiles.FirstOrDefault(x => x.Id == configured.DefaultPrinterProfileId.Value)
+                    : profiles.FirstOrDefault(x => x.IsDefault);
+                var device = profile == null ? null : Printers.FirstOrDefault(x => string.Equals(x.Id, profile.PrinterId, StringComparison.OrdinalIgnoreCase));
+                if (device == null) return;
+                SelectedPrinter = device;
+                await Connect();
+            }
+            catch (Exception e) { Fail(e, "Chưa thể kết nối máy in mặc định. Vui lòng kiểm tra rồi kết nối lại."); }
+            finally { IsBusy = false; }
         }
         async Task SavePrintingSetting(bool enabled)
         {

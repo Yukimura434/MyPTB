@@ -26,6 +26,11 @@ namespace PhotoBooth.Infrastructure.Services
         const long MaxFrameBytes = 32L * 1024L * 1024L;
         readonly IDeviceIdentityRepository identityRepository;
         readonly IFrameRepository frameRepository;
+        readonly IPresetRepository presetRepository;
+        readonly IColorLutService color;
+        readonly IColorLutParser lutParser;
+        readonly IColorLutPathResolver lutPaths;
+        static readonly SemaphoreSlim SyncGate = new SemaphoreSlim(1, 1);
         readonly IFileStorageService storage;
         readonly IFrameAnalyzer frameAnalyzer;
         readonly ApplicationOptions options;
@@ -34,7 +39,8 @@ namespace PhotoBooth.Infrastructure.Services
         public DeviceConfigurationSyncService(IDeviceIdentityRepository identityRepository,
             IFrameRepository frameRepository, IFileStorageService storage,
             IFrameAnalyzer frameAnalyzer, ApplicationOptions options,
-            ILogger<DeviceConfigurationSyncService> logger)
+            ILogger<DeviceConfigurationSyncService> logger, IPresetRepository presetRepository,
+            IColorLutService color, IColorLutParser lutParser, IColorLutPathResolver lutPaths)
         {
             this.identityRepository = identityRepository;
             this.frameRepository = frameRepository;
@@ -42,9 +48,20 @@ namespace PhotoBooth.Infrastructure.Services
             this.frameAnalyzer = frameAnalyzer;
             this.options = options;
             this.logger = logger;
+            this.presetRepository = presetRepository;
+            this.color = color;
+            this.lutParser = lutParser;
+            this.lutPaths = lutPaths;
         }
 
         public async Task<DeviceConfigurationSyncResult> SyncAsync(CancellationToken cancellationToken)
+        {
+            await SyncGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { return await SyncCoreAsync(cancellationToken).ConfigureAwait(false); }
+            finally { SyncGate.Release(); }
+        }
+
+        async Task<DeviceConfigurationSyncResult> SyncCoreAsync(CancellationToken cancellationToken)
         {
             var identity = await identityRepository.GetAsync(cancellationToken).ConfigureAwait(false);
             if (identity == null || identity.EnrollmentState != DeviceEnrollmentState.Enrolled || string.IsNullOrWhiteSpace(identity.DeviceId))
@@ -60,6 +77,7 @@ namespace PhotoBooth.Infrastructure.Services
 
             // Catalog refresh failure preserves the last verified local library.
             var frameCatalogChanged = false;
+            var incomplete = false;
             try
             {
                 frameCatalogChanged = await SyncFrameCatalogAsync(baseUrl, credential, cancellationToken).ConfigureAwait(false);
@@ -67,15 +85,118 @@ namespace PhotoBooth.Infrastructure.Services
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception exception)
             {
+                incomplete = true;
                 logger?.LogWarning(exception, "The shared frame catalog refresh is pending; continuing with the last known good catalog.");
+            }
+            var presetCatalogChanged = false;
+            try
+            {
+                var result = await SyncPresetCatalogAsync(baseUrl, credential, cancellationToken).ConfigureAwait(false);
+                presetCatalogChanged = result.Item1;
+                incomplete |= result.Item2;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception exception)
+            {
+                incomplete = true;
+                logger?.LogWarning(exception, "Preset catalog refresh pending; retaining local presets.");
             }
             // Event assets are selected locally. Catalog sync must never replace
             // a booth's selected configuration with an Event deployment.
             return new DeviceConfigurationSyncResult
             {
-                Applied = frameCatalogChanged,
-                Message = frameCatalogChanged ? "Đã đồng bộ thư viện frame." : "Frame đã được cập nhật."
+                Applied = frameCatalogChanged || presetCatalogChanged,
+                Message = incomplete ? "Một phần thư viện chưa tải được. Hãy thử đồng bộ lại." : "Đã cập nhật thư viện frame và preset."
             };
+        }
+
+        async Task<Tuple<bool, bool>> SyncPresetCatalogAsync(string baseUrl, string credential, CancellationToken token)
+        {
+            RemotePresetCatalog catalog;
+            using (var request = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/v3/device/color-presets"))
+            using (var response = await SendFrameRequestAsync(request, credential, token).ConfigureAwait(false))
+            {
+                if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Không thể tải thư viện preset.");
+                catalog = Read<RemotePresetCatalog>(await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+            }
+            if (catalog?.Presets == null) throw new InvalidDataException("Thư viện preset không hợp lệ.");
+            var changed = false;
+            var incomplete = catalog.UnavailableCount > 0;
+            foreach (var preset in catalog.Presets)
+            {
+                try { changed |= await EnsurePresetAsync(preset, credential, token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception exception)
+                {
+                    incomplete = true;
+                    logger?.LogWarning(exception, "A preset could not be synchronized; retaining local library.");
+                }
+            }
+            return Tuple.Create(changed, incomplete);
+        }
+
+        async Task<bool> EnsurePresetAsync(RemotePreset remote, string credential, CancellationToken token)
+        {
+            const long maxBytes = 2 * 1024 * 1024;
+            if (remote == null || string.IsNullOrWhiteSpace(remote.PresetVersionId) ||
+                remote.AssetBytes < 1 || remote.AssetBytes > maxBytes || remote.CubeSize < 2 || remote.CubeSize > 64)
+                throw new InvalidDataException("Preset không hợp lệ.");
+            Hex(remote.ContentSha256);
+            Guid id;
+            using (var hash = SHA256.Create())
+                id = new Guid(hash.ComputeHash(Encoding.UTF8.GetBytes("preset:" + remote.PresetVersionId)).Take(16).ToArray());
+            var existing = await presetRepository.GetAsync(id, token).ConfigureAwait(false);
+            var assets = await color.GetAllAsync(token).ConfigureAwait(false);
+            var asset = assets.FirstOrDefault(a => string.Equals(a.ContentHashSha256, remote.ContentSha256, StringComparison.OrdinalIgnoreCase));
+            var valid = asset != null && asset.Status == ColorLutAssetStatus.Ready &&
+                asset.CubeSize == remote.CubeSize && FileMatchesSha256(lutPaths.GetFullPath(asset.RelativePath), remote.ContentSha256);
+            if (existing != null && valid && existing.LutAssetId == asset.Id) return false;
+            if (!valid)
+            {
+                var temporary = Path.Combine(lutPaths.StagingDirectory, Guid.NewGuid().ToString("N") + ".cube");
+                Directory.CreateDirectory(lutPaths.StagingDirectory);
+                try
+                {
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, TrustedAssetUri(remote.AssetUrl)))
+                    using (var response = await SendFrameRequestAsync(request, credential, token).ConfigureAwait(false))
+                    {
+                        if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Không thể tải preset.");
+                        using (var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                        using (var output = File.Create(temporary))
+                        {
+                            var buffer = new byte[8192]; int count; long total = 0;
+                            while ((count = await input.ReadAsync(buffer, 0, buffer.Length, token).ConfigureAwait(false)) > 0)
+                            {
+                                total += count;
+                                if (total > remote.AssetBytes) throw new InvalidDataException("Preset vượt quá kích thước cho phép.");
+                                await output.WriteAsync(buffer, 0, count, token).ConfigureAwait(false);
+                            }
+                            if (total != remote.AssetBytes) throw new InvalidDataException("Kích thước preset không khớp.");
+                        }
+                    }
+                    if (!FileMatchesSha256(temporary, remote.ContentSha256)) throw new InvalidDataException("Xác thực preset thất bại.");
+                    using (var parsed = lutParser.Parse(temporary, token))
+                        if (parsed.Metadata.CubeSize != remote.CubeSize) throw new InvalidDataException("Bảng màu không khớp.");
+                    if (asset != null)
+                    {
+                        // Repair only the same immutable content, never replace a selected preset with a new version.
+                        var path = lutPaths.GetFullPath(asset.RelativePath);
+                        Directory.CreateDirectory(Path.GetDirectoryName(path));
+                        File.Copy(temporary, path, true);
+                        await color.ReconcileAsync(token).ConfigureAwait(false);
+                    }
+                    else asset = (await color.ImportAsync(temporary, remote.Name, token).ConfigureAwait(false)).Asset;
+                }
+                finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            }
+            if (existing == null)
+            {
+                var now = DateTime.UtcNow;
+                await presetRepository.SaveAsync(new Preset { Id = id, Name = remote.Name ?? "Preset từ web",
+                    CreatedAtUtc = now, ModifiedAtUtc = now, CaptureCountdownSeconds = 3 }, token).ConfigureAwait(false);
+            }
+            await color.AttachAsync(id, asset.Id, token).ConfigureAwait(false);
+            return true;
         }
 
         async Task<bool> SyncFrameCatalogAsync(string baseUrl, string credential, CancellationToken token)
@@ -245,6 +366,20 @@ namespace PhotoBooth.Infrastructure.Services
         static byte[] Hex(string value) { if (value == null || value.Length != 64) throw new InvalidOperationException("Hash frame không hợp lệ."); var bytes = new byte[32]; for (var i = 0; i < bytes.Length; i++) bytes[i] = Convert.ToByte(value.Substring(i * 2, 2), 16); return bytes; }
         static T Read<T>(string value) { using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(value ?? string.Empty))) return (T)new DataContractJsonSerializer(typeof(T)).ReadObject(stream); }
 
+        [DataContract] sealed class RemotePresetCatalog
+        {
+            [DataMember(Name = "colorPresets")] public RemotePreset[] Presets { get; set; }
+            [DataMember(Name = "unavailableCount")] public int UnavailableCount { get; set; }
+        }
+        [DataContract] sealed class RemotePreset
+        {
+            [DataMember(Name = "presetVersionId")] public string PresetVersionId { get; set; }
+            [DataMember(Name = "name")] public string Name { get; set; }
+            [DataMember(Name = "assetUrl")] public string AssetUrl { get; set; }
+            [DataMember(Name = "assetBytes")] public long AssetBytes { get; set; }
+            [DataMember(Name = "contentSha256")] public string ContentSha256 { get; set; }
+            [DataMember(Name = "cubeSize")] public int CubeSize { get; set; }
+        }
         [DataContract] sealed class RemoteFrameCatalogEnvelope { [DataMember(Name = "frames")] public RemoteFrame[] Frames { get; set; } }
         [DataContract] sealed class RemoteFrame { [DataMember(Name = "id")] public string Id { get; set; } [DataMember(Name = "frameVersionId")] public string FrameVersionId { get; set; } [DataMember(Name = "name")] public string Name { get; set; } [DataMember(Name = "version")] public int Version { get; set; } [DataMember(Name = "assetUrl")] public string AssetUrl { get; set; } [DataMember(Name = "assetFormat")] public string AssetFormat { get; set; } [DataMember(Name = "assetBytes")] public long AssetBytes { get; set; } [DataMember(Name = "contentSha256")] public string ContentSha256 { get; set; } [DataMember(Name = "pixelWidth")] public int PixelWidth { get; set; } [DataMember(Name = "pixelHeight")] public int PixelHeight { get; set; } [DataMember(Name = "slots")] public RemoteSlot[] Slots { get; set; } }
         [DataContract] sealed class RemoteSlot { [DataMember(Name = "index")] public int Index { get; set; } [DataMember(Name = "x")] public int X { get; set; } [DataMember(Name = "y")] public int Y { get; set; } [DataMember(Name = "width")] public int Width { get; set; } [DataMember(Name = "height")] public int Height { get; set; } }

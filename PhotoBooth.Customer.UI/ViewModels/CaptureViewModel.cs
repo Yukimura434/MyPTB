@@ -138,7 +138,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             StartCommand = AutomaticCaptureCommand;
             RetakeCommand = new AsyncCommand(() => RunTracked(Retake), () => machine.State == CustomerWorkflowState.Preview && ReviewPhotos.Any(x => x.IsRetakeSelected));
             SelectFrameCommand = new RelayCommand(() => machine.MoveTo(CustomerWorkflowState.FrameSelection));
-            RetryCommand = new AsyncCommand(CheckCamera);
+            RetryCommand = new AsyncCommand(() => CheckCamera(true));
             CancelErrorCommand = new RelayCommand(() => { ErrorMessage = null; machine.RecoverToIdle(); });
             machine.StateChanged += (s, e) => OnStateChanged();
             cameras.CamerasChanged += OnCamerasChanged;
@@ -270,21 +270,27 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public ICommand RetryCommand { get; }
         public ICommand CancelErrorCommand { get; }
 
-        async Task CheckCamera()
+        async Task CheckCamera(bool explicitRetry = false)
         {
             await cameraGate.WaitAsync();
             try
             {
                 if (!cameraActive) return;
                 ErrorMessage = null; StatusMessage = "Đang tìm máy ảnh…";
-                context.Camera = await AcquireCameraAsync(CancellationToken.None);
+                context.Camera = await AcquireCameraAsync(CancellationToken.None, explicitRetry);
+                if (!cameraActive) return;
                 CameraConnected = context.Camera != null;
-                if (!CameraConnected) { StatusMessage = "Đang chờ máy ảnh…"; return; }
+                if (!CameraConnected)
+                {
+                    StatusMessage = "Đang chờ máy ảnh…";
+                    if (explicitRetry) ErrorMessage = "Chưa kết nối được máy ảnh. Vui lòng kiểm tra kết nối rồi thử lại.";
+                    return;
+                }
                 context.CameraDisconnectedPending = false;
                 StatusMessage = "Sẵn sàng";
                 await StartLive();
             }
-            catch (Exception e) { Fail(e, "Đang chờ máy ảnh…", false); }
+            catch (Exception e) { Fail(e, explicitRetry ? "Chưa nhận được hình từ máy ảnh. Vui lòng kiểm tra rồi thử lại." : "Đang chờ máy ảnh…", explicitRetry); }
             finally { cameraGate.Release(); }
         }
 
@@ -296,7 +302,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 if (!cameraActive) return;
                 var list = await cameras.GetCamerasAsync(CancellationToken.None);
                 var connected = SelectConnectedCamera(list);
-                // Device events update state only; reconnect requires an explicit Manager action.
+                // Device events update state only; reconnect requires an explicit user action.
                 if (connected == null)
                 {
                     CameraConnected = false;
@@ -327,12 +333,12 @@ namespace PhotoBooth.Customer.UI.ViewModels
             finally { cameraGate.Release(); }
         }
 
-        async Task<CameraInfo> AcquireCameraAsync(CancellationToken token)
+        async Task<CameraInfo> AcquireCameraAsync(CancellationToken token, bool explicitRetry = false)
         {
             var connected = SelectConnectedCamera(await cameras.GetCamerasAsync(token));
             if (connected != null) return connected;
 
-            if (automaticConnectionAttempted) return null;
+            if (automaticConnectionAttempted && !explicitRetry) return null;
             automaticConnectionAttempted = true;
             var preferredCameraId = context.PreferredCameraId;
             if (string.IsNullOrWhiteSpace(preferredCameraId)) return null;
