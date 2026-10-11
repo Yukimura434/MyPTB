@@ -51,17 +51,17 @@
                         Background="#26000000" IsHitTestVisible="False"/>
 
                 <!-- L1: movable/resizable Live View. Only uniform cover scaling is used. -->
-                <Grid Panel.ZIndex="20"
+                <Grid x:Name="LiveViewPlacement" Panel.ZIndex="20" SizeChanged="LiveViewPlacement_SizeChanged"
                       Canvas.Left="{Binding LiveViewCanvasX}" Canvas.Top="{Binding LiveViewCanvasY}"
                       Width="{Binding LiveViewDisplayWidth}" Height="{Binding LiveViewDisplayHeight}"
                       Visibility="{Binding ShowLiveView,Converter={StaticResource BoolVisibility}}">
-                <controls:RoundedClipBorder CornerRadius="0" Background="#22000000">
+                <controls:RoundedClipBorder x:Name="LiveViewViewport" HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="20" Background="#22000000">
                         <Viewbox Stretch="UniformToFill" StretchDirection="Both">
-                            <Grid Width="1200" Height="900">
+                            <Grid Width="{Binding LiveFrameWidth}" Height="{Binding LiveFrameHeight}">
                                 <Grid.LayoutTransform>
                                     <TransformGroup>
                                         <ScaleTransform ScaleX="{Binding LiveViewScaleX}" ScaleY="1"/>
-                                        <RotateTransform Angle="{Binding LiveViewRotation}"/>
+                                        <RotateTransform x:Name="LiveRotation" Angle="{Binding LiveViewRotation}"/>
                                     </TransformGroup>
                                 </Grid.LayoutTransform>
                                 <color:LatestJpegImage ColorPreset="{Binding LivePreset}" FrameData="{Binding LiveImage}"
@@ -76,25 +76,15 @@
         </Viewbox>
 
         <!-- L3 + L4: customer prompt and visual CTA. -->
-        <Border Panel.ZIndex="30" VerticalAlignment="Bottom" Height="390"
-                IsHitTestVisible="False">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#00000000" Offset="0"/>
-                    <GradientStop Color="#D90B0B0F" Offset="0.58"/>
-                    <GradientStop Color="#FA0B0B0F" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
-        </Border>
         <StackPanel x:Name="StartChrome" Panel.ZIndex="31" VerticalAlignment="Bottom"
                     HorizontalAlignment="Center" Margin="30,0,30,54"
                     IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
             <StackPanel.RenderTransform><TranslateTransform/></StackPanel.RenderTransform>
             <TextBlock Text="Sẵn sàng lưu lại khoảnh khắc?"
-                       FontSize="32" FontWeight="SemiBold" Foreground="White"
+                       Background="#E60B0B0F" Padding="12,6" FontSize="32" FontWeight="SemiBold" Foreground="White"
                        TextWrapping="Wrap" Margin="12,0,12,22"/>
             <Border MinWidth="0" MinHeight="78" Padding="48,18"
-                    Background="#4214212A"
+                    Background="#F014212A"
                     BorderBrush="{StaticResource AccentBrush}" BorderThickness="3" CornerRadius="40">
                 <Border.Effect><DropShadowEffect Color="#FF2F86" BlurRadius="24" ShadowDepth="0" Opacity="0.7"/></Border.Effect>
                 <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>

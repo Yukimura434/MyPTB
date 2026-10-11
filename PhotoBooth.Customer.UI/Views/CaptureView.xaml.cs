@@ -17,6 +17,7 @@ namespace PhotoBooth.Customer.UI.Views
         public CaptureView()
         {
             InitializeComponent();
+            LiveRotation.Changed += (s, e) => ApplyLiveViewLayout();
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             SizeChanged += (s, e) => ApplyOrientation();
@@ -64,14 +65,9 @@ namespace PhotoBooth.Customer.UI.Views
             var availableWidth = System.Math.Max(1d, ActualWidth);
             var availableHeight = System.Math.Max(1d, ActualHeight);
 
-            // Live View is always full-bleed. The inner Viewbox uses
-            // UniformToFill, therefore the camera frame is cropped at the
-            // viewport edge instead of being stretched or deformed.
-            LiveViewPanel.Width = availableWidth;
-            LiveViewPanel.Height = availableHeight;
-            LiveViewPanel.VerticalAlignment = VerticalAlignment.Stretch;
-            LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
-            LiveViewPanel.Margin = new Thickness(0);
+            ApplyLiveViewLayout();
+            LiveLandscapeBackground.Visibility = portrait ? Visibility.Collapsed : Visibility.Visible;
+            LivePortraitBackground.Visibility = portrait ? Visibility.Visible : Visibility.Collapsed;
 
             RecentCapturesPanel.VerticalAlignment = VerticalAlignment.Bottom;
             RecentCapturesPanel.HorizontalAlignment = HorizontalAlignment.Center;
@@ -80,8 +76,8 @@ namespace PhotoBooth.Customer.UI.Views
                 : System.Math.Min(1000d, System.Math.Max(1d, availableWidth - 80d));
             RecentCapturesPanel.Height = portrait ? 220d : double.NaN;
             RecentCapturesPanel.Margin = portrait
-                ? new Thickness(24, 0, 24, 132)
-                : new Thickness(40, 0, 40, 132);
+                ? new Thickness(24, 0, 24, 0)
+                : new Thickness(40, 0, 40, 0);
             var capture = DataContext as CaptureViewModel;
             RecentCapturesPanel.Visibility = portrait && capture != null && !capture.IsModeSelection && !capture.IsPreview ? Visibility.Visible : Visibility.Collapsed;
 
@@ -93,7 +89,7 @@ namespace PhotoBooth.Customer.UI.Views
                 ModeRowGap.Height = new GridLength(16);
                 Grid.SetRow(ManualModeButton, 2);
                 Grid.SetColumn(ManualModeButton, 0);
-                ModeSelectionGrid.Margin = new Thickness(0, -190, 0, 0);
+                ModeSelectionGrid.Margin = new Thickness(0);
 
                 ReviewImageColumn.Width = new GridLength(1, GridUnitType.Star);
                 ReviewListColumn.Width = new GridLength(0);
@@ -119,7 +115,7 @@ namespace PhotoBooth.Customer.UI.Views
                 ModeRowGap.Height = new GridLength(0);
                 Grid.SetRow(ManualModeButton, 0);
                 Grid.SetColumn(ManualModeButton, 2);
-                ModeSelectionGrid.Margin = new Thickness(0, -280, 0, 0);
+                ModeSelectionGrid.Margin = new Thickness(0);
 
                 ReviewImageColumn.Width = new GridLength(1, GridUnitType.Star);
                 ReviewListColumn.Width = new GridLength(230);
@@ -140,10 +136,18 @@ namespace PhotoBooth.Customer.UI.Views
             reviewPortrait = portrait;
         }
 
-        static double NormalizeRotation(double value)
+        void LiveViewArea_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyLiveViewLayout();
+
+        void ApplyLiveViewLayout()
         {
-            if (value == 90d || value == -90d || value == 180d) return value;
-            return 0d;
+            if (LiveViewArea == null || LiveViewPanel == null || LiveRotation == null) return;
+            var ratio = ActualHeight > ActualWidth ? 2d / 3d : 3d / 2d;
+            var width = System.Math.Max(0d, System.Math.Min(LiveViewArea.ActualWidth, LiveViewArea.ActualHeight * ratio));
+            LiveViewPanel.Width = width;
+            LiveViewPanel.Height = width / ratio;
+            LiveViewPanel.HorizontalAlignment = HorizontalAlignment.Center;
+            LiveViewPanel.VerticalAlignment = VerticalAlignment.Center;
+            LiveViewPanel.Margin = new Thickness(0);
         }
 
         static void SetItemsOrientation(ItemsControl control, Orientation orientation)

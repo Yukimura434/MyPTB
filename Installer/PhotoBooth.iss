@@ -1,4 +1,4 @@
-#define MyAppVersion "3.0.2"
+#define MyAppVersion "3.0.4"
 #define MyDataVersion "2.0.0-alpha"
 #ifndef MyAppSource
 #define MyAppSource "..\PhotoBooth.Admin.UI\bin\Release\net48"
