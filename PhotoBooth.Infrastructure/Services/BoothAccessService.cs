@@ -138,7 +138,7 @@ namespace PhotoBooth.Infrastructure.Services
             {
                 EventId = request?.EventId,
                 LocationId = request?.LocationId,
-                DurationMinutes = Clamp(request?.DurationMinutes ?? 120, 30, 10080),
+                DurationMinutes = Clamp(request?.DurationMinutes ?? 120, 30, 240),
                 PhotoCount = Clamp(settings.PhotoCount, 1, 8),
                 CountdownSeconds = Clamp(settings.CountdownSeconds, 1, 10),
                 ResultDisplaySeconds = Clamp(settings.ResultDisplaySeconds, 10, 600),
@@ -242,7 +242,7 @@ namespace PhotoBooth.Infrastructure.Services
         }
 
         sealed class BoothAccessException : Exception { public BoothAccessException(string message) : base(message) { } }
-        [DataContract] sealed class RedeemRequest { [DataMember(Name = "code")] public string Code { get; set; } }
+        [DataContract] sealed class RedeemRequest { [DataMember(Name = "printBudgetVersion")] public int PrintBudgetVersion { get; set; } = 1; [DataMember(Name = "code")] public string Code { get; set; } }
         [DataContract] sealed class EventLoginRequest { [DataMember(Name = "code")] public string Code { get; set; } [DataMember(Name = "password")] public string Password { get; set; } }
         [DataContract] sealed class StatusResponse { [DataMember(Name = "valid")] public bool Valid { get; set; } [DataMember(Name = "authorization")] public RemoteAuthorization Authorization { get; set; } }
         [DataContract] sealed class RedeemResponse { [DataMember(Name = "authorization")] public RemoteAuthorization Authorization { get; set; } }
@@ -256,6 +256,7 @@ namespace PhotoBooth.Infrastructure.Services
             [DataMember(Name = "gifFrameDurationMilliseconds")] public int GifFrameDurationMilliseconds { get; set; }
             [DataMember(Name = "resultDisplaySeconds")] public int ResultDisplaySeconds { get; set; }
             [DataMember(Name = "printCopies")] public int PrintCopies { get; set; }
+            [DataMember(Name = "totalPrintCopies", EmitDefaultValue = false)] public int? TotalPrintCopies { get; set; }
         }
         [DataContract] sealed class CreateSelfBoothRequest
         {
@@ -266,6 +267,7 @@ namespace PhotoBooth.Infrastructure.Services
             [DataMember(Name = "countdownSeconds")] public int CountdownSeconds { get; set; }
             [DataMember(Name = "resultDisplaySeconds")] public int ResultDisplaySeconds { get; set; }
             [DataMember(Name = "printCopies")] public int PrintCopies { get; set; }
+            [DataMember(Name = "totalPrintCopies", EmitDefaultValue = false)] public int? TotalPrintCopies { get; set; }
         }
         [DataContract] sealed class RemoteAuthorization : RemoteSettings
         {
@@ -294,7 +296,8 @@ namespace PhotoBooth.Infrastructure.Services
             [DataMember(Name = "gifFrameDurationMilliseconds")] public int GifFrameDurationMilliseconds { get; set; }
             [DataMember(Name = "resultDisplaySeconds")] public int ResultDisplaySeconds { get; set; }
             [DataMember(Name = "printCopies")] public int PrintCopies { get; set; }
-            public BoothAccessSettings ToSettings() => new BoothAccessSettings { PhotoCount = PhotoCount, CountdownSeconds = CountdownSeconds, GifFrameDurationMilliseconds = GifFrameDurationMilliseconds, ResultDisplaySeconds = ResultDisplaySeconds, PrintCopies = PrintCopies };
+            [DataMember(Name = "totalPrintCopies", EmitDefaultValue = false)] public int? TotalPrintCopies { get; set; }
+            public BoothAccessSettings ToSettings() => new BoothAccessSettings { PhotoCount = PhotoCount, CountdownSeconds = CountdownSeconds, GifFrameDurationMilliseconds = GifFrameDurationMilliseconds, ResultDisplaySeconds = ResultDisplaySeconds, PrintCopies = PrintCopies, TotalPrintCopies = TotalPrintCopies };
         }
         [DataContract] sealed class ApiError { [DataMember(Name = "error")] public ApiErrorBody Error { get; set; } }
         [DataContract] sealed class ApiErrorBody { [DataMember(Name = "code")] public string Code { get; set; } [DataMember(Name = "message")] public string Message { get; set; } }

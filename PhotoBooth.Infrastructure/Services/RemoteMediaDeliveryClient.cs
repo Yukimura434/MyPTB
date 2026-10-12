@@ -31,17 +31,19 @@ namespace PhotoBooth.Infrastructure.Services
         public async Task<EventPrintReservation> ReserveAsync(Guid captureId, int copies, string idempotencyKey, CancellationToken token)
         {
             var booth = await localSessions.GetAsync(captureId, token).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(booth?.RemoteEventId)) throw new InvalidOperationException("Lượt chụp chưa được gắn với sự kiện.");
+            var selfBooth = sessions.Current?.EventAuthorization?.IsReusableSelfBooth == true;
+            if (!selfBooth && string.IsNullOrWhiteSpace(booth?.RemoteEventId)) return null;
             var credential = await CredentialAsync(token).ConfigureAwait(false);
             var employee = EmployeeCredential();
             if (credential == null || employee == null) throw new InvalidOperationException("Vui lòng đăng nhập lại để in ảnh sự kiện.");
             var opened = await EnsureBoothSessionAsync(captureId, credential, employee, token).ConfigureAwait(false);
             if (!opened.Operation.Succeeded) throw new InvalidOperationException(opened.Operation.ErrorMessage);
-            var result = await SendJsonAsync<PrintRequest,PrintResponse>(HttpMethod.Post, Api("api/v3/device/events/" + Uri.EscapeDataString(booth.RemoteEventId) + "/print-reservations"), credential, employee, idempotencyKey,
+            var result = await SendJsonAsync<PrintRequest,PrintResponse>(HttpMethod.Post, Api(selfBooth ? "api/v3/device/selfbooth-passes/print-reservations" : "api/v3/device/events/" + Uri.EscapeDataString(booth.RemoteEventId) + "/print-reservations"), credential, employee, idempotencyKey,
                 new PrintRequest { BoothSessionId = captureId.ToString("N"), Copies = copies }, token).ConfigureAwait(false);
+            if (result.Operation.ErrorCode == "selfbooth_print_quota_exceeded") throw new PrintLimitExceededException("Số bản in còn lại của mã không đủ. Bạn có thể bỏ qua in để tiếp tục chụp.");
             if (!result.Operation.Succeeded) throw new InvalidOperationException(result.Operation.ErrorMessage);
             if (string.IsNullOrWhiteSpace(result.Value?.Reservation?.Id)) throw new InvalidOperationException("Chưa xác nhận được lượt in. Vui lòng thử lại.");
-            return new EventPrintReservation { EventId = booth.RemoteEventId, Id = result.Value.Reservation.Id, State = result.Value.Reservation.State, SessionToken = employee };
+            return new EventPrintReservation { IsSelfBooth = selfBooth, EventId = booth.RemoteEventId, Id = result.Value.Reservation.Id, State = result.Value.Reservation.State, SessionToken = employee };
         }
 
         public Task SubmitAsync(EventPrintReservation reservation, CancellationToken token) => FinishPrintAsync(reservation, "submit", token);
@@ -50,7 +52,7 @@ namespace PhotoBooth.Infrastructure.Services
         {
             var credential = await CredentialAsync(token).ConfigureAwait(false);
             if (credential == null) throw new InvalidOperationException("Thiết bị chưa được xác thực.");
-            var result = await SendJsonAsync<EmptyRequest,PrintResponse>(HttpMethod.Post, Api("api/v3/device/events/" + Uri.EscapeDataString(reservation.EventId) + "/print-reservations/" + Uri.EscapeDataString(reservation.Id) + "/" + action),
+            var result = await SendJsonAsync<EmptyRequest,PrintResponse>(HttpMethod.Post, Api((reservation.IsSelfBooth ? "api/v3/device/selfbooth-passes" : "api/v3/device/events/" + Uri.EscapeDataString(reservation.EventId)) + "/print-reservations/" + Uri.EscapeDataString(reservation.Id) + "/" + action),
                 credential, reservation.SessionToken, "print:" + reservation.Id + ":" + action, new EmptyRequest(), token).ConfigureAwait(false);
             if (!result.Operation.Succeeded) throw new InvalidOperationException(result.Operation.ErrorMessage);
         }

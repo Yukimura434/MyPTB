@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,12 +32,12 @@ namespace PhotoBooth.Business.Pipelines
      durable=await durableJobs.CreateIntentAsync(new DurableOutputJobRecord{Id=Guid.NewGuid().ToString("N"),SessionId=session.Id,DeliverableId=deliverable.Id,AssetId=session.FinalImageId,JobType="Print",IdempotencyKey="print:"+session.Id.ToString("N")+":"+deliverable.Id+":"+session.FinalImageId+":"+profile.Id.ToString("N")+":"+copies,State=DurableOutputJobStates.Pending,CreatedAtUtc=DateTime.UtcNow},token);
      if(durable.State==DurableOutputJobStates.Completed)return;
      if(durable.State==DurableOutputJobStates.Submitting||durable.State==DurableOutputJobStates.Submitted||durable.State==DurableOutputJobStates.UnknownOutcome)throw new InvalidOperationException("The previous print outcome requires operator confirmation before reprinting.");
-     if(!string.IsNullOrWhiteSpace(session.RemoteEventId))
+     if(eventPrinting!=null || !string.IsNullOrWhiteSpace(session.RemoteEventId))
      {
       if(eventPrinting==null)throw new InvalidOperationException("Chưa thể kiểm tra giới hạn in của sự kiện.");
       reservation=await eventPrinting.ReserveAsync(sessionId,copies,durable.IdempotencyKey,token);
-      if(reservation.State=="committed"){await durableJobs.SetStateAsync(durable.Id,DurableOutputJobStates.Completed,null,token);return;}
-      if(reservation.State!="reserved")throw new InvalidOperationException("Lượt in trước đang chờ xác minh. Không gửi in lại.");
+      if(reservation?.State=="committed"){await durableJobs.SetStateAsync(durable.Id,DurableOutputJobStates.Completed,null,token);return;}
+      if(reservation!=null && reservation.State!="reserved")throw new InvalidOperationException("Lượt in trước đang chờ xác minh. Không gửi in lại.");
      }
      await durableJobs.SetStateAsync(durable.Id,DurableOutputJobStates.Submitting,null,token);
     }

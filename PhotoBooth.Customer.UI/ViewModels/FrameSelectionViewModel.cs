@@ -735,7 +735,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 retryFinish = true;
                 var printFailed = machine.State == CustomerWorkflowState.Printing;
                 if (printFailed) machine.MoveTo(CustomerWorkflowState.FrameSelection);
-                Fail(e, printFailed
+                Fail(e, e is PrintLimitExceededException ? e.Message : printFailed
                     ? "Không thể in ảnh. Vui lòng kiểm tra kết nối máy in rồi thử lại."
                     : "Không thể hoàn tất ảnh. Vui lòng thử lại hoặc gọi nhân viên hỗ trợ.");
             }

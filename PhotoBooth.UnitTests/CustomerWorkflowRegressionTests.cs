@@ -99,17 +99,21 @@ namespace PhotoBooth.UnitTests
         }
 
         [Theory]
-        [InlineData("ok",1)]
-        [InlineData("quota",0)]
-        [InlineData("submit",0)]
-        [InlineData("commit",1)]
-        public async Task Event_printing_enforces_server_quota_and_never_reprints_uncertain_submission(string failure,int expectedPrints)
+        [InlineData("ok",1,true)]
+        [InlineData("ok",1,false)]
+        [InlineData("quota",0,false)]
+        [InlineData("submit",0,false)]
+        [InlineData("commit",1,false)]
+        [InlineData("quota",0,true)]
+        [InlineData("submit",0,true)]
+        [InlineData("commit",1,true)]
+        public async Task Event_printing_enforces_server_quota_and_never_reprints_uncertain_submission(string failure,int expectedPrints,bool eventMode)
         {
             var root=NewRoot();
             try
             {
                 var database=new SqliteDatabase(Path.Combine(root,"test.db"));database.Initialize();var sessions=new SqliteSessionRepository(database);
-                var photoEvent=Event(root);await sessions.SaveAsync(photoEvent,CancellationToken.None);var booth=Booth(root,photoEvent.Id);booth.RemoteEventId="evt_test";await sessions.SaveAsync(booth,CancellationToken.None);
+                var photoEvent=Event(root);await sessions.SaveAsync(photoEvent,CancellationToken.None);var booth=Booth(root,photoEvent.Id);booth.RemoteEventId=eventMode?"evt_test":null;await sessions.SaveAsync(booth,CancellationToken.None);
                 var capture=Deliverable(root,booth.Id,"print-final");await new SqliteCaptureRepository(database).SaveAsync(capture,CancellationToken.None);
                 booth.FinalImageId=capture.CompositeImageId;booth.Status=BoothSessionStates.Finalizing;booth.StateVersion++;booth.UpdatedAtUtc=DateTime.UtcNow;await sessions.SaveAsync(booth,CancellationToken.None);
                 var profile=new PrinterProfile{Id=Guid.NewGuid(),Name="Session printer",PrinterName="Session printer",PrinterId="session-printer",PaperSize="Postcard",DefaultCopies=1,PrintInColor=true};
@@ -120,7 +124,7 @@ namespace PhotoBooth.UnitTests
                 else {await Assert.ThrowsAsync<InvalidOperationException>(()=>pipeline.ExecuteAsync(booth.Id,profile.Id,1,CancellationToken.None));await Assert.ThrowsAsync<InvalidOperationException>(()=>pipeline.ExecuteAsync(booth.Id,profile.Id,1,CancellationToken.None));}
                 Assert.Equal(expectedPrints,printer.PrintCount);
                 Assert.Equal(failure=="quota"?0:1,remote.Submits);
-                Assert.Equal("evt_test",(await sessions.GetAsync(booth.Id,CancellationToken.None)).RemoteEventId);
+                Assert.Equal(eventMode?"evt_test":null,(await sessions.GetAsync(booth.Id,CancellationToken.None)).RemoteEventId);
             }
             finally{SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
         }

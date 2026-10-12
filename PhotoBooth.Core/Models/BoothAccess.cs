@@ -16,6 +16,7 @@ namespace PhotoBooth.Core.Models
         public int GifFrameDurationMilliseconds { get; set; } = 800;
         public int ResultDisplaySeconds { get; set; } = 30;
         public int PrintCopies { get; set; } = 1;
+        public int? TotalPrintCopies { get; set; }
     }
 
     public sealed class BoothAccessAuthorization

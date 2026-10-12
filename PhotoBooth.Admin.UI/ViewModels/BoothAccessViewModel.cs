@@ -26,7 +26,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
             this.qr = qr;
             PhotoCounts = new[] { 1, 2, 3, 4, 5, 6, 7, 8 };
             CountdownOptions = new[] { 1, 2, 3, 5, 10 };
-            DurationOptions = new[] { new DurationChoice("2 giờ", 120), new DurationChoice("4 giờ", 240), new DurationChoice("8 giờ", 480), new DurationChoice("1 ngày", 1440), new DurationChoice("3 ngày", 4320), new DurationChoice("7 ngày", 10080) };
+            DurationOptions = new[] { new DurationChoice("2 giờ", 120), new DurationChoice("4 giờ", 240), new DurationChoice("30 phút", 30), new DurationChoice("1 giờ", 60), new DurationChoice("3 giờ", 180) };
             duration = DurationOptions[0];
             GifDurationOptions = new[] { new GifDurationChoice("0,2 giây", 200), new GifDurationChoice("0,5 giây", 500), new GifDurationChoice("0,8 giây", 800), new GifDurationChoice("1 giây", 1000), new GifDurationChoice("1,5 giây", 1500) };
             gifDuration = GifDurationOptions[2];
