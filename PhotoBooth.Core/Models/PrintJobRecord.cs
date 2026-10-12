@@ -15,6 +15,7 @@ namespace PhotoBooth.Core.Models
         public int Copies { get; set; } = 1;
         public string PaperSize { get; set; }
         public string PaperType { get; set; }
+        public string MediaType { get; set; }
         public string Quality { get; set; }
         public bool Landscape { get; set; }
         public bool PrintInColor { get; set; } = true;

@@ -20,36 +20,59 @@ namespace PhotoBooth.Business.Services
         public async Task<IReadOnlyList<string>> GetPrintersAsync(CancellationToken token) =>
             (await ScanAsync(token)).Select(x => x.Name).ToList();
 
-        public Task<IReadOnlyList<DiscoveredPrinter>> ScanAsync(CancellationToken token) => Task.Run<IReadOnlyList<DiscoveredPrinter>>(() =>
+        readonly object discoveryLock = new object();
+        Task<string[]> discovery;
+        readonly Dictionary<string, Task<DiscoveredPrinter>> connections = new Dictionary<string, Task<DiscoveredPrinter>>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, DateTime> connectionTimes = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
+        static async Task<T> Bounded<T>(Task<T> operation, CancellationToken token)
         {
-            token.ThrowIfCancellationRequested();
-            var result = new List<DiscoveredPrinter>();
-            using (var searcher = new ManagementObjectSearcher("SELECT Name,PortName,DriverName,WorkOffline,PrinterStatus FROM Win32_Printer"))
-            using (var printers = searcher.Get())
-            foreach (ManagementObject item in printers)
+            if (await Task.WhenAny(operation, Task.Delay(TimeSpan.FromSeconds(12), token)) != operation)
             {
                 token.ThrowIfCancellationRequested();
-                var name = Convert.ToString(item["Name"]);
-                var port = Convert.ToString(item["PortName"]);
-                var driver = Convert.ToString(item["DriverName"]);
-                var offline = Convert.ToBoolean(item["WorkOffline"] ?? false);
-                var status = Convert.ToInt32(item["PrinterStatus"] ?? 0);
-                // PrinterStatus 7 means offline. Do not mix saved profiles into discovery.
-                if (string.IsNullOrWhiteSpace(name) || offline || status == 7) continue;
-                try { result.Add(Describe(name, port, driver)); } catch { }
+                throw new TimeoutException("Máy in phản hồi chậm. Kiểm tra kết nối rồi thử lại.");
             }
-            return result.OrderBy(x => x.Name).ToList();
-        }, token);
+            return await operation;
+        }
+
+        public async Task<IReadOnlyList<DiscoveredPrinter>> ScanAsync(CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            Task<string[]> pending;
+            lock (discoveryLock)
+            {
+                if (discovery == null || discovery.IsCompleted) discovery = Task.Run(() => WindowsPrinterOptions.InstalledNames());
+                pending = discovery;
+            }
+            var names = await Bounded(pending, token);
+            var saved = await profiles.GetAllAsync(token);
+            return names.Select(name => new DiscoveredPrinter {
+                Id = saved.FirstOrDefault(p => string.Equals(p.PrinterName, name, StringComparison.OrdinalIgnoreCase))?.PrinterId ?? name,
+                Name = name, ConnectionType = "Windows printer"
+            }).ToList();
+        }
 
         public async Task<DiscoveredPrinter> ConnectAsync(string printerId, CancellationToken token)
         {
-            var printer = (await ScanAsync(token)).SingleOrDefault(x => string.Equals(x.Id, printerId, StringComparison.OrdinalIgnoreCase));
-            if (printer == null) throw new InvalidOperationException("Printer is no longer available. Scan again.");
-            return printer;
+            if (string.IsNullOrWhiteSpace(printerId)) throw new InvalidOperationException("Chưa chọn máy in.");
+            token.ThrowIfCancellationRequested();
+            Task<DiscoveredPrinter> pending;
+            lock (discoveryLock)
+            {
+                if (!connections.TryGetValue(printerId, out pending) || pending.IsFaulted || pending.IsCanceled ||
+                    (pending.IsCompleted && DateTime.UtcNow - connectionTimes[printerId] > TimeSpan.FromMinutes(2)))
+                {
+                    var name = printerId.Split('|')[0];
+                    pending = Task.Run(() => { var item = Describe(name, "", ""); item.Id = printerId; return item; });
+                    connections[printerId] = pending;
+                    connectionTimes[printerId] = DateTime.UtcNow;
+                }
+            }
+            return await Bounded(pending, token);
         }
 
         public async Task<bool> IsConnectedAsync(string printerId, CancellationToken token) =>
-            !string.IsNullOrWhiteSpace(printerId) && (await ScanAsync(token)).Any(x => string.Equals(x.Id, printerId, StringComparison.OrdinalIgnoreCase));
+            !string.IsNullOrWhiteSpace(printerId) && await Bounded(Task.Run(() => WindowsPrinterOptions.IsAvailable(printerId.Split('|')[0]), token), token);
 
         public Task<IReadOnlyList<PrinterProfile>> GetProfilesAsync(CancellationToken token) => profiles.GetAllAsync(token);
         public Task SaveProfileAsync(PrinterProfile profile, CancellationToken token) => profiles.SaveAsync(profile, token);
@@ -59,9 +82,11 @@ namespace PhotoBooth.Business.Services
         {
             token.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace(job.PrinterName)) throw new InvalidOperationException("Printer is not selected.");
+            if (!WindowsPrinterOptions.IsAvailable(job.PrinterName)) throw new InvalidOperationException("Máy in không khả dụng. Kiểm tra kết nối rồi thử lại.");
             using (var document = new PrintDocument())
             {
                 document.PrinterSettings.PrinterName = job.PrinterName;
+                WindowsPrinterOptions.ApplyMedia(document, job.MediaType == "Mặc định của máy in" ? null : job.MediaType);
                 document.PrinterSettings.Copies = (short)Math.Max(1, job.Copies);
                 if (!document.PrinterSettings.IsValid) throw new InvalidOperationException("Printer offline or disconnected.");
                 document.DefaultPageSettings.Landscape = job.Landscape;
@@ -96,6 +121,7 @@ namespace PhotoBooth.Business.Services
                     ConnectionType = ConnectionType(port), IsOnline = true,
                     SupportsColor = settings.SupportsColor, SupportsDuplex = settings.CanDuplex,
                     PaperSizes = settings.PaperSizes.Cast<PaperSize>().Select(x => x.PaperName).Distinct().ToArray(),
+                    MediaTypes = WindowsPrinterOptions.MediaTypes(name),
                     PaperSources = settings.PaperSources.Cast<PaperSource>().Select(x => x.SourceName).Distinct().ToArray(),
                     Resolutions = settings.PrinterResolutions.Cast<PrinterResolution>().Select(ResolutionName).Distinct().ToArray()
                 };

@@ -25,10 +25,14 @@ namespace PhotoBooth.UnitTests
    try
    {
     var db=new SqliteDatabase(Path.Combine(root,"test.db"));db.Initialize();var repository=new SqlitePrinterProfileRepository(db);
-    var profile=new PrinterProfile{Id=Guid.NewGuid(),Name="Brother",PrinterName="Brother DCP-T220 Printer",PrinterId="BROTHER|USB001|DRIVER",PaperSize="A4",DefaultCopies=1,PrintInColor=false,IsDefault=true};
+    var profile=new PrinterProfile{Id=Guid.NewGuid(),Name="Brother",PrinterName="Brother DCP-T220 Printer",PrinterId="BROTHER|USB001|DRIVER",PaperSize="A4",PaperType="Automatic",MediaType="Giấy ảnh bóng",DefaultCopies=1,PrintInColor=false,IsDefault=true};
     await repository.SaveAsync(profile,CancellationToken.None);
     var loaded=await repository.GetByPrinterIdAsync(profile.PrinterId,CancellationToken.None);
     Assert.NotNull(loaded);Assert.Equal(profile.Id,loaded.Id);Assert.False(loaded.PrintInColor);Assert.True(loaded.IsDefault);
+    Assert.Equal("Giấy ảnh bóng",loaded.MediaType);Assert.Equal("Automatic",loaded.PaperType);
+    db.Initialize();
+    loaded=await repository.GetByPrinterIdAsync(profile.PrinterId,CancellationToken.None);
+    Assert.Equal("Giấy ảnh bóng",loaded.MediaType);
    }
    finally{Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();Directory.Delete(root,true);}
   }

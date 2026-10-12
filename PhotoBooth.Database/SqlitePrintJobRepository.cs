@@ -23,7 +23,7 @@ ON CONFLICT(Id) DO UPDATE SET SpoolerJobId=excluded.SpoolerJobId,Outcome=exclude
             }
             return Task.CompletedTask;
         }
-        static string Settings(PrintJobRecord value)=>"{\"paperSize\":\""+Escape(value.PaperSize)+"\",\"paperType\":\""+Escape(value.PaperType)+"\",\"quality\":\""+Escape(value.Quality)+"\",\"landscape\":"+(value.Landscape?"true":"false")+",\"printInColor\":"+(value.PrintInColor?"true":"false")+",\"useDefaultBorder\":"+(value.UseDefaultBorder?"true":"false")+"}";
+        static string Settings(PrintJobRecord value)=>"{\"paperSize\":\""+Escape(value.PaperSize)+"\",\"paperType\":\""+Escape(value.PaperType)+"\",\"mediaType\":\""+Escape(value.MediaType)+"\",\"quality\":\""+Escape(value.Quality)+"\",\"landscape\":"+(value.Landscape?"true":"false")+",\"printInColor\":"+(value.PrintInColor?"true":"false")+",\"useDefaultBorder\":"+(value.UseDefaultBorder?"true":"false")+"}";
         static string Escape(string value)=>(value??string.Empty).Replace("\\","\\\\").Replace("\"","\\\"");
         static object Db(string value)=>string.IsNullOrWhiteSpace(value)?(object)DBNull.Value:value;
     }

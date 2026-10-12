@@ -33,6 +33,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public override string Title => "Máy in";
         public ObservableCollection<DiscoveredPrinter> Printers { get; } = new ObservableCollection<DiscoveredPrinter>();
         public ObservableCollection<string> PaperSizes { get; } = new ObservableCollection<string>();
+        public ObservableCollection<string> MediaTypes { get; } = new ObservableCollection<string>();
         public ObservableCollection<string> PaperTypes { get; } = new ObservableCollection<string>();
         public ObservableCollection<string> Qualities { get; } = new ObservableCollection<string>();
         public int[] Copies { get; } = { 1, 2, 3, 4 };
@@ -68,6 +69,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public bool PrintingEnabled { get => printingEnabled; set { if (!Set(ref printingEnabled, value)) return; Raise(nameof(PrintingHelp)); if (!loadingPrintingSetting) _ = SavePrintingSetting(value); } }
         public string PaperSize { get => editing?.PaperSize; set { if (editing == null || editing.PaperSize == value) return; editing.PaperSize = value; Edited(); } }
         public string PaperType { get => editing?.PaperType; set { if (editing == null || editing.PaperType == value) return; editing.PaperType = value; Edited(); } }
+        public string MediaType { get => editing?.MediaType; set { if (editing == null || editing.MediaType == value) return; editing.MediaType = value; Edited(); } }
         public string Quality { get => editing?.Quality; set { if (editing == null || editing.Quality == value) return; editing.Quality = value; Edited(); } }
         public int DefaultCopies { get => editing?.DefaultCopies ?? 1; set { if (editing == null || editing.DefaultCopies == value) return; editing.DefaultCopies = value; Edited(); } }
         public bool Landscape { get => editing?.Landscape == true; set { if (editing == null || editing.Landscape == value) return; editing.Landscape = value; Edited(); } }
@@ -134,8 +136,11 @@ namespace PhotoBooth.Admin.UI.ViewModels
                 var saved = (await service.GetProfilesAsync(CancellationToken.None)).FirstOrDefault(x => string.Equals(x.PrinterId, device.Id, StringComparison.OrdinalIgnoreCase));
                 // Edit a detached copy; changing controls must not alter an active service profile before Save.
                 var profile = new PrinterProfile { Id = saved?.Id ?? Guid.NewGuid(), Name = device.Name, PrinterName = device.Name, PrinterId = device.Id,
-                    PaperSize = saved?.PaperSize, PaperType = saved?.PaperType, Quality = saved?.Quality, DefaultCopies = Math.Max(1, Math.Min(4, saved?.DefaultCopies ?? 1)),
+                    PaperSize = saved?.PaperSize, PaperType = saved?.PaperType, MediaType = saved?.MediaType, Quality = saved?.Quality, DefaultCopies = Math.Max(1, Math.Min(4, saved?.DefaultCopies ?? 1)),
                     Landscape = saved?.Landscape ?? false, PrintInColor = device.SupportsColor && (saved?.PrintInColor ?? true), IsDefault = saved?.IsDefault ?? false, UseDefaultBorder = false };
+                Fill(MediaTypes, new[] { "Mặc định của máy in" }.Concat(device.MediaTypes ?? new string[0]).ToArray());
+                profile.MediaType = string.IsNullOrWhiteSpace(profile.MediaType) ? "Mặc định của máy in" : profile.MediaType;
+                if (!MediaTypes.Contains(profile.MediaType)) MediaTypes.Add(profile.MediaType);
                 Fill(PaperSizes, device.PaperSizes); Fill(PaperTypes, device.PaperSources); Fill(Qualities, device.Resolutions);
                 profile.PaperSize = PaperSizes.FirstOrDefault(x => PrinterPaperNames.Match(x, profile.PaperSize)) ?? PaperSizes.FirstOrDefault();
                 profile.PaperType = Choose(profile.PaperType, PaperTypes); profile.Quality = Choose(profile.Quality, Qualities);
@@ -172,12 +177,12 @@ namespace PhotoBooth.Admin.UI.ViewModels
             catch (Exception e) { Fail(e, test ? "Không thể hoàn tất lưu hoặc in thử. Kiểm tra máy in trước khi thử lại." : "Không thể lưu cấu hình. Vui lòng thử lại."); }
             finally { IsBusy = false; }
         }
-        static PrintJob CreateTestJob(PrinterProfile p) => new PrintJob { Id = Guid.NewGuid(), PrinterName = p.PrinterName, Copies = 1, PaperSize = p.PaperSize, PaperType = p.PaperType, Quality = p.Quality, Landscape = p.Landscape, UseDefaultBorder = false, PrintInColor = p.PrintInColor };
+        static PrintJob CreateTestJob(PrinterProfile p) => new PrintJob { Id = Guid.NewGuid(), PrinterName = p.PrinterName, Copies = 1, PaperSize = p.PaperSize, PaperType = p.PaperType, MediaType = p.MediaType, Quality = p.Quality, Landscape = p.Landscape, UseDefaultBorder = false, PrintInColor = p.PrintInColor };
         static void Fill(ObservableCollection<string> target, string[] values) { target.Clear(); foreach (var value in (values ?? new string[0]).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct()) target.Add(value); }
         static string Choose(string value, ObservableCollection<string> values) => values.Contains(value) ? value : values.FirstOrDefault();
         public static string ConnectionLabel(string value) => value == "Local network" ? "Mạng nội bộ" : value == "Windows printer" ? "Máy in Windows" : string.IsNullOrWhiteSpace(value) ? "—" : value;
         void Edited([System.Runtime.CompilerServices.CallerMemberName] string property = null) { dirty = true; Raise(property); RaiseState(); }
-        void RaiseFields() { foreach (var property in new[] { nameof(EditingProfile), nameof(PaperSize), nameof(PaperType), nameof(Quality), nameof(DefaultCopies), nameof(Landscape), nameof(PrintInColor), nameof(IsDefault) }) Raise(property); RaiseState(); }
+        void RaiseFields() { foreach (var property in new[] { nameof(EditingProfile), nameof(PaperSize), nameof(PaperType), nameof(MediaType), nameof(Quality), nameof(DefaultCopies), nameof(Landscape), nameof(PrintInColor), nameof(IsDefault) }) Raise(property); RaiseState(); }
         void RaiseState()
         {
             foreach (var property in new[] { nameof(CanSelectPrinter), nameof(HasEditingProfile), nameof(IsEmpty), nameof(NeedsConnection), nameof(IsSelectionConnected), nameof(CanEdit), nameof(CanSave), nameof(HasPaperSizes), nameof(HasPaperTypes), nameof(HasQualities), nameof(SupportsColor), nameof(IsSavedDefault), nameof(PrinterSummary), nameof(ConfigurationName), nameof(ConfigurationCaption), nameof(ConnectionText), nameof(ColorSupportText), nameof(DuplexSupportText), nameof(ConnectLabel), nameof(ConnectionHint), nameof(PaperHelp), nameof(SaveState) }) Raise(property);

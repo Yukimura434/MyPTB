@@ -42,12 +42,12 @@ namespace PhotoBooth.Business.Pipelines
      await durableJobs.SetStateAsync(durable.Id,DurableOutputJobStates.Submitting,null,token);
     }
     // Frame artwork owns the margins; new print submissions always request full-sheet output.
-    var audit=new PrintJobRecord{Id=Guid.NewGuid(),OutputJobId=durable?.Id,SessionId=session.Id,DeliverableId=deliverable?.Id,PrinterProfileId=profile.Id,PrinterName=profile.PrinterName,Copies=copies,PaperSize=profile.PaperSize,PaperType=profile.PaperType,Quality=profile.Quality,Landscape=profile.Landscape,PrintInColor=profile.PrintInColor,UseDefaultBorder=false,Status="Pending",PrintedAtUtc=DateTime.UtcNow};
+    var audit=new PrintJobRecord{Id=Guid.NewGuid(),OutputJobId=durable?.Id,SessionId=session.Id,DeliverableId=deliverable?.Id,PrinterProfileId=profile.Id,PrinterName=profile.PrinterName,Copies=copies,PaperSize=profile.PaperSize,PaperType=profile.PaperType,MediaType=profile.MediaType,Quality=profile.Quality,Landscape=profile.Landscape,PrintInColor=profile.PrintInColor,UseDefaultBorder=false,Status="Pending",PrintedAtUtc=DateTime.UtcNow};
     await printJobs.AddAsync(audit,token);
     try
     {
      if(reservation!=null)await eventPrinting.SubmitAsync(reservation,token);
-     await printer.PrintAsync(new PrintJob{Id=Guid.NewGuid(),FilePath=file,PrinterName=profile.PrinterName,Copies=copies,PaperSize=profile.PaperSize,PaperType=profile.PaperType,Quality=profile.Quality,Landscape=profile.Landscape,UseDefaultBorder=false,PrintInColor=profile.PrintInColor},token);
+     await printer.PrintAsync(new PrintJob{Id=Guid.NewGuid(),FilePath=file,PrinterName=profile.PrinterName,Copies=copies,PaperSize=profile.PaperSize,PaperType=profile.PaperType,MediaType=profile.MediaType,Quality=profile.Quality,Landscape=profile.Landscape,UseDefaultBorder=false,PrintInColor=profile.PrintInColor},token);
      if(reservation!=null)await eventPrinting.CommitAsync(reservation,CancellationToken.None);
      if(durable!=null)await durableJobs.SetStateAsync(durable.Id,DurableOutputJobStates.Completed,null,CancellationToken.None);
      audit.Status="Success";audit.PrintedAtUtc=DateTime.UtcNow;await printJobs.AddAsync(audit,CancellationToken.None);

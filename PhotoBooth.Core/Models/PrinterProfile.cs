@@ -13,6 +13,7 @@ namespace PhotoBooth.Core.Models
         public bool PrintInColor { get; set; } = true;
         public int DefaultCopies { get; set; }
         public string PaperType { get; set; }
+        public string MediaType { get; set; }
         public string Quality { get; set; }
         public bool UseDefaultBorder { get; set; }
         public bool IsDefault { get; set; }
@@ -29,6 +30,7 @@ namespace PhotoBooth.Core.Models
         public bool SupportsColor { get; set; }
         public bool SupportsDuplex { get; set; }
         public string[] PaperSizes { get; set; } = new string[0];
+        public string[] MediaTypes { get; set; } = new string[0];
         public string[] PaperSources { get; set; } = new string[0];
         public string[] Resolutions { get; set; } = new string[0];
     }

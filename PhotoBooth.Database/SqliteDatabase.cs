@@ -47,6 +47,7 @@ namespace PhotoBooth.Database
             EnsureDeviceProfileSchema();
             AdoptUnassignedLocalSessions();
             EnsureWorkflowSettings();
+            using(var connection=OpenConnection())EnsureColumn(connection,"PrinterProfiles","MediaType","TEXT");
             using(var connection=OpenConnection())EnsureColumn(connection,"OutputJobs","AuthorizationScope","TEXT");
             using (var connection = OpenConnection()) EnsureColumn(connection, "BoothSessions", "RemoteEventId", "TEXT");
         }

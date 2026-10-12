@@ -19,8 +19,8 @@ namespace PhotoBooth.Database
    token.ThrowIfCancellationRequested();var list=new List<PrinterProfile>();
    using(var c=db.OpenConnection())using(var q=c.CreateCommand())
    {
-    q.CommandText="SELECT Id,Name,PrinterName,PrinterId,PaperSize,PaperType,Quality,UseDefaultBorder,DefaultCopies,Landscape,IsDefault,PrintInColor FROM PrinterProfiles";
-    using(var r=q.ExecuteReader())while(r.Read())list.Add(new PrinterProfile{Id=Guid.Parse(r.GetString(0)),Name=Text(r,1),PrinterName=Text(r,2),PrinterId=Text(r,3),PaperSize=Text(r,4),PaperType=Text(r,5),Quality=Text(r,6),UseDefaultBorder=r.GetInt32(7)!=0,DefaultCopies=r.GetInt32(8),Landscape=r.GetInt32(9)!=0,IsDefault=r.GetInt32(10)!=0,PrintInColor=r.GetInt32(11)!=0});
+    q.CommandText="SELECT Id,Name,PrinterName,PrinterId,PaperSize,PaperType,Quality,UseDefaultBorder,DefaultCopies,Landscape,IsDefault,PrintInColor,MediaType FROM PrinterProfiles";
+    using(var r=q.ExecuteReader())while(r.Read())list.Add(new PrinterProfile{Id=Guid.Parse(r.GetString(0)),Name=Text(r,1),PrinterName=Text(r,2),PrinterId=Text(r,3),PaperSize=Text(r,4),PaperType=Text(r,5),Quality=Text(r,6),UseDefaultBorder=r.GetInt32(7)!=0,DefaultCopies=r.GetInt32(8),Landscape=r.GetInt32(9)!=0,IsDefault=r.GetInt32(10)!=0,PrintInColor=r.GetInt32(11)!=0,MediaType=Text(r,12)});
    }
    return Task.FromResult<IReadOnlyList<PrinterProfile>>(list);
   }
@@ -34,10 +34,10 @@ namespace PhotoBooth.Database
     if(p.IsDefault)using(var clear=c.CreateCommand()){clear.Transaction=tx;clear.CommandText="UPDATE PrinterProfiles SET IsDefault=0 WHERE IsDefault=1 AND Id<>$id";clear.Parameters.AddWithValue("$id",p.Id.ToString());clear.ExecuteNonQuery();}
     using(var q=c.CreateCommand())
     {
-     q.Transaction=tx;q.CommandText=@"INSERT INTO PrinterProfiles (Id,Name,PrinterName,PrinterId,PaperSize,PaperType,Quality,UseDefaultBorder,DefaultCopies,Landscape,IsDefault,PrintInColor)
-VALUES($id,$n,$p,$pid,$s,$t,$q,$b,$c,$l,$d,$color)
-ON CONFLICT(Id) DO UPDATE SET Name=excluded.Name,PrinterName=excluded.PrinterName,PrinterId=excluded.PrinterId,PaperSize=excluded.PaperSize,PaperType=excluded.PaperType,Quality=excluded.Quality,UseDefaultBorder=excluded.UseDefaultBorder,DefaultCopies=excluded.DefaultCopies,Landscape=excluded.Landscape,IsDefault=excluded.IsDefault,PrintInColor=excluded.PrintInColor";
-     q.Parameters.AddWithValue("$id",p.Id.ToString());q.Parameters.AddWithValue("$n",(object)p.Name??DBNull.Value);q.Parameters.AddWithValue("$p",(object)p.PrinterName??DBNull.Value);q.Parameters.AddWithValue("$pid",p.PrinterId);q.Parameters.AddWithValue("$s",(object)p.PaperSize??DBNull.Value);q.Parameters.AddWithValue("$t",(object)p.PaperType??DBNull.Value);q.Parameters.AddWithValue("$q",(object)p.Quality??DBNull.Value);q.Parameters.AddWithValue("$b",p.UseDefaultBorder?1:0);q.Parameters.AddWithValue("$c",Math.Max(1,p.DefaultCopies));q.Parameters.AddWithValue("$l",p.Landscape?1:0);q.Parameters.AddWithValue("$d",p.IsDefault?1:0);q.Parameters.AddWithValue("$color",p.PrintInColor?1:0);q.ExecuteNonQuery();
+     q.Transaction=tx;q.CommandText=@"INSERT INTO PrinterProfiles (Id,Name,PrinterName,PrinterId,PaperSize,PaperType,Quality,UseDefaultBorder,DefaultCopies,Landscape,IsDefault,PrintInColor,MediaType)
+VALUES($id,$n,$p,$pid,$s,$t,$q,$b,$c,$l,$d,$color,$media)
+ON CONFLICT(Id) DO UPDATE SET Name=excluded.Name,PrinterName=excluded.PrinterName,PrinterId=excluded.PrinterId,PaperSize=excluded.PaperSize,PaperType=excluded.PaperType,Quality=excluded.Quality,UseDefaultBorder=excluded.UseDefaultBorder,DefaultCopies=excluded.DefaultCopies,Landscape=excluded.Landscape,IsDefault=excluded.IsDefault,PrintInColor=excluded.PrintInColor,MediaType=excluded.MediaType";
+     q.Parameters.AddWithValue("$id",p.Id.ToString());q.Parameters.AddWithValue("$n",(object)p.Name??DBNull.Value);q.Parameters.AddWithValue("$p",(object)p.PrinterName??DBNull.Value);q.Parameters.AddWithValue("$pid",p.PrinterId);q.Parameters.AddWithValue("$s",(object)p.PaperSize??DBNull.Value);q.Parameters.AddWithValue("$t",(object)p.PaperType??DBNull.Value);q.Parameters.AddWithValue("$q",(object)p.Quality??DBNull.Value);q.Parameters.AddWithValue("$b",p.UseDefaultBorder?1:0);q.Parameters.AddWithValue("$c",Math.Max(1,p.DefaultCopies));q.Parameters.AddWithValue("$l",p.Landscape?1:0);q.Parameters.AddWithValue("$d",p.IsDefault?1:0);q.Parameters.AddWithValue("$color",p.PrintInColor?1:0);q.Parameters.AddWithValue("$media",(object)p.MediaType??DBNull.Value);q.ExecuteNonQuery();
     }
     tx.Commit();
    }
