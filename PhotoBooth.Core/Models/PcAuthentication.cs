@@ -34,7 +34,8 @@ namespace PhotoBooth.Core.Models
         bool HasManagerAccess => !IsExpired &&
             ((AuthenticationMode == PcAuthenticationMode.OnlineDeviceBound && Role == PcAppRole.BoothOperator) ||
              (AuthenticationMode == PcAuthenticationMode.DevelopmentAccount && (Role == PcAppRole.LocalAdmin || Role == PcAppRole.BoothOperator)));
-        public bool CanManageConfiguration => HasManagerAccess && EventAuthorization == null;
+        // Event selects gallery attribution; only PTB/SelfBooth are guest sessions.
+        public bool CanManageConfiguration => HasManagerAccess && (EventAuthorization == null || EventAuthorization.IsEvent);
         public bool CanConfigureDevice => HasManagerAccess && (EventAuthorization == null || EventAuthorization.IsEvent);
         public bool IsExpired => DateTime.UtcNow >= ExpiresAtUtc;
     }

@@ -45,7 +45,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             var revision = ++livePresetRevision;
             LivePreset = null;
             var manager = context.ManagerSession;
-            if (manager?.CanManageConfiguration != true || context.Authorization?.UsesAccessCodeSettings == true) return;
+            if (manager?.CanManageConfiguration != true || (context.Authorization?.UsesAccessCodeSettings == true && !context.Authorization.IsEvent)) return;
             try
             {
                 var configured = await settings.GetAsync(CancellationToken.None);
@@ -55,7 +55,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     if (data == null) return;
                     var compiled = await Task.Run(() => CompileLivePreset(data, configured.LiveViewPresetStrengthPercent));
                     if (revision == livePresetRevision && ReferenceEquals(manager, context.ManagerSession) &&
-                        manager.CanManageConfiguration && context.Authorization?.UsesAccessCodeSettings != true)
+                        manager.CanManageConfiguration && (context.Authorization?.UsesAccessCodeSettings != true || context.Authorization.IsEvent))
                         LivePreset = compiled;
                 }
             }

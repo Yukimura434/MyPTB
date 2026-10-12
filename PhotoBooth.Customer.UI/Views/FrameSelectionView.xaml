@@ -261,22 +261,28 @@
                 <StackPanel>
                     <TextBlock Text="Sẵn sàng giữ lại khoảnh khắc này?" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding SelectedFrame.Name}" FontSize="16" Foreground="#D4C9DC" Margin="0,12,0,18"/>
+                    <TextBlock Text="{Binding EventQuotaStatus}" Visibility="{Binding IsEventPrinting,Converter={StaticResource UxVisible}}" Foreground="#F6EFF9" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                    <Button Content="Kiểm tra lại hạn mức" Command="{Binding RefreshEventQuotaCommand}" Visibility="{Binding IsEventPrinting,Converter={StaticResource UxVisible}}" Margin="0,0,0,14"/>
                     <StackPanel Orientation="Horizontal" IsEnabled="{Binding CanChangePrintCopies}" Visibility="{Binding CanChangePrintCopies,Converter={StaticResource UxVisible}}">
                         <TextBlock Text="Số bản in" Margin="0,0,20,0"/>
-                        <Button Content="−" Command="{Binding DecreaseCopiesCommand}"/>
+                        <Button Content="−" Command="{Binding DecreaseCopiesCommand}" IsEnabled="{Binding CanDecreaseCopies}"/>
                         <TextBlock Text="{Binding PrintCopies}" Margin="20,0"/>
-                        <Button Content="+" Command="{Binding IncreaseCopiesCommand}"/>
+                        <Button Content="+" Command="{Binding IncreaseCopiesCommand}" IsEnabled="{Binding CanIncreaseCopies}"/>
                     </StackPanel>
                     <Button Content="Bỏ qua in" Click="SkipPrint_Click" Visibility="{Binding CanSkipPrint,Converter={StaticResource UxVisible}}" Margin="0,18,0,0" HorizontalAlignment="Stretch"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,26,0,0">
                         <Button x:Name="ContinueEditing" Content="Chỉnh thêm" Click="Edit_Click" Margin="0,0,12,0"/>
-                        <Button Click="Finish_Click" Style="{StaticResource UxPrimary}">
+                        <Button Click="Finish_Click" Style="{StaticResource UxPrimary}" IsEnabled="{Binding CanSubmitPrint}">
                             <Button.Content>
-                                <TextBlock Foreground="#291020">
+                                <TextBlock>
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#291020"/>
                                             <Setter Property="Text" Value="Nhận ảnh"/>
                                             <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsEnabled,RelativeSource={RelativeSource AncestorType=Button}}" Value="False">
+                                                    <Setter Property="Foreground" Value="#E1D6EA"/>
+                                                </DataTrigger>
                                                 <DataTrigger Binding="{Binding PrintingEnabled}" Value="True">
                                                     <Setter Property="Text" Value="In &amp; nhận ảnh"/>
                                                 </DataTrigger>

@@ -28,6 +28,36 @@ namespace PhotoBooth.Infrastructure.Services
         readonly HttpClient http = Http;
         long storageBlockedUntilUtcTicks;
 
+        public async Task<EventPrintQuota> GetQuotaAsync(Guid captureId, CancellationToken token)
+        {
+            var booth = await localSessions.GetAsync(captureId, token).ConfigureAwait(false);
+            var access = sessions.Current?.EventAuthorization;
+            if (access?.IsEvent != true || string.IsNullOrWhiteSpace(booth?.RemoteEventId) || booth.RemoteEventId != access.EventId)
+                throw new InvalidOperationException("Không thể xác minh sự kiện của lượt chụp.");
+            var credential = await CredentialAsync(token).ConfigureAwait(false);
+            var employee = EmployeeCredential();
+            if (credential == null || employee == null) throw new InvalidOperationException("Vui lòng đăng nhập lại để kiểm tra số bản in.");
+            var opened = await EnsureBoothSessionAsync(captureId, credential, employee, token).ConfigureAwait(false);
+            if (!opened.Operation.Succeeded) throw new InvalidOperationException(opened.Operation.ErrorMessage);
+            var result = await SendJsonAsync<EmptyRequest, PrintQuotaEnvelope>(HttpMethod.Get,
+                Api("api/v3/device/events/" + Uri.EscapeDataString(booth.RemoteEventId) + "/print-quota?boothSessionId=" + captureId.ToString("N")),
+                credential, employee, null, null, token).ConfigureAwait(false);
+            if (!result.Operation.Succeeded) throw new InvalidOperationException(result.Operation.ErrorMessage);
+            var value = result.Value?.Quota;
+            if (value?.Event == null || value.Capture == null) throw new InvalidOperationException("Chưa xác minh được số bản in còn lại. Vui lòng thử lại.");
+            var quota = new EventPrintQuota { Mode = value.Mode, EventRemaining = value.Event.Remaining, CaptureRemaining = value.Capture.Remaining };
+            quota.AllowedCopies(10); // Missing or malformed limited counts never grant printing.
+            return quota;
+        }
+
+        [DataContract] sealed class PrintQuotaEnvelope { [DataMember(Name="quota")] public PrintQuotaValue Quota { get; set; } }
+        [DataContract] sealed class PrintQuotaValue {
+            [DataMember(Name="mode")] public string Mode { get; set; }
+            [DataMember(Name="event")] public PrintQuotaCount Event { get; set; }
+            [DataMember(Name="capture")] public PrintQuotaCount Capture { get; set; }
+        }
+        [DataContract] sealed class PrintQuotaCount { [DataMember(Name="remaining")] public int? Remaining { get; set; } }
+
         public async Task<EventPrintReservation> ReserveAsync(Guid captureId, int copies, string idempotencyKey, CancellationToken token)
         {
             var booth = await localSessions.GetAsync(captureId, token).ConfigureAwait(false);
@@ -41,6 +71,7 @@ namespace PhotoBooth.Infrastructure.Services
             var result = await SendJsonAsync<PrintRequest,PrintResponse>(HttpMethod.Post, Api(selfBooth ? "api/v3/device/selfbooth-passes/print-reservations" : "api/v3/device/events/" + Uri.EscapeDataString(booth.RemoteEventId) + "/print-reservations"), credential, employee, idempotencyKey,
                 new PrintRequest { BoothSessionId = captureId.ToString("N"), Copies = copies }, token).ConfigureAwait(false);
             if (result.Operation.ErrorCode == "selfbooth_print_quota_exceeded") throw new PrintLimitExceededException("Số bản in còn lại của mã không đủ. Bạn có thể bỏ qua in để tiếp tục chụp.");
+            if (result.Operation.ErrorCode == "event_print_quota_exceeded") throw new PrintLimitExceededException("Hạn mức in sự kiện vừa thay đổi. Vui lòng chọn lại số bản hoặc nhận ảnh không in.");
             if (!result.Operation.Succeeded) throw new InvalidOperationException(result.Operation.ErrorMessage);
             if (string.IsNullOrWhiteSpace(result.Value?.Reservation?.Id)) throw new InvalidOperationException("Chưa xác nhận được lượt in. Vui lòng thử lại.");
             return new EventPrintReservation { IsSelfBooth = selfBooth, EventId = booth.RemoteEventId, Id = result.Value.Reservation.Id, State = result.Value.Reservation.State, SessionToken = employee };
@@ -178,7 +209,8 @@ namespace PhotoBooth.Infrastructure.Services
         {
             using(var request=new HttpRequestMessage(method,uri))
             {
-                request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",credential);if(!string.IsNullOrWhiteSpace(employeeCredential))request.Headers.TryAddWithoutValidation("X-Employee-Session",employeeCredential);request.Headers.TryAddWithoutValidation("Idempotency-Key",idempotencyKey);request.Headers.TryAddWithoutValidation("X-Request-Id",RequestId());request.Content=new ByteArrayContent(Json(body));request.Content.Headers.ContentType=new MediaTypeHeaderValue("application/json");
+                request.Headers.Authorization=new AuthenticationHeaderValue("Bearer",credential);if(!string.IsNullOrWhiteSpace(employeeCredential))request.Headers.TryAddWithoutValidation("X-Employee-Session",employeeCredential);if(!string.IsNullOrWhiteSpace(idempotencyKey))request.Headers.TryAddWithoutValidation("Idempotency-Key",idempotencyKey);request.Headers.TryAddWithoutValidation("X-Request-Id",RequestId());
+                if(method!=HttpMethod.Get){request.Content=new ByteArrayContent(Json(body));request.Content.Headers.ContentType=new MediaTypeHeaderValue("application/json");}
                 await DeviceRequestProof.SignAsync(request,identities,credential,null,token).ConfigureAwait(false);
                 using(var timeout=CancellationTokenSource.CreateLinkedTokenSource(token))
                 {

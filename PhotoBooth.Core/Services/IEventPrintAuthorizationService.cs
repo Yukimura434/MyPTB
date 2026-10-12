@@ -20,6 +20,7 @@ namespace PhotoBooth.Core.Services
 
     public interface IEventPrintAuthorizationService
     {
+        Task<PhotoBooth.Core.Models.EventPrintQuota> GetQuotaAsync(Guid captureId, CancellationToken token);
         Task<EventPrintReservation> ReserveAsync(Guid captureId, int copies, string idempotencyKey, CancellationToken token);
         Task SubmitAsync(EventPrintReservation reservation, CancellationToken token);
         Task CommitAsync(EventPrintReservation reservation, CancellationToken token);

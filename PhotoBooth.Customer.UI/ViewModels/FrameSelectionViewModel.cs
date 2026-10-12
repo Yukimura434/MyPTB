@@ -99,6 +99,53 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly IFeatureFlagService features;
         readonly SemaphoreSlim composeGate = new SemaphoreSlim(1, 1);
         readonly AsyncCommand printCommand;
+        readonly IEventPrintAuthorizationService eventPrinting;
+        bool quotaBusy, quotaReady;
+        int quotaMaximum, quotaRevision;
+        string quotaStatus;
+        public bool IsEventPrinting => context.Authorization?.IsEvent == true && PrintingEnabled;
+        public string EventQuotaStatus { get => quotaStatus; private set => Set(ref quotaStatus, value); }
+        public bool CanSubmitPrint => CanFinish && !IsPrinting && (!IsEventPrinting || (quotaReady && !quotaBusy && quotaMaximum > 0));
+        public bool CanIncreaseCopies => CanChangePrintCopies && PrintCopies < (IsEventPrinting ? quotaMaximum : context.MaximumPrintCopies);
+        public bool CanDecreaseCopies => CanChangePrintCopies && PrintCopies > 1;
+        public ICommand RefreshEventQuotaCommand { get; }
+
+        void NotifyQuota()
+        {
+            Raise(nameof(IsEventPrinting)); Raise(nameof(CanChangePrintCopies)); Raise(nameof(CanSubmitPrint));
+            Raise(nameof(CanIncreaseCopies)); Raise(nameof(CanDecreaseCopies)); Raise(nameof(CanSkipPrint));
+            printCommand.NotifyCanExecuteChanged(); (SkipPrintCommand as AsyncCommand)?.NotifyCanExecuteChanged();
+            (RefreshEventQuotaCommand as AsyncCommand)?.NotifyCanExecuteChanged();
+        }
+
+        public async Task<bool> RefreshEventPrintQuotaAsync()
+        {
+            if (!IsEventPrinting) return true;
+            var revision = ++quotaRevision;
+            var captureId = context.BoothSession?.Id;
+            var authority = context.Authorization;
+            quotaBusy = true; quotaReady = false;
+            EventQuotaStatus = "Đang kiểm tra số bản in còn lại…"; NotifyQuota();
+            try
+            {
+                if (eventPrinting == null || !captureId.HasValue) throw new InvalidOperationException();
+                var quota = await eventPrinting.GetQuotaAsync(captureId.Value, CancellationToken.None);
+                if (revision != quotaRevision || context.BoothSession?.Id != captureId || !ReferenceEquals(authority, context.Authorization) || pageStopping) return false;
+                quotaMaximum = quota.AllowedCopies(Math.Min(10, Math.Max(0, context.MaximumPrintCopies)));
+                quotaReady = true;
+                PrintCopies = quotaMaximum == 0 ? 0 : Math.Max(1, Math.Min(PrintCopies, quotaMaximum));
+                EventQuotaStatus = quotaMaximum == 0 ? "Đã hết số bản được phép in. Bạn vẫn có thể nhận ảnh không in."
+                    : quota.Mode == "unlimited" ? "Lượt này có thể chọn tối đa " + quotaMaximum + " bản."
+                    : "Lượt này tối đa " + quotaMaximum + " bản · Sự kiện còn " + quota.EventRemaining + " bản.";
+                return true;
+            }
+            catch (Exception error)
+            {
+                if (revision == quotaRevision && context.BoothSession?.Id == captureId && ReferenceEquals(authority, context.Authorization) && !pageStopping) { quotaMaximum = 0; quotaReady = false; PrintCopies = 0; EventQuotaStatus = "Chưa kiểm tra được hạn mức. Hãy thử lại hoặc nhận ảnh không in."; }
+                log.LogWarning(error, "Event print allowance unavailable"); return false;
+            }
+            finally { if (revision == quotaRevision) { quotaBusy = false; NotifyQuota(); } }
+        }
         readonly AsyncCommand applyPresetToPhotoCommand;
         readonly AsyncCommand applyPresetToAllCommand;
         readonly object operationSync = new object();
@@ -138,12 +185,14 @@ namespace PhotoBooth.Customer.UI.ViewModels
             IPresetService p, IPrinterService printer, IImageCompositionService compose, IPresetProcessor processor,
             IStorageManager storageManager, IBoothSessionService session, IDeliverableService deliverableService,
             IGifAnimationService gifService, IPrintPipeline pipeline, IVideoService videoService, IFeatureFlagService featureFlags,
-            IColorLutService colorLutService, ILogger<FrameSelectionViewModel> logger)
+            IColorLutService colorLutService, ILogger<FrameSelectionViewModel> logger, IEventPrintAuthorizationService eventPrintAuthorization = null)
         {
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
+            eventPrinting = eventPrintAuthorization;
             presetProcessor = processor; sessions = session; deliverables = deliverableService; printPipeline = pipeline; videos = videoService; features = featureFlags; colorLuts=colorLutService; log = logger;
             CancelCommand = new RelayCommand(BackToPreview);
-            printCommand = new AsyncCommand(() => { skipPrinting = false; return RunFinishTracked(); }, () => CanFinish && !IsPrinting);
+            printCommand = new AsyncCommand(() => { skipPrinting = false; return RunFinishTracked(); }, () => CanSubmitPrint);
+            RefreshEventQuotaCommand = new AsyncCommand(async () => { await RefreshEventPrintQuotaAsync(); }, () => !quotaBusy && !IsPrinting);
             PrintCommand = printCommand;
             SkipPrintCommand = new AsyncCommand(() => { skipPrinting = true; return RunFinishTracked(); }, () => CanFinish && !IsPrinting && CanSkipPrint);
             RetryCommand = new AsyncCommand(() => retryFinish ? RunFinishTracked() : StartPreviewOperation(),
@@ -188,12 +237,12 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string PreviewPath { get => preview; private set => Set(ref preview, value); }
         public string ErrorMessage { get => error; private set { Set(ref error, value); Raise(nameof(HasError)); } }
         public bool HasError => !string.IsNullOrWhiteSpace(ErrorMessage);
-        public bool IsPrinting { get => printing; private set { Set(ref printing, value); printCommand.NotifyCanExecuteChanged(); (RetryCommand as AsyncCommand)?.NotifyCanExecuteChanged();NotifyPresetState(); } }
+        public bool IsPrinting { get => printing; private set { Set(ref printing, value); printCommand.NotifyCanExecuteChanged(); (RetryCommand as AsyncCommand)?.NotifyCanExecuteChanged();NotifyPresetState();NotifyQuota(); } }
         bool skipPrinting;
         public bool HasPackagePrintCopies => context.Authorization?.IsOneTimeCode == true || context.Authorization?.IsReusableSelfBooth == true;
-        public bool CanSkipPrint => PrintingEnabled && context.Authorization?.IsReusableSelfBooth == true;
+        public bool CanSkipPrint => PrintingEnabled && (context.Authorization?.IsReusableSelfBooth == true || context.Authorization?.IsEvent == true);
         public bool PrintingEnabled { get => printingEnabled; private set { Set(ref printingEnabled,value);Raise(nameof(CanChangePrintCopies));Raise(nameof(CanSkipPrint));System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
-        public bool CanChangePrintCopies => PrintingEnabled && !HasPackagePrintCopies && context.PrintPolicyMode == EventPrintPolicyMode.Manual;
+        public bool CanChangePrintCopies => PrintingEnabled && !IsPrinting && !HasPackagePrintCopies && (IsEventPrinting ? quotaReady && !quotaBusy && quotaMaximum > 0 : context.PrintPolicyMode == EventPrintPolicyMode.Manual);
         public bool FramesPanelActive { get=>framesPanelActive; private set { if(Set(ref framesPanelActive,value)){Raise(nameof(PresetsPanelActive));} } }
         public bool PresetsPanelActive => !FramesPanelActive;
         public bool HasPinnedPresets => PinnedPresets.Count>0;
@@ -211,7 +260,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public string PresetStrengthText=>Math.Round(PresetStrengthPercent)+"%";
         public bool CanApplyPreset=>SelectedPreset!=null&&ActivePhoto!=null&&!IsPrinting&&!IsPresetBusy;
         public bool CanApplyPresetToAll=>SelectedPreset!=null&&CapturedPhotos.Count>0&&!IsPrinting&&!IsPresetBusy;
-        public int PrintCopies { get => printCopies; set { if(Set(ref printCopies, HasPackagePrintCopies ? Math.Max(0, context.RequestedPrintCopies) : Math.Max(1, Math.Min(Math.Max(1,context.MaximumPrintCopies), value))))System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } }
+        public int PrintCopies { get => printCopies; set { if(Set(ref printCopies, HasPackagePrintCopies ? Math.Max(0, context.RequestedPrintCopies) : IsEventPrinting ? (quotaReady && quotaMaximum > 0 ? Math.Max(1, Math.Min(quotaMaximum,value)) : 0) : Math.Max(1, Math.Min(Math.Max(1,context.MaximumPrintCopies), value)))) { Raise(nameof(CanIncreaseCopies)); Raise(nameof(CanDecreaseCopies)); System.Windows.Input.CommandManager.InvalidateRequerySuggested(); } } }
         public int ZoomPercent
         {
             get => zoomPercent;
@@ -279,6 +328,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try
             {
                 retryFinish = false;
+                ++quotaRevision; quotaReady = false; quotaBusy = false; quotaMaximum = 0; EventQuotaStatus = "Đang chờ kiểm tra hạn mức in.";
                 ErrorMessage = null; PrintCopies = Math.Max(1, context.RequestedPrintCopies); ZoomPercent = 100; PrintingEnabled = context.PrintingEnabled;
                 CancelStagedPresetPreview();CancelPresetBackgroundWork();
                 selected = null; Raise(nameof(SelectedFrame)); PreviewPath = null;
@@ -362,7 +412,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         void NotifyAssignmentsChanged()
         {
-            Raise(nameof(CanFinish)); Raise(nameof(AssignmentStatus)); Raise(nameof(Guidance)); printCommand.NotifyCanExecuteChanged();
+            Raise(nameof(CanFinish)); Raise(nameof(CanSubmitPrint)); Raise(nameof(AssignmentStatus)); Raise(nameof(Guidance)); printCommand.NotifyCanExecuteChanged();
         }
 
         CapturedPhotoChoice ActivePhoto=>PresetsPanelActive?SelectedPhoto:(SelectedSlot?.Photo??SelectedPhoto);
@@ -658,6 +708,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
             {
                 retryFinish = false;
                 ErrorMessage = null; IsPrinting = true;
+                if (IsEventPrinting && !skipPrinting)
+                {
+                    var requested = PrintCopies;
+                    if (!await RefreshEventPrintQuotaAsync()) { ErrorMessage = EventQuotaStatus; return; }
+                    if (requested < 1 || requested > quotaMaximum) { ErrorMessage = "Hạn mức vừa thay đổi. Hãy chọn lại số bản hoặc nhận ảnh không in."; return; }
+                    PrintCopies = requested;
+                }
                 lock (previewCancellationSync) previewCancellation?.Cancel();
                 if (context.BoothSession != null && context.BoothSession.IsBoothSession && context.BoothSession.Status != BoothSessionStates.Finalizing)
                 {
@@ -735,6 +792,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 retryFinish = true;
                 var printFailed = machine.State == CustomerWorkflowState.Printing;
                 if (printFailed) machine.MoveTo(CustomerWorkflowState.FrameSelection);
+                if (IsEventPrinting && e is PrintLimitExceededException) await RefreshEventPrintQuotaAsync();
                 Fail(e, e is PrintLimitExceededException ? e.Message : printFailed
                     ? "Không thể in ảnh. Vui lòng kiểm tra kết nối máy in rồi thử lại."
                     : "Không thể hoàn tất ảnh. Vui lòng thử lại hoặc gọi nhân viên hỗ trợ.");

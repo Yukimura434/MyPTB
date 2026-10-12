@@ -131,6 +131,7 @@ namespace PhotoBooth.UnitTests
 
         sealed class EventPrinter:IEventPrintAuthorizationService
         {
+            public Task<EventPrintQuota> GetQuotaAsync(Guid captureId,CancellationToken token) => Task.FromResult(new EventPrintQuota { Mode = "unlimited" });
             readonly string failure;public int Submits;
             public EventPrinter(string failure){this.failure=failure;}
             public Task<EventPrintReservation> ReserveAsync(Guid captureId,int copies,string key,CancellationToken token)

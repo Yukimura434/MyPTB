@@ -49,10 +49,10 @@ namespace PhotoBooth.UnitTests
 
         [Theory]
         [InlineData(null, true, true)]
-        [InlineData(BoothAccessCodeType.Event, false, true)]
+        [InlineData(BoothAccessCodeType.Event, true, true)]
         [InlineData(BoothAccessCodeType.PhotoBooth, false, false)]
         [InlineData(BoothAccessCodeType.SelfBooth, false, false)]
-        public void Unified_employee_has_manager_controls_but_guest_and_event_scopes_stay_bounded(BoothAccessCodeType? type, bool canManage, bool canConfigureDevice)
+        public void Employee_and_event_have_manager_controls_but_guest_scopes_stay_bounded(BoothAccessCodeType? type, bool canManage, bool canConfigureDevice)
         {
             var session = new PcSession
             {
