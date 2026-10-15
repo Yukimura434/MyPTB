@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><ApplicationIcon>Assets\photobooth.ico</ApplicationIcon><Version>3.0.11</Version></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><LangVersion>latest</LangVersion><UseWPF>true</UseWPF><PlatformTarget>x86</PlatformTarget><Prefer32Bit>true</Prefer32Bit><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects><GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType><StartupObject>PhotoBooth.Admin.UI.App</StartupObject><ApplicationIcon>Assets\photobooth.ico</ApplicationIcon><Version>3.0.12</Version></PropertyGroup>
   <PropertyGroup><AssemblyName>MiuPhotoBooth</AssemblyName></PropertyGroup>
   <PropertyGroup Condition="'$(TrialBuild)' == 'true'">
     <DefineConstants>$(DefineConstants);TRIAL_BUILD</DefineConstants>

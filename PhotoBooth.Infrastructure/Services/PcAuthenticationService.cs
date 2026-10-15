@@ -367,6 +367,7 @@ namespace PhotoBooth.Infrastructure.Services
                     case "invalid_employee_credentials": return "Tên đăng nhập hoặc mật khẩu không đúng.";
                     case "employee_login_locked": return "Tài khoản tạm khóa do nhập sai nhiều lần. Vui lòng thử lại sau ít phút.";
                     case "device_revoked": return "Thiết bị đã bị thu hồi. Vui lòng liên hệ quản lý.";
+                    case "device_capacity_locked": return "Thiết bị đang bị khóa do vượt hạn mức của gói. Chủ tài khoản cần kiểm tra mục Thiết bị trên Web Customer.";
                     case "device_locked": return "Thiết bị đang bị khóa tạm thời. Chủ tài khoản cần xác minh lại trên đúng thiết bị để mở khóa.";
                     case "device_proof_required":
                     case "device_proof_invalid":
