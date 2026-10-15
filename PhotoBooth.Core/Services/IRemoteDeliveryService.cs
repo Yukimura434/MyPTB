@@ -38,6 +38,7 @@ namespace PhotoBooth.Core.Services
 
     public interface IRemoteMediaDeliveryClient
     {
+        Task<string> FreezeGallerySiteAsync(string remoteEventId, CancellationToken token);
         Task<RemoteDeliveryOperationResult> UploadAssetAsync(Guid boothSessionId, string deliverableId, MediaAssetRecord asset, string idempotencyKey, string employeeSessionToken, CancellationToken token);
         Task<RemoteDeliveryOperationResult> CommitDeliverableAsync(Guid boothSessionId, string deliverableId, string idempotencyKey, string employeeSessionToken, CancellationToken token);
         Task<RemoteGalleryResult> CreateGalleryAsync(Guid boothSessionId, string deliverableId, string idempotencyKey, string employeeSessionToken, CancellationToken token);

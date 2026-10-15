@@ -204,7 +204,7 @@ namespace PhotoBooth.Admin.UI
 
             provider = services.BuildServiceProvider();
 
-            provider.InitializePhotoBooth();
+            await System.Threading.Tasks.Task.Run(() => provider.InitializePhotoBooth());
             provider.GetRequiredService<IPcAuthenticationService>()
                 .EnsureDevelopmentAccountsAsync(CancellationToken.None)
                 .GetAwaiter().GetResult();
@@ -416,3 +416,4 @@ namespace PhotoBooth.Admin.UI
 
     }
 }
+

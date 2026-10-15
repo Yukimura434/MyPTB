@@ -78,7 +78,7 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <Image Source="{Binding SelectedFrame.SourcePath,Converter={StaticResource CustomerPathImage},ConverterParameter=1280}" Stretch="Fill" IsHitTestVisible="False"/>
+                            <Image controls:AsyncPhoto.Width="1280" controls:AsyncPhoto.Path="{Binding SelectedFrame.SourcePath}" Stretch="Fill" IsHitTestVisible="False"/>
                         </Grid>
                     </Viewbox>
                 </Border>
@@ -136,7 +136,7 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel>
-                                            <Image x:Name="FrameThumb" Width="82" Source="{Binding ThumbnailPath,Converter={StaticResource CustomerPathImage},ConverterParameter=320}" Height="{Binding Tag,RelativeSource={RelativeSource AncestorType=ListBox}}" Stretch="Uniform" Margin="0,0,0,12" RenderTransformOrigin="0.5,0.5">
+                                            <Image x:Name="FrameThumb" Width="82" controls:AsyncPhoto.Width="320" controls:AsyncPhoto.Path="{Binding ThumbnailPath}" Height="{Binding Tag,RelativeSource={RelativeSource AncestorType=ListBox}}" Stretch="Uniform" Margin="0,0,0,12" RenderTransformOrigin="0.5,0.5">
                                                 <Image.RenderTransform>
                                                     <RotateTransform Angle="-3"/>
                                                 </Image.RenderTransform>
@@ -226,7 +226,7 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <StackPanel Width="96">
-                                            <Image Source="{Binding Path,Converter={StaticResource CustomerPathImage},ConverterParameter=360}" Height="85" Stretch="UniformToFill"/>
+                                            <Image controls:AsyncPhoto.Width="360" controls:AsyncPhoto.Path="{Binding Path}" Height="85" Stretch="UniformToFill"/>
                                             <TextBlock Text="{Binding Number,StringFormat=Ảnh {0}}" FontSize="13" Margin="0,8,0,0"/>
                                         </StackPanel>
                                     </DataTemplate>
@@ -248,7 +248,6 @@
                     <ColumnDefinition/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="BackButton" Content="‹  Chụp lại" Command="{Binding CancelCommand}" Style="{StaticResource UxSubtle}"/>
                 <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <TextBlock x:Name="FooterTitle" Text="Đẹp theo cách của bạn" FontSize="17" FontWeight="SemiBold"/>
                     <TextBlock x:Name="FooterHint" Text="Bạn vẫn có thể quay lại chỉnh sửa." FontSize="14" Foreground="#BBB3C6" Margin="0,4,0,0"/>

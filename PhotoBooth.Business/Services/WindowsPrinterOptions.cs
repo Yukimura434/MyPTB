@@ -25,9 +25,18 @@ namespace PhotoBooth.Business.Services
         {
             IntPtr handle;
             if (!OpenPrinter(name, out handle, IntPtr.Zero)) return false;
-            var buffer=Marshal.AllocHGlobal(4);
-            try { uint needed; if (!GetPrinter(handle,6,buffer,4,out needed)) return false; return (Marshal.ReadInt32(buffer) & 0x80)==0; }
-            finally { Marshal.FreeHGlobal(buffer); ClosePrinter(handle); }
+            var buffer = IntPtr.Zero;
+            try
+            {
+                uint needed;
+                GetPrinter(handle, 6, IntPtr.Zero, 0, out needed);
+                if (needed < sizeof(uint)) return false;
+                var size = needed;
+                buffer = Marshal.AllocHGlobal(checked((int)size));
+                if (!GetPrinter(handle, 6, buffer, size, out needed)) return false;
+                return (Marshal.ReadInt32(buffer) & 0x80) == 0;
+            }
+            finally { if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer); ClosePrinter(handle); }
         }
 
         public static string[] InstalledNames()

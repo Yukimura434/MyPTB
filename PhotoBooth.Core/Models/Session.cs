@@ -28,6 +28,8 @@ namespace PhotoBooth.Core.Models
         public string Kind { get; set; } = SessionKinds.Event;
         public Guid? EventId { get; set; }
         public string RemoteEventId { get; set; }
+        // Null: historical client. Empty: new Capture had no verifiable context; never resolve it later.
+        public string GallerySiteSnapshot { get; set; }
         public string EventLifecycleState { get; set; } = PhotoEventLifecycleStates.Draft;
         public DateTime? EventScheduledStartAtUtc { get; set; }
         public DateTime? EventScheduledEndAtUtc { get; set; }
@@ -77,6 +79,7 @@ namespace PhotoBooth.Core.Models
                 Kind = value.Kind,
                 EventId = value.EventId,
                 RemoteEventId = value.RemoteEventId,
+                GallerySiteSnapshot = value.GallerySiteSnapshot,
                 EventLifecycleState = value.EventLifecycleState,
                 EventScheduledStartAtUtc = value.EventScheduledStartAtUtc,
                 EventScheduledEndAtUtc = value.EventScheduledEndAtUtc,

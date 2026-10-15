@@ -28,6 +28,56 @@ namespace PhotoBooth.Infrastructure.Services
         readonly HttpClient http = Http;
         long storageBlockedUntilUtcTicks;
 
+        public async Task<string> FreezeGallerySiteAsync(string remoteEventId, CancellationToken token)
+        {
+            var credential = await CredentialAsync(token).ConfigureAwait(false);
+            var employee = EmployeeCredential();
+            if (credential == null) return string.Empty;
+            var identity = await identities.GetAsync(token).ConfigureAwait(false);
+            string key;
+            using (var hash = SHA256.Create()) key = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(
+                credential + "|" + identity?.LocationId + "|" + remoteEventId))).Replace("-", "");
+            var cachePath = Path.Combine(options.DataDirectory, "GallerySiteContexts", key + ".bin");
+            JsonResult<GallerySiteContextResponse> response = null;
+            // Capture authority (including offline lease) is checked by the caller.
+            // Cached configuration itself never grants capture or upload permission.
+            if (employee != null) using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                try { response = await SendJsonAsync<EmptyRequest, GallerySiteContextResponse>(HttpMethod.Get,
+                    Api("api/v3/device/gallery-site-context" + (string.IsNullOrEmpty(remoteEventId) ? "" : "?eventId=" + Uri.EscapeDataString(remoteEventId))),
+                    credential, employee, null, new EmptyRequest(), timeout.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested) { }
+            }
+            token.ThrowIfCancellationRequested();
+            if (response?.Operation.Succeeded == true)
+            {
+                if (!ValidSiteContext(response.Value)) return string.Empty;
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(cachePath));
+                    var temporary = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    File.WriteAllBytes(temporary, ProtectedData.Protect(Json(response.Value), null, DataProtectionScope.CurrentUser));
+                    if (File.Exists(cachePath)) File.Replace(temporary, cachePath, null); else File.Move(temporary, cachePath);
+                }
+                catch (IOException) { } catch (UnauthorizedAccessException) { } catch (CryptographicException) { }
+                return response.Value.Snapshot;
+            }
+            // Only connectivity failures may reuse an unexpired context. A server denial must win over cached data.
+            if (response != null && response.Operation.ErrorCode != "network_unavailable" && response.Operation.ErrorCode != "request_timeout") return string.Empty;
+            try
+            {
+                var cached = Read<GallerySiteContextResponse>(Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(cachePath), null, DataProtectionScope.CurrentUser)));
+                return ValidSiteContext(cached) ? cached.Snapshot : string.Empty;
+            }
+            catch (IOException) { return string.Empty; } catch (UnauthorizedAccessException) { return string.Empty; }
+            catch (CryptographicException) { return string.Empty; } catch (SerializationException) { return string.Empty; }
+        }
+
+        static bool ValidSiteContext(GallerySiteContextResponse value) => value != null &&
+            !string.IsNullOrWhiteSpace(value.Snapshot) && value.Snapshot.StartsWith("gs1.", StringComparison.Ordinal) &&
+            value.Snapshot.Length <= 4096 && value.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
         public async Task<EventPrintQuota> GetQuotaAsync(Guid captureId, CancellationToken token)
         {
             var booth = await localSessions.GetAsync(captureId, token).ConfigureAwait(false);
@@ -199,7 +249,7 @@ namespace PhotoBooth.Infrastructure.Services
             string remoteEventId=null;
             var booth=await localSessions.GetAsync(boothSessionId,token).ConfigureAwait(false);
             remoteEventId=booth?.RemoteEventId;
-            return await SendJsonAsync<OpenBoothSessionRequest,BoothSessionResponse>(HttpMethod.Post,Api("api/v3/device/booth-sessions"),credential,employee,"booth-session:"+boothSessionId.ToString("N"),new OpenBoothSessionRequest{SessionId=boothSessionId.ToString("N"),EventId=remoteEventId},token).ConfigureAwait(false);
+            return await SendJsonAsync<OpenBoothSessionRequest,BoothSessionResponse>(HttpMethod.Post,Api("api/v3/device/booth-sessions"),credential,employee,"booth-session:"+boothSessionId.ToString("N"),new OpenBoothSessionRequest{SessionId=boothSessionId.ToString("N"),EventId=remoteEventId,GallerySiteSnapshot=booth?.GallerySiteSnapshot},token).ConfigureAwait(false);
         }
 
         async Task<JsonResult<TResponse>> SendJsonAsync<TRequest,TResponse>(HttpMethod method,Uri uri,string credential,string idempotencyKey,TRequest body,CancellationToken token)
@@ -250,7 +300,7 @@ namespace PhotoBooth.Infrastructure.Services
         static T Read<T>(string value){using(var stream=new MemoryStream(Encoding.UTF8.GetBytes(value)))return (T)new DataContractJsonSerializer(typeof(T)).ReadObject(stream);}
         static string ErrorCode(string json){try{return Read<ErrorEnvelope>(json)?.Error?.Code??"remote_error";}catch{return "remote_error";}}
         static bool Retryable(HttpStatusCode status,string code){var number=(int)status;return number==408||number==425||number==429||number>=500||code=="storage_provider_not_configured"||code=="upload_reservation_expired"||code=="upload_not_writable"||code=="deliverable_not_ready";}
-        static string SafeMessage(HttpStatusCode status,string code){if(code=="event_print_quota_exceeded")return "Đã đạt giới hạn in của lượt chụp hoặc sự kiện.";if(code=="event_print_outcome_pending")return "Lượt in đang chờ xác minh. Không gửi in lại.";if(code=="event_ended"||code=="event_not_open"||code=="event_session_revoked")return "Sự kiện đã kết thúc hoặc phiên đã hết hiệu lực. Ảnh vẫn được giữ trên máy.";if(code=="device_locked")return "Thiết bị đang bị khóa tạm thời. Ảnh vẫn được giữ trên máy; chủ tài khoản cần xác minh lại trên đúng thiết bị để mở khóa.";if(code=="device_proof_required"||code=="device_proof_invalid"||code=="device_proof_replayed")return "Không thể xác minh khóa bảo mật của thiết bị. Ảnh vẫn được giữ trên máy; hãy kết nối lại thiết bị.";if(code=="subscription_required"||code=="subscription_app_access_expired")return "Gói sử dụng đã hết hạn. Ảnh vẫn được giữ trên máy nhưng không thể tải mới lên thư viện.";if(code=="account_suspended"||code=="account_locked")return "Tài khoản đang bị tạm ngưng. Ảnh vẫn được giữ an toàn trên máy.";if(code=="online_storage_unavailable")return "Gói hiện tại không bao gồm lưu trữ ảnh trực tuyến. Ảnh vẫn được giữ an toàn trên máy.";if(code=="google_drive_required"||code=="google_drive_reconnect_required")return "Nơi lưu ảnh trực tuyến cần được kết nối lại. Ảnh vẫn được giữ an toàn trên máy.";if(code=="storage_limit_reached")return "Dung lượng lưu trữ đã đầy. Ảnh vẫn được giữ trên máy; vui lòng gia hạn hoặc giải phóng dung lượng.";if(status==HttpStatusCode.Unauthorized||status==HttpStatusCode.Forbidden)return "Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.";return "Không thể tải ảnh lên thư viện lúc này. Vui lòng thử lại.";}
+        static string SafeMessage(HttpStatusCode status,string code){if(code!=null&&code.StartsWith("gallery_site_",StringComparison.Ordinal))return "Trang ảnh của lượt chụp chưa khả dụng. Ảnh được giữ trên máy; vui lòng kiểm tra trang đã được cấp và phiên đăng nhập.";if(code=="event_print_quota_exceeded")return "Đã đạt giới hạn in của lượt chụp hoặc sự kiện.";if(code=="event_print_outcome_pending")return "Lượt in đang chờ xác minh. Không gửi in lại.";if(code=="event_ended"||code=="event_not_open"||code=="event_session_revoked")return "Sự kiện đã kết thúc hoặc phiên đã hết hiệu lực. Ảnh vẫn được giữ trên máy.";if(code=="device_locked")return "Thiết bị đang bị khóa tạm thời. Ảnh vẫn được giữ trên máy; chủ tài khoản cần xác minh lại trên đúng thiết bị để mở khóa.";if(code=="device_proof_required"||code=="device_proof_invalid"||code=="device_proof_replayed")return "Không thể xác minh khóa bảo mật của thiết bị. Ảnh vẫn được giữ trên máy; hãy kết nối lại thiết bị.";if(code=="subscription_required"||code=="subscription_app_access_expired")return "Gói sử dụng đã hết hạn. Ảnh vẫn được giữ trên máy nhưng không thể tải mới lên thư viện.";if(code=="account_suspended"||code=="account_locked")return "Tài khoản đang bị tạm ngưng. Ảnh vẫn được giữ an toàn trên máy.";if(code=="online_storage_unavailable")return "Gói hiện tại không bao gồm lưu trữ ảnh trực tuyến. Ảnh vẫn được giữ an toàn trên máy.";if(code=="google_drive_required"||code=="google_drive_reconnect_required")return "Nơi lưu ảnh trực tuyến cần được kết nối lại. Ảnh vẫn được giữ an toàn trên máy.";if(code=="storage_limit_reached")return "Dung lượng lưu trữ đã đầy. Ảnh vẫn được giữ trên máy; vui lòng gia hạn hoặc giải phóng dung lượng.";if(status==HttpStatusCode.Unauthorized||status==HttpStatusCode.Forbidden)return "Phiên đăng nhập không còn hiệu lực. Vui lòng đăng nhập lại.";return "Không thể tải ảnh lên thư viện lúc này. Vui lòng thử lại.";}
         static RemoteDeliveryOperationResult Success(string reference,string replicaProvider=null)=>new RemoteDeliveryOperationResult{Succeeded=true,ExternalReference=reference,ReplicaProvider=replicaProvider};
         static RemoteDeliveryOperationResult Failure(string code,string message,bool retryable)=>new RemoteDeliveryOperationResult{Succeeded=false,Retryable=retryable,ErrorCode=code,ErrorMessage=message};
         static RemoteGalleryResult GalleryFailure(string code,string message,bool retryable)=>new RemoteGalleryResult{Succeeded=false,Retryable=retryable,ErrorCode=code,ErrorMessage=message};
@@ -261,13 +311,18 @@ namespace PhotoBooth.Infrastructure.Services
         void BlockStorage()=>Interlocked.Exchange(ref storageBlockedUntilUtcTicks,DateTime.UtcNow.AddMinutes(30).Ticks);
 
         sealed class JsonResult<T>{public RemoteDeliveryOperationResult Operation;public T Value;}
+        [DataContract] sealed class GallerySiteContextResponse
+        {
+            [DataMember(Name="snapshot")] public string Snapshot { get; set; }
+            [DataMember(Name="expiresAt")] public long ExpiresAt { get; set; }
+        }
         [DataContract] sealed class ReserveRequest{[DataMember(Name="boothSessionId")]public string BoothSessionId;[DataMember(Name="clientAssetId")]public string ClientAssetId;[DataMember(Name="capturedAt")]public long CapturedAt;[DataMember(Name="assetType")]public string AssetType;[DataMember(Name="contentType")]public string ContentType;[DataMember(Name="bytes")]public long Bytes;[DataMember(Name="sha256")]public string Sha256;}
         [DataContract] sealed class ReserveResponse{[DataMember(Name="status")]public string Status{get;set;}[DataMember(Name="uploadId")]public string UploadId{get;set;}[DataMember(Name="mediaAssetId")]public string MediaAssetId{get;set;}[DataMember(Name="replicaId")]public string ReplicaId{get;set;}[DataMember(Name="destination")]public string Destination{get;set;}[DataMember(Name="uploadUrl")]public string UploadUrl{get;set;}}
         [DataContract] sealed class CommitUploadRequest{[DataMember(Name="uploadId")]public string UploadId;[DataMember(Name="bytes")]public long Bytes;[DataMember(Name="sha256")]public string Sha256;}
         [DataContract] sealed class DeliveryGrantResponse{[DataMember(Name="token")]public string Token{get;set;}}
         [DataContract] sealed class GalleryEnvelope{[DataMember(Name="delivery")]public DeliveryGrantResponse Delivery{get;set;}[DataMember(Name="gallery")]public GalleryResponse Gallery{get;set;}}
         [DataContract] sealed class GalleryResponse{[DataMember(Name="id")]public string Id{get;set;}[DataMember(Name="url")]public string Url{get;set;}[DataMember(Name="expiresAt")]public long ExpiresAt{get;set;}[DataMember(Name="status")]public string Status{get;set;}}
-        [DataContract] sealed class OpenBoothSessionRequest{[DataMember(Name="sessionId")]public string SessionId{get;set;}[DataMember(Name="eventId",EmitDefaultValue=false)]public string EventId{get;set;}}
+        [DataContract] sealed class OpenBoothSessionRequest{[DataMember(Name="sessionId")]public string SessionId{get;set;}[DataMember(Name="eventId",EmitDefaultValue=false)]public string EventId{get;set;}[DataMember(Name="gallerySiteSnapshot",EmitDefaultValue=false)]public string GallerySiteSnapshot{get;set;}}
         [DataContract] sealed class BoothSessionResponse{[DataMember(Name="session")]public BoothSessionValue Session{get;set;}}
         [DataContract] sealed class BoothSessionValue{[DataMember(Name="id")]public string Id{get;set;}[DataMember(Name="status")]public string Status{get;set;}}
         [DataContract] sealed class StatusResponse{[DataMember(Name="status")]public string Status{get;set;}}

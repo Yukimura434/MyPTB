@@ -282,7 +282,7 @@ namespace PhotoBooth.Infrastructure.Services
             if (File.Exists(expectedPath) && FileMatchesSha256(expectedPath, remote.ContentSha256)) path = expectedPath;
             else using (var content = new MemoryStream(bytes, false)) path = await storage.SaveAsync(relative, content, token).ConfigureAwait(false);
             var slots = ReconcileFrameSlots(path, remote);
-            await frameRepository.SaveAsync(new Frame { Id = localId, Name = remote.Name ?? "Remote frame", SourcePath = path, ThumbnailPath = path, PixelWidth = remote.PixelWidth, PixelHeight = remote.PixelHeight, Slots = slots, CreatedAtUtc = DateTime.UtcNow }, token).ConfigureAwait(false);
+            await frameRepository.SaveAsync(new Frame { PrintedQr = existing?.PrintedQr?.Normalize(remote.PixelWidth,remote.PixelHeight) ?? new FrameQrSettings(), Id = localId, Name = remote.Name ?? "Remote frame", SourcePath = path, ThumbnailPath = path, PixelWidth = remote.PixelWidth, PixelHeight = remote.PixelHeight, Slots = slots, CreatedAtUtc = DateTime.UtcNow }, token).ConfigureAwait(false);
             return localId;
         }
 

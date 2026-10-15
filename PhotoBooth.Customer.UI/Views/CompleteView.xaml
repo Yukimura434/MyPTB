@@ -80,7 +80,7 @@
                         <!-- Prefer the final framed composition. If it is not
                              available yet, the animated capture preview below
                              remains visible as a graceful fallback. -->
-                        <Image Source="{Binding FinalImagePath,Converter={StaticResource CustomerPathImage},ConverterParameter=1600}"
+                        <Image controls:AsyncPhoto.Width="1600" controls:AsyncPhoto.Path="{Binding FinalImagePath}"
                                Stretch="Uniform" HorizontalAlignment="Stretch"
                                VerticalAlignment="Stretch" Panel.ZIndex="2"/>
                     </Grid>

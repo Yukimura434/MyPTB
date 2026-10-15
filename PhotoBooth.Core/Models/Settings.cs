@@ -13,6 +13,8 @@ namespace PhotoBooth.Core.Models
 
     public sealed class Settings
     {
+        public FrameQrSettings PrintedQr { get; set; } = new FrameQrSettings();
+        public string QrPreviewImagePath { get; set; }
         public Guid[] SelectedFrameCollectionIds { get; set; } = new Guid[0];
         public Guid[] SelectedPresetCollectionIds { get; set; } = new Guid[0];
         public bool BoothSettingsConfigured { get; set; }

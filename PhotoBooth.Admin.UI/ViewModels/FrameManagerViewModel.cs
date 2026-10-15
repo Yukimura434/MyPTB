@@ -71,6 +71,7 @@ namespace PhotoBooth.Admin.UI.ViewModels
             await service.ReplacePinnedAsync(BoothLibrarySelection.Frames(assets, current).Select(x => x.Id).ToArray(), CancellationToken.None);
         }
         readonly IFrameService service;
+        readonly IQrCodeService qrService;
         readonly IFrameEventService eventService;
         readonly ISettingsService settings;
         readonly IFileDialogService dialog;
@@ -84,9 +85,9 @@ namespace PhotoBooth.Admin.UI.ViewModels
         Guid? pendingSelectedFrameId;
 
         public FrameManagerViewModel(IFrameService frames, IFrameEventService events, ISettingsService st, IFileDialogService d,
-            INavigationService navigationService, FrameSlotOrderViewModel slotOrderViewModel, ILogger<FrameManagerViewModel> l, IPcSessionContext sessions)
+            INavigationService navigationService, FrameSlotOrderViewModel slotOrderViewModel, ILogger<FrameManagerViewModel> l, IPcSessionContext sessions, IQrCodeService qrService = null)
         {
-            this.sessions = sessions;
+            this.sessions = sessions; this.qrService=qrService;
             service = frames; eventService = events; settings = st; dialog = d; navigation = navigationService; slotOrder = slotOrderViewModel; log = l;
             ImportCommand = new AsyncCommand(_ => Import(), _ => IsLibraryReady); DeleteCommand = new AsyncCommand(_ => Delete(), _ => IsLibraryReady && SelectedFrame != null);
             PinCommand = new AsyncCommand(value => Pin(value as Frame ?? SelectedFrame), value => IsLibraryReady && (value is Frame || SelectedFrame != null)); RefreshCommand = new AsyncCommand(_ => Load());
@@ -128,6 +129,27 @@ namespace PhotoBooth.Admin.UI.ViewModels
         public ICommand ImportCommand { get; } public ICommand DeleteCommand { get; } public ICommand PinCommand { get; } public ICommand RefreshCommand { get; }
         public ICommand EditSlotOrderCommand { get; }
         public ICommand CreateEventCommand { get; } public ICommand RenameEventCommand { get; } public ICommand DeleteEventCommand { get; } public ICommand AssignEventCommand { get; }
+
+        public async void EditPrintedQr(System.Windows.Window owner)
+        {
+            if(!IsLibraryReady || qrService==null)return;
+            try {
+                var current=await settings.GetAsync(CancellationToken.None) ?? new Settings();
+                var latest=Frames.OrderByDescending(f=>f.CreatedAtUtc).FirstOrDefault();
+                var preview=new Frame { Name="Xem trước", PixelWidth=latest?.PixelWidth ?? 1500, PixelHeight=latest?.PixelHeight ?? 1000,
+                    SourcePath=System.IO.File.Exists(current.QrPreviewImagePath) ? current.QrPreviewImagePath : latest?.SourcePath,
+                    PrintedQr=current.PrintedQr ?? new FrameQrSettings() };
+                PhotoBooth.Admin.UI.Views.FrameQrEditorWindow editor=null;
+                editor=new PhotoBooth.Admin.UI.Views.FrameQrEditorWindow(preview,async value=>{
+                    if(!CanEditLibrary)throw new InvalidOperationException();
+                    var fresh=await settings.GetAsync(CancellationToken.None) ?? new Settings();
+                    fresh.PrintedQr=value;
+                    fresh.QrPreviewImagePath=editor.PersistPreviewImage(fresh.QrPreviewImagePath);
+                    await settings.SaveAsync(fresh,CancellationToken.None);
+                    Message="Đã lưu QR cho tất cả khung. Áp dụng từ lượt chụp tiếp theo.";
+                },qrService){Owner=owner};editor.ShowDialog();
+            } catch(Exception error) { Fail(error,"Không thể mở cài đặt QR"); }
+        }
 
         public Task RefreshAsync()
         {

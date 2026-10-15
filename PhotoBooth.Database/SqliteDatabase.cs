@@ -47,9 +47,11 @@ namespace PhotoBooth.Database
             EnsureDeviceProfileSchema();
             AdoptUnassignedLocalSessions();
             EnsureWorkflowSettings();
+            using(var connection=OpenConnection()){EnsureColumn(connection,"Frames","QrEnabled","INTEGER NOT NULL DEFAULT 0");EnsureColumn(connection,"Frames","QrX","REAL NOT NULL DEFAULT 0.8");EnsureColumn(connection,"Frames","QrY","REAL NOT NULL DEFAULT 0.8");EnsureColumn(connection,"Frames","QrSize","REAL NOT NULL DEFAULT 0.1");}
             using(var connection=OpenConnection())EnsureColumn(connection,"PrinterProfiles","MediaType","TEXT");
             using(var connection=OpenConnection())EnsureColumn(connection,"OutputJobs","AuthorizationScope","TEXT");
             using (var connection = OpenConnection()) EnsureColumn(connection, "BoothSessions", "RemoteEventId", "TEXT");
+            using (var connection = OpenConnection()) EnsureColumn(connection, "BoothSessions", "GallerySiteSnapshot", "TEXT");
         }
         void EnsureEventFrameSelectionSchema()
         {
@@ -297,6 +299,11 @@ CREATE INDEX IF NOT EXISTS IX_Events_Lifecycle_Updated ON Events(LifecycleState,
             using(var connection=OpenConnection())EnsureColumn(connection,"WorkflowSettings","PreferredCameraId","TEXT");
             using (var connection = OpenConnection())
             {
+                EnsureColumn(connection, "WorkflowSettings", "PrintedQrEnabled", "INTEGER NOT NULL DEFAULT 0");
+                EnsureColumn(connection, "WorkflowSettings", "PrintedQrX", "REAL NOT NULL DEFAULT 0.8");
+                EnsureColumn(connection, "WorkflowSettings", "PrintedQrY", "REAL NOT NULL DEFAULT 0.8");
+                EnsureColumn(connection, "WorkflowSettings", "PrintedQrSize", "REAL NOT NULL DEFAULT 0.1");
+                EnsureColumn(connection, "WorkflowSettings", "QrPreviewImagePath", "TEXT");
                 EnsureColumn(connection, "WorkflowSettings", "SelectedFrameCollections", "TEXT NOT NULL DEFAULT ''");
                 EnsureColumn(connection, "WorkflowSettings", "SelectedPresetCollections", "TEXT NOT NULL DEFAULT ''");
                 EnsureColumn(connection, "WorkflowSettings", "BoothSettingsConfigured", "INTEGER NOT NULL DEFAULT 0");

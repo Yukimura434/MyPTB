@@ -36,6 +36,8 @@ namespace PhotoBooth.Admin.UI.Views
             SetValue(FrameThumbnailWidthProperty, System.Math.Min(width - 26, (thumbnailHeight - 14) * 2 / 3 + 14));
         }
 
+        void PrintedQr_Click(object sender,RoutedEventArgs e) { (DataContext as FrameManagerViewModel)?.EditPrintedQr(Window.GetWindow(this)); }
+
         void Collections_Click(object sender, RoutedEventArgs e)
         {
             if (!(DataContext is FrameManagerViewModel model)) return;

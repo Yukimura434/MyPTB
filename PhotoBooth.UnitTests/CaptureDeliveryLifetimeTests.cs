@@ -29,6 +29,7 @@ INSERT INTO DeliverableAssets(DeliverableId,MediaAssetId,Role,Position) VALUES($
   }
  }}
  sealed class LifetimeClient:IRemoteMediaDeliveryClient {
+  public Task<string> FreezeGallerySiteAsync(string e,CancellationToken t)=>Task.FromResult("test-context");
   public readonly TaskCompletionSource<bool> Started=new TaskCompletionSource<bool>(),Release=new TaskCompletionSource<bool>();public readonly List<string> Tokens=new List<string>();
   static RemoteGalleryResult Ready()=>new RemoteGalleryResult{Succeeded=true,GalleryUrl=new Uri("https://example.test/g/fixture"),ExpiresAtUtc=DateTime.UtcNow.AddDays(1),DeliveryToken="du3.synthetic.delivery"};
   public Task<RemoteGalleryResult> PrepareGalleryAsync(Guid s,string d,CancellationToken t)=>Task.FromResult(Ready());

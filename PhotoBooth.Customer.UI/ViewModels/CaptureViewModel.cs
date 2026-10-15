@@ -37,6 +37,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly IBeautySettingsService beautySettings;
         readonly ICaptureFocusService captureFocus;
         readonly IColorLutParser liveColorParser;
+        readonly IRemoteMediaDeliveryClient remoteDelivery;
         PhotoBooth.Color.D3D11.LivePreviewLut livePreset;
         int livePresetRevision;
         public PhotoBooth.Color.D3D11.LivePreviewLut LivePreset { get => livePreset; private set => Set(ref livePreset, value); }
@@ -123,10 +124,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         public CaptureViewModel(CustomerWorkflowStateMachine m, CustomerWorkflowContext ctx, ICameraService c,
             ILiveViewService l, ISettingsService st, IEventService eventService, IBoothSessionService ss, IPresetService ps,
-            ICapturePipeline pipeline, IVideoService videoService, ILiveBeautyPreviewPipeline liveBeautyPreview, IBeautySettingsService beautySettingsService, ICaptureFocusService captureFocusService, ILogger<CaptureViewModel> logger, IBoothAccessService boothAccessService, IColorLutParser liveColorParser = null)
+            ICapturePipeline pipeline, IVideoService videoService, ILiveBeautyPreviewPipeline liveBeautyPreview, IBeautySettingsService beautySettingsService, ICaptureFocusService captureFocusService, ILogger<CaptureViewModel> logger, IBoothAccessService boothAccessService, IColorLutParser liveColorParser = null, IRemoteMediaDeliveryClient remoteDelivery = null)
         {
             boothAccess = boothAccessService;
             this.liveColorParser = liveColorParser;
+            this.remoteDelivery = remoteDelivery;
             machine = m; context = ctx; cameras = c; live = l; settings = st; events=eventService; sessions = ss;
             presets = ps; capturePipeline = pipeline; videos = videoService; liveBeauty=liveBeautyPreview; beautySettings=beautySettingsService; captureFocus=captureFocusService; log = logger;
             liveBeauty.FrameReady += OnLiveBeautyFrameReady;
@@ -369,7 +371,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
             if (!CameraConnected) { ErrorMessage = "Mất kết nối máy ảnh. Vui lòng gọi nhân viên."; return; }
             var cameraId = context.Camera?.Id;
             if (string.IsNullOrEmpty(cameraId)) { ErrorMessage = "Mất kết nối máy ảnh. Vui lòng gọi nhân viên."; return; }
-            PlayClock();
             workflowCts?.Cancel(); workflowCts?.Dispose(); workflowCts = new CancellationTokenSource();
             var token = workflowCts.Token;
             try
@@ -381,7 +382,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 {
                     token.ThrowIfCancellationRequested();
                     CurrentPhoto = i;
-                    await RunCountdownAndSmileAsync(cameraId, context.Settings.CountdownSeconds, token, i == 1);
+                    await RunCountdownAndSmileAsync(cameraId, context.Settings.CountdownSeconds, token);
                     log.LogInformation("Physical capture and shutter effect starting {Current}/{Total}", i, TotalPhotos);
                     var pending = await CapturePendingWithShutterAsync(context.BoothSession.Id, cameraId, null, token);
                     log.LogInformation("Physical capture completed {Current}/{Total}", i, TotalPhotos);
@@ -491,6 +492,8 @@ namespace PhotoBooth.Customer.UI.ViewModels
             var selectedEvent = context.EventSnapshot ?? await events.GetDefaultAsync(token);
             context.BoothSession = await sessions.StartAsync(selectedEvent.Id, context.DefaultPreset?.Id, token);
             context.BoothSession.RemoteEventId = context.Authorization?.EventId;
+            context.BoothSession.GallerySiteSnapshot = remoteDelivery == null ? string.Empty :
+                await remoteDelivery.FreezeGallerySiteAsync(context.BoothSession.RemoteEventId, token);
             context.DeliverableId = null;
             context.CurrentShots.Clear();
             context.PendingCaptures.Clear();
@@ -593,10 +596,15 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 await task;
             }
         }
-        async Task RunCountdownAndSmileAsync(string cameraId, int seconds, CancellationToken token, bool clockAlreadyPlaying = false)
+        async Task RunCountdownAndSmileAsync(string cameraId, int seconds, CancellationToken token)
         {
             machine.MoveTo(CustomerWorkflowState.Countdown);
-            if (!clockAlreadyPlaying) PlayClock();
+            CountdownNumber = Math.Max(1, seconds);
+            // Let bindings/layout/render process the first number before starting audio.
+            if (System.Windows.Application.Current?.Dispatcher != null)
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            token.ThrowIfCancellationRequested();
+            PlayClock();
             try { for (var value = Math.Max(1, seconds); value >= 1; value--) { CountdownNumber = value; await Task.Delay(1000, token); } }
             finally { ReleaseClock(); }
             machine.MoveTo(CustomerWorkflowState.Smile); StatusMessage = "Cười lên nào!";
@@ -716,7 +724,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                         using(var process=Process.GetCurrentProcess())log.LogInformation("Customer Live View metrics {Seconds:F1}s: requests {RequestFps:F1} fps, unique/acquired {AcquiredFps:F1} fps, preview-output {OutputFps:F1} fps, fetch avg {FetchMs:F2} ms, beauty avg {BeautyMs:F2} ms ({BeautyFrames} frames), video-buffer avg {VideoMs:F3} ms, duplicates {Duplicates}, empty {Empty}, managed {ManagedMb:F1} MB, private {PrivateMb:F1} MB",seconds,requests/seconds,uniqueFrames/seconds,outputFrames/seconds,AverageMilliseconds(fetchTicks,requests),AverageMilliseconds(beautyTicks,beautyFrames),beautyFrames,AverageMilliseconds(videoTicks,outputFrames),duplicateFrames,emptyFrames,GC.GetTotalMemory(false)/1048576d,process.PrivateMemorySize64/1048576d);
                         metrics.Restart();requests=uniqueFrames=duplicateFrames=emptyFrames=0;fetchTicks=0;
                     }
-                    if(!submitted)await Task.Delay(1,token);
+                    await Task.Delay(submitted ? 15 : 8, token);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception e) { log.LogWarning(e, "Live View unavailable; retrying"); try { await Task.Delay(500, token); } catch (OperationCanceledException) { break; } }
@@ -883,3 +891,4 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public bool IsRetakeSelected { get => selected; set { if (Set(ref selected, value)) changed?.Invoke(); } }
     }
 }
+

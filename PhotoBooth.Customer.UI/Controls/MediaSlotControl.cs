@@ -55,8 +55,10 @@ namespace PhotoBooth.Customer.UI.Controls
         static void SourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) => ((MediaSlotControl)d).LoadSource();
         static void TransformChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) => ((MediaSlotControl)d).Render();
 
-        void LoadSource()
+        int sourceVersion;
+        async void LoadSource()
         {
+            var version = ++sourceVersion;
             Children.Clear(); video.Stop(); image.Source = null; video.Source = null; naturalWidth = naturalHeight = 0;
             media = IsVideo ? (FrameworkElement)video : image; Children.Add(media);
             if (string.IsNullOrWhiteSpace(SourcePath)) return;
@@ -66,20 +68,15 @@ namespace PhotoBooth.Customer.UI.Controls
                 if (IsVideo) { video.Source = uri; if (IsLoaded) video.Play(); }
                 else
                 {
-                    var bitmap = new BitmapImage();
-                    using (var stream = new FileStream(SourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                    {
-                        bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                        // This is an interactive screen preview. Keeping one full camera image
-                        // per frame slot exhausts the x86 address space after repeated sessions.
-                        // The original file remains untouched and final composition still uses it.
-                        bitmap.DecodePixelWidth = 1280;
-                        bitmap.StreamSource = stream; bitmap.EndInit(); bitmap.Freeze();
-                    }
-                    image.Source = bitmap; naturalWidth = bitmap.PixelWidth; naturalHeight = bitmap.PixelHeight; Render();
+                    var bitmap = await AsyncPhoto.LoadAsync(SourcePath,1280);
+                    if (Dispatcher.HasShutdownStarted) return;
+                    await Dispatcher.InvokeAsync(() => {
+                        if (version != sourceVersion || bitmap == null) return;
+                        image.Source = bitmap; naturalWidth = bitmap.PixelWidth; naturalHeight = bitmap.PixelHeight; Render();
+                    });
                 }
             }
-            catch { naturalWidth = naturalHeight = 0; }
+            catch { if (Dispatcher.CheckAccess() && version == sourceVersion) naturalWidth = naturalHeight = 0; }
         }
 
         void Down(object sender, MouseButtonEventArgs e)

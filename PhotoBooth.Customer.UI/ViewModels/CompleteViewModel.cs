@@ -181,6 +181,21 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     return;
                 }
 
+                if (!string.Equals(shareMode, ShareDeliveryModes.LanOnly, StringComparison.Ordinal))
+                {
+                    var prepared = await remoteDelivery.PrepareGalleryAsync(session.Id, deliverableId, CancellationToken.None);
+                    if (prepared.Succeeded && prepared.GalleryUrl != null)
+                    {
+                        remoteGalleryUrl = prepared.GalleryUrl;
+                        await deliverables.UpdateSharePathAsync(deliverableId, prepared.GalleryUrl.AbsoluteUri, CancellationToken.None);
+                        var source=await qr.GeneratePngAsync(prepared.GalleryUrl,360,CancellationToken.None);
+                        if (IsCurrentShare(generation)) { DownloadUrl=prepared.GalleryUrl.AbsoluteUri; QrSource=source; StatusText="Quét mã để nhận ảnh. Ảnh đang được tải lên và sẽ tự cập nhật."; StartCountdown(); }
+                    }
+                    else if (IsCurrentShare(generation))
+                        StatusText="Ảnh đã được lưu trên máy. Ứng dụng sẽ thử tải lại khi có kết nối.";
+                }
+
+
                 // The deliverable record is the source of truth for one booth turn.
                 // Frame composition may use fewer slots, but the GIF must retain
                 // every final per-shot Picture captured in that turn, in position
@@ -209,19 +224,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
                 await integrity.ValidateAsync(deliverable, CancellationToken.None);
 
-                if (!string.Equals(shareMode, ShareDeliveryModes.LanOnly, StringComparison.Ordinal))
-                {
-                    var prepared = await remoteDelivery.PrepareGalleryAsync(session.Id, deliverableId, CancellationToken.None);
-                    if (prepared.Succeeded && prepared.GalleryUrl != null)
-                    {
-                        remoteGalleryUrl = prepared.GalleryUrl;
-                        await deliverables.UpdateSharePathAsync(deliverableId, prepared.GalleryUrl.AbsoluteUri, CancellationToken.None);
-                        var source=await qr.GeneratePngAsync(prepared.GalleryUrl,360,CancellationToken.None);
-                        if (IsCurrentShare(generation)) { DownloadUrl=prepared.GalleryUrl.AbsoluteUri; QrSource=source; StatusText="Quét mã để nhận ảnh. Ảnh đang được tải lên và sẽ tự cập nhật."; StartCountdown(); }
-                    }
-                    else if (IsCurrentShare(generation))
-                        StatusText="Ảnh đã được lưu trên máy. Ứng dụng sẽ thử tải lại khi có kết nối.";
-                }
 
                 if (!string.Equals(shareMode, ShareDeliveryModes.LanOnly, StringComparison.Ordinal)) try
                 {

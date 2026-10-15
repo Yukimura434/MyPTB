@@ -366,7 +366,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             try
             {
                 Directory.CreateDirectory(snapshotDirectory);
-                var frameSnapshots = SnapshotFrames(runFrames, snapshotDirectory);
+                var frameSnapshots = await System.Threading.Tasks.Task.Run(() => SnapshotFrames(runFrames, snapshotDirectory, context.Settings.PrintedQr));
                 var lutFiles = new Dictionary<Guid, string>();
                 foreach (var preset in runPresets.Concat(context.LiveViewPreset == null ? new Preset[0] : new[] { context.LiveViewPreset }).GroupBy(x => x.LutAssetId).Select(x => x.First()))
                 {
@@ -377,7 +377,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                         if (asset == null) throw new InvalidOperationException("Một preset của sự kiện chưa sẵn sàng.");
                         var source = storage.GetFullPath(asset.RelativePath);
                         var destination = Path.Combine(snapshotDirectory, asset.Id.ToString("N") + Path.GetExtension(source));
-                        File.Copy(source, destination, true);
+                        await System.Threading.Tasks.Task.Run(() => File.Copy(source, destination, true));
                         lutFiles[asset.Id] = destination;
                     }
                     catch (Exception error) when (previewOnly &&
@@ -415,7 +415,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
             return list.FirstOrDefault(value => value.IsDefault);
         }
 
-        static IReadOnlyList<PhotoBooth.Core.Models.Frame> SnapshotFrames(IEnumerable<PhotoBooth.Core.Models.Frame> values, string directory)
+        static IReadOnlyList<PhotoBooth.Core.Models.Frame> SnapshotFrames(IEnumerable<PhotoBooth.Core.Models.Frame> values, string directory, PhotoBooth.Core.Models.FrameQrSettings sharedQr)
         {
             var result = new List<PhotoBooth.Core.Models.Frame>();
             foreach (var value in values)
@@ -430,7 +430,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
                 result.Add(new PhotoBooth.Core.Models.Frame
                 {
                     Id = value.Id, Name = value.Name, SourcePath = sourcePath, ThumbnailPath = sourcePath,
-                    PixelWidth = value.PixelWidth, PixelHeight = value.PixelHeight, IsPinned = true,
+                    PrintedQr = (sharedQr ?? new PhotoBooth.Core.Models.FrameQrSettings()).Normalize(value.PixelWidth,value.PixelHeight), PixelWidth = value.PixelWidth, PixelHeight = value.PixelHeight, IsPinned = true,
                     EventId = value.EventId, CreatedAtUtc = value.CreatedAtUtc,
                     Slots = value.Slots.Select(slot => new PhotoBooth.Core.Models.FrameSlot
                     {

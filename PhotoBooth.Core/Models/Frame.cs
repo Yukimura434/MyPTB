@@ -5,6 +5,7 @@ namespace PhotoBooth.Core.Models
 {
     public sealed class Frame
     {
+        public FrameQrSettings PrintedQr { get; set; } = new FrameQrSettings();
         public Guid Id { get; set; }
         public string Name { get; set; }
         public string SourcePath { get; set; }

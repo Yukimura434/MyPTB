@@ -97,6 +97,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
         readonly IVideoService videos;
         readonly ILogger<FrameSelectionViewModel> log;
         readonly IFeatureFlagService features;
+        readonly IRemoteMediaDeliveryClient qrDelivery; readonly IPrintedQrService printedQr;
         readonly SemaphoreSlim composeGate = new SemaphoreSlim(1, 1);
         readonly AsyncCommand printCommand;
         readonly IEventPrintAuthorizationService eventPrinting;
@@ -185,12 +186,11 @@ namespace PhotoBooth.Customer.UI.ViewModels
             IPresetService p, IPrinterService printer, IImageCompositionService compose, IPresetProcessor processor,
             IStorageManager storageManager, IBoothSessionService session, IDeliverableService deliverableService,
             IGifAnimationService gifService, IPrintPipeline pipeline, IVideoService videoService, IFeatureFlagService featureFlags,
-            IColorLutService colorLutService, ILogger<FrameSelectionViewModel> logger, IEventPrintAuthorizationService eventPrintAuthorization = null)
+            IColorLutService colorLutService, ILogger<FrameSelectionViewModel> logger, IEventPrintAuthorizationService eventPrintAuthorization = null, IRemoteMediaDeliveryClient qrDeliveryClient = null, IPrintedQrService printedQrService = null)
         {
             machine = m; context = c; frames = f; presets = p; printers = printer; composer = compose;
-            eventPrinting = eventPrintAuthorization;
+            eventPrinting = eventPrintAuthorization; qrDelivery=qrDeliveryClient; printedQr=printedQrService;
             presetProcessor = processor; sessions = session; deliverables = deliverableService; printPipeline = pipeline; videos = videoService; features = featureFlags; colorLuts=colorLutService; log = logger;
-            CancelCommand = new RelayCommand(BackToPreview);
             printCommand = new AsyncCommand(() => { skipPrinting = false; return RunFinishTracked(); }, () => CanSubmitPrint);
             RefreshEventQuotaCommand = new AsyncCommand(async () => { await RefreshEventPrintQuotaAsync(); }, () => !quotaBusy && !IsPrinting);
             PrintCommand = printCommand;
@@ -276,7 +276,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         public bool CanFinish => FrameSlots.Count > 0 && FrameSlots.All(x => x.Photo != null);
         public string AssignmentStatus => FrameSlots.Count == 0 ? string.Empty : FrameSlots.Count(x => x.Photo != null) + " / " + FrameSlots.Count + " ô đã có ảnh";
         public string Guidance => SelectedSlot == null ? "Chọn một ô trên frame" : SelectedPhoto == null ? "Đã chọn ô " + SelectedSlot.Number + " — hãy chọn ảnh bên phải" : "Ảnh " + SelectedPhoto.Number + " đang được chọn — chạm ô để đặt ảnh";
-        public ICommand CancelCommand { get; }
         public ICommand PrintCommand { get; }
         public ICommand SkipPrintCommand { get; }
         public ICommand RetryCommand { get; }
@@ -393,14 +392,6 @@ namespace PhotoBooth.Customer.UI.ViewModels
         {
             if (SelectedSlot == null || IsPrinting || IsPresetBusy) return;
             SelectedSlot.Photo = null; NotifyAssignmentsChanged(); QueuePreview();
-        }
-
-        void BackToPreview()
-        {
-            if (IsPrinting || IsPresetBusy) return;
-            CancelStagedPresetPreview();CancelPresetBackgroundWork();
-            lock (previewCancellationSync) previewCancellation?.Cancel();
-            machine.MoveTo(CustomerWorkflowState.Preview);
         }
 
         void UpdateSelectionState()
@@ -663,6 +654,13 @@ namespace PhotoBooth.Customer.UI.ViewModels
                     await presetProcessor.ProcessAsync(composed, context.DefaultPreset, temp, token);
                     await Task.Run(() => { File.Copy(temp, composed, true); File.Delete(temp); }, token);
                 }
+                if (final && SelectedFrame.PrintedQr?.Enabled == true)
+                {
+                    if(qrDelivery==null||printedQr==null)throw new InvalidOperationException("Chưa thể tạo QR trên ảnh.");
+                    var prepared=await qrDelivery.PrepareGalleryAsync(context.BoothSession.Id,"print-qr:"+context.BoothSession.Id.ToString("N"),token);
+                    if(!prepared.Succeeded)throw new InvalidOperationException("Chưa tạo được mã nhận ảnh. Kiểm tra kết nối rồi thử lại.");
+                    await printedQr.StampAsync(composed,SelectedFrame.PrintedQr,prepared.GalleryUrl?.AbsoluteUri,token);
+                }
                 if (!final)
                 {
                     var oldPreview = PreviewPath; PreviewPath = composed;
@@ -692,7 +690,7 @@ namespace PhotoBooth.Customer.UI.ViewModels
 
         Frame FrameWithTransforms() => new Frame { Id=SelectedFrame.Id, Name=SelectedFrame.Name, SourcePath=SelectedFrame.SourcePath,
             ThumbnailPath=SelectedFrame.ThumbnailPath, PixelWidth=SelectedFrame.PixelWidth, PixelHeight=SelectedFrame.PixelHeight,
-            IsPinned=SelectedFrame.IsPinned, CreatedAtUtc=SelectedFrame.CreatedAtUtc, EventId=SelectedFrame.EventId,
+            PrintedQr=SelectedFrame.PrintedQr?.Normalize(SelectedFrame.PixelWidth,SelectedFrame.PixelHeight), IsPinned=SelectedFrame.IsPinned, CreatedAtUtc=SelectedFrame.CreatedAtUtc, EventId=SelectedFrame.EventId,
             Slots=FrameSlots.Select(x=>x.Slot).ToList() };
 
         string GetLutSnapshot(Preset preset)

@@ -40,7 +40,7 @@
                 <Image Panel.ZIndex="1"
                        Canvas.Left="{Binding BackgroundCanvasX}" Canvas.Top="{Binding BackgroundCanvasY}"
                        Width="{Binding BackgroundDisplayWidth}" Height="{Binding BackgroundDisplayHeight}"
-                       Source="{Binding BackgroundPath}" Stretch="UniformToFill"/>
+                       controls:AsyncPhoto.Width="1920" controls:AsyncPhoto.Path="{Binding BackgroundPath}" Stretch="UniformToFill"/>
                 <controls:AnimatedImage Panel.ZIndex="2"
                        Canvas.Left="{Binding BackgroundCanvasX}" Canvas.Top="{Binding BackgroundCanvasY}"
                        Width="{Binding BackgroundDisplayWidth}" Height="{Binding BackgroundDisplayHeight}"

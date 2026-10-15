@@ -216,6 +216,13 @@ namespace PhotoBooth.Infrastructure.Services
         {
             for(var index=wake.CurrentCount;index<UploadWorkerCount;index++)try{wake.Release();}catch(SemaphoreFullException){break;}
         }
-        public void Dispose(){try{cancellation?.Cancel();runner?.GetAwaiter().GetResult();}catch{}cancellation?.Dispose();wake.Dispose();}
+        public void Dispose()
+        {
+            Task pending; CancellationTokenSource stopped;
+            lock(sync) { pending=runner; stopped=cancellation; }
+            try { stopped?.Cancel(); } catch(ObjectDisposedException) { }
+            if(pending == null || pending.IsCompleted) { stopped?.Dispose(); wake.Dispose(); }
+            else pending.ContinueWith(completed => { var observed=completed.Exception; stopped?.Dispose(); wake.Dispose(); }, TaskScheduler.Default);
+        }
     }
 }

@@ -85,6 +85,8 @@ namespace PhotoBooth.Infrastructure
             services.AddSingleton<ILiveViewService, LiveViewService>();
             services.AddSingleton<IVideoService, VideoService>();
             services.AddSingleton<IFrameService, FrameService>();
+            services.AddSingleton<IFrameQrSettingsService>(sp => (IFrameQrSettingsService)sp.GetRequiredService<IFrameService>());
+            services.AddSingleton<IPrintedQrService, PrintedQrService>();
             services.AddSingleton<IFrameEventService, FrameEventService>();
             services.AddSingleton<IPresetEventService, PresetEventService>();
             services.AddSingleton<IPresetService, PresetService>();

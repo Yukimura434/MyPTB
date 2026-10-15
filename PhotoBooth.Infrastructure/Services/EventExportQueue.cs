@@ -141,6 +141,13 @@ namespace PhotoBooth.Infrastructure.Services
         }
         static string SanitizeFolderName(string value){foreach(var character in Path.GetInvalidFileNameChars())value=value.Replace(character,'-');value=value.Trim().TrimEnd('.');return string.IsNullOrWhiteSpace(value)?Guid.NewGuid().ToString("N"):value;}
         void Signal(){if(wake.CurrentCount==0)try{wake.Release();}catch(SemaphoreFullException){}}
-        public void Dispose(){try{cancellation?.Cancel();runner?.GetAwaiter().GetResult();}catch{}cancellation?.Dispose();wake.Dispose();}
+        public void Dispose()
+        {
+            Task pending; CancellationTokenSource stopped;
+            lock(sync) { pending=runner; stopped=cancellation; }
+            try { stopped?.Cancel(); } catch(ObjectDisposedException) { }
+            if(pending == null || pending.IsCompleted) { stopped?.Dispose(); wake.Dispose(); }
+            else pending.ContinueWith(completed => { var observed=completed.Exception; stopped?.Dispose(); wake.Dispose(); }, TaskScheduler.Default);
+        }
     }
 }
